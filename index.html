@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Harvest Valley</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #2a3322; }
+    #game { position: fixed; inset: 0; display: block; }
+    #ui { position: fixed; inset: 0; pointer-events: none; font-family: 'Segoe UI', system-ui, sans-serif; color: #2e2a24; }
+    #ui > * { pointer-events: auto; }
+    #boot-msg { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); color: #f3ead6;
+      font: 18px Georgia, serif; background: rgba(40,34,28,.85); padding: 14px 22px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="ui"></div>
+  <div id="boot-msg">Loading the valley…</div>
+  <script type="module" src="src/core/boot.js"></script>
+</body>
+</html>

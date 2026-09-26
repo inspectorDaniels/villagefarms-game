@@ -1,0 +1,141 @@
+{
+  "updated": "2026-09-26",
+  "iteration": 0,
+  "passRule": "score>=7 && 0 console/page errors && 0 contract issues && within perf budget",
+  "modules": {
+    "terrain": {
+      "wave": 1,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "environment": {
+      "wave": 1,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "roads": {
+      "wave": 1,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "simulation": {
+      "wave": 1,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "ui": {
+      "wave": 1,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "audio": {
+      "wave": 1,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "effects": {
+      "wave": 1,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "crops": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "buildings": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "props": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "vehicles": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "characters": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "animals": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "traffic": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "buildtools": {
+      "wave": 2,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    },
+    "demo": {
+      "wave": 3,
+      "status": "pending",
+      "score": null,
+      "pass": false,
+      "rounds": [],
+      "openIssues": []
+    }
+  },
+  "game": {
+    "score": null,
+    "rounds": [],
+    "openIssues": []
+  },
+  "log": []
+}
