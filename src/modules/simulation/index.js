@@ -1,7 +1,86 @@
-// STUB � to be replaced by the simulation builder.
+// simulation — economy (money, ledger, market, loans, catalog, workers), land parcels, contract jobs.
+// Pure logic lives in sim.js/economy.js/market.js/land.js/jobs.js; this file wires it to ctx.
+import { createSim } from './sim.js';
+import { YEAR_DAYS } from './data.js';
+import { presets, fastForwardShowcase, createShowcaseView } from './showcase.js';
+
 export const manifest = {
-  id: 'simulation', wave: 1, deps: [], optionalDeps: [], namespaces: ['economy', 'land', 'jobs'],
-  api: [], emits: [], listens: [],
+  id: 'simulation',
+  wave: 1,
+  deps: [],
+  optionalDeps: ['environment'],
+  namespaces: ['economy', 'land', 'jobs'],
+  api: [
+    // money
+    'money', 'canAfford', 'charge', 'credit', 'ledger', 'summary',
+    // market
+    'price', 'priceHistory', 'sell', 'buy', 'defineSellPoint', 'sellPoints', 'yieldTable', 'inputCost', 'buyInputs',
+    // inventory
+    'inventory', 'addInventory', 'removeInventory', 'setCapacity', 'storageRoom',
+    // catalog & assets
+    'registerCatalogItem', 'catalog', 'purchase', 'lease', 'assets', 'releaseAsset',
+    // loans
+    'takeLoan', 'repayLoan', 'loans', 'creditLimit',
+    // land
+    'defineParcel', 'parcels', 'parcel', 'parcelAt', 'buyParcel', 'rentParcel', 'endLease', 'sellParcel', 'canUse',
+    // jobs
+    'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation',
+    // workers
+    'hireWorker', 'fireWorker', 'workers',
+    // time helper
+    'today',
+  ],
+  emits: ['economy:transaction', 'economy:price-changed', 'economy:bankrupt-warning', 'land:parcel-changed',
+    'jobs:offered', 'jobs:accepted', 'jobs:completed', 'jobs:failed'],
+  listens: ['clock:day'],
 };
-export async function init(ctx) { return { api: {} }; }
-export const showcase = { deps: [], presets: { default: { camera: { x: 64, y: 64, zoom: 16 }, time: '10:00' } }, async stage(ctx) {} };
+
+const INSTANCES = new WeakMap(); // ctx → { sim, view }
+
+export async function init(ctx) {
+  const sim = createSim(ctx.world, {
+    rngFor: (name) => ctx.rng(name),
+    emit: (type, payload) => ctx.events.emit(type, payload),
+    clockT: () => ctx.clock.t,
+  });
+  sim.reset(sim.today(), { historyDays: YEAR_DAYS });
+  const inst = { sim, view: null };
+  INSTANCES.set(ctx, inst);
+
+  const catchUp = () => { if (sim.today() !== ctx.world.economy.lastDay) sim.catchUp(sim.today()); };
+  ctx.events.on('clock:day', catchUp);
+
+  const api = { ...sim.api, today: () => sim.today() };
+  return {
+    api,
+    update() { catchUp(); },
+    save() {
+      const w = ctx.world;
+      return JSON.parse(JSON.stringify({ economy: w.economy, land: w.land, jobs: w.jobs, tOffset: sim.tOffset }));
+    },
+    load(d) {
+      if (!d || !d.economy) return;
+      for (const ns of ['economy', 'land', 'jobs']) {
+        const tgt = ctx.world[ns];
+        for (const k of Object.keys(tgt)) delete tgt[k];
+        Object.assign(tgt, d[ns] || {});
+      }
+      sim.tOffset = d.tOffset || 0;
+      ctx.world.economy.version = (ctx.world.economy.version || 0) + 1;
+    },
+  };
+}
+
+export const showcase = {
+  deps: [],
+  presets,
+  async stage(ctx, presetName) {
+    const inst = INSTANCES.get(ctx);
+    if (!inst) return;
+    fastForwardShowcase(ctx, inst.sim);
+    inst.view = createShowcaseView(ctx, inst.sim);
+    inst.view.setPreset(presetName);
+    ctx.renderer.addLayer('screen', (g) => inst.view.drawLayer(g), -10);
+    inst.view.prewarm();
+  },
+};
