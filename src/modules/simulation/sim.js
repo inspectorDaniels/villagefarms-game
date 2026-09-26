@@ -41,11 +41,14 @@ export function createSim(world, env) {
   /** run the daily processing for day `day` (absolute day index) */
   sim.processDay = (day) => {
     const E = world.economy;
+    const prevT = sim.virtualT;
+    if (prevT == null && day !== sim.today()) sim.virtualT = day * DAY_SECONDS + 60; // stamp catch-up days correctly
     sim.market.stepMarket(day);
     sim.land.landDay(day);
     sim.economy.economyDay(day);
     sim.jobs.jobsDay(day);
     E.lastDay = day;
+    sim.virtualT = prevT;
     sim.emit('economy:price-changed', { day, prices: { ...E.prices } });
   };
 

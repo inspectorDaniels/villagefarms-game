@@ -101,7 +101,7 @@ export function bufSrc(ac, buf, t, dur, { loop = false, rate = 1, offset = 0 } =
 export function osc(ac, type, f, t, dur) {
   const o = ac.createOscillator();
   if (typeof type === 'string') o.type = type; else o.setPeriodicWave(type);
-  o.frequency.value = f;
+  o.frequency.value = Math.min(f, ac.sampleRate * 0.45);
   o.start(t);
   if (dur != null) o.stop(t + dur);
   return o;

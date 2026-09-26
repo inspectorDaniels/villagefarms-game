@@ -54,8 +54,8 @@ export function buildDecals(D, rngBase, noise) {
       const laneC = ch.spec.lanes >= 2 ? [-hw / 2, hw / 2] : [0];
       for (const lc of laneC) {
         for (let s = 0; s < L; s += 4) {
-          const s1 = Math.min(L, s + 4.5);
-          const nv = (noise.at(s * 0.08 + seed, lc) + 1) / 2;
+          const s1 = Math.min(L, s + 4);
+          const nv = 0.35 + 0.3 * (noise.at(s * 0.08 + seed, lc) + 1) / 2;
           const wob = (q) => 0.12 * noise.at(q * 0.05 + seed, lc + 9);
           const base = ch.cls === 'regional' ? 0.13 : 0.08;
           band((q) => lc - 0.85 + wob(q), s, s1, 0.55, '#8b8982', base * (0.4 + nv), false);
@@ -75,7 +75,13 @@ export function buildDecals(D, rngBase, noise) {
         l0 = Math.max(-hw - 0.2, l0); l1 = Math.min(hw + 0.2, l1);
         const len2 = r < 0.2 && ch.cls === 'village' ? rng.range(0.7, 1.1) : len;
         const sk = rng.range(-0.25, 0.25);
-        const poly = [at(s, l0), at(s + len2, l0 + sk * 0.3), at(s + len2 + sk, l1), at(s + sk * 0.5, l1)].map((p) => [p[0], p[1]]);
+        const corners = [[s, l0], [s + len2, l0 + sk * 0.3], [s + len2 + sk, l1], [s + sk * 0.5, l1]];
+        const poly = [];
+        for (let k = 0; k < 4; k++) {
+          const A = corners[k], B = corners[(k + 1) % 4];
+          for (let t = 0; t < 1; t += 0.34) poly.push(at(A[0] + (B[0] - A[0]) * t + rng.range(-0.06, 0.06), A[1] + (B[1] - A[1]) * t + rng.range(-0.06, 0.06)));
+        }
+        for (const q of poly) q.length = 2;
         dec.push({ k: 'patch', poly, bbox: bboxOf(poly, 0.2), old: rng.chance(0.3) });
       }
       // cracks: longitudinal near edges + transverse
@@ -92,7 +98,7 @@ export function buildDecals(D, rngBase, noise) {
         const pts = [];
         let q = s;
         const a = rng.range(-hw * 0.95, 0), b = rng.range(0, hw * 0.95);
-        for (let lat = a; lat < b; lat += rng.range(0.2, 0.5)) { q += rng.range(-0.08, 0.08); const p = at(q, lat); pts.push([p[0], p[1]]); }
+        for (let lat = a; lat < b; lat += rng.range(0.12, 0.35)) { q += rng.range(-0.16, 0.16); const p = at(q, lat); pts.push([p[0], p[1]]); }
         if (pts.length > 1) dec.push({ k: 'crack', pts, sealed: rng.chance(0.6), bbox: bboxOf(pts, 0.2), fine: true });
       }
       // alligator cracking clusters near the edge (regional)
@@ -117,11 +123,11 @@ export function buildDecals(D, rngBase, noise) {
       }
     } else if (ch.cls === 'lane') {
       for (let s = 0; s < L; s += 4) {
-        const s1 = Math.min(L, s + 4.5);
-        const nv = (noise.at(s * 0.1 + seed, 3) + 1) / 2;
+        const s1 = Math.min(L, s + 4);
+        const nv = 0.3 + 0.4 * (noise.at(s * 0.1 + seed, 3) + 1) / 2;
         const wob = (q) => 0.1 * noise.at(q * 0.06 + seed, 7);
-        band((q) => -0.8 + wob(q), s, s1, 0.62, '#6d6558', 0.22 + 0.25 * nv);
-        band((q) => 0.8 + wob(q), s, s1, 0.62, '#6d6558', 0.22 + 0.25 * nv);
+        band((q) => -0.8 + wob(q), s, s1, 0.75, '#6d6558', 0.12 + 0.14 * nv);
+        band((q) => 0.8 + wob(q), s, s1, 0.75, '#6d6558', 0.12 + 0.14 * nv);
         band((q) => wob(q) * 0.5, s, s1, 0.5, '#b3ab9c', 0.12 + 0.12 * nv);
       }
       // remnants of old asphalt
@@ -150,12 +156,17 @@ export function buildDecals(D, rngBase, noise) {
       }
     } else if (ch.cls === 'track') {
       for (let s = 0; s < L; s += 4) {
-        const s1 = Math.min(L, s + 4.5);
+        const s1 = Math.min(L, s + 4);
         const wob = (q) => 0.12 * noise.at(q * 0.05 + seed, 5);
-        band((q) => -0.78 + wob(q), s, s1, 0.62, null, 1, false, 'dirt');
-        band((q) => 0.78 + wob(q), s, s1, 0.62, null, 1, false, 'dirt');
-        band((q) => -0.78 + wob(q) + 0.05, s, s1, 0.2, '#3b2c1e', 0.22, true);
-        band((q) => 0.78 + wob(q) - 0.05, s, s1, 0.2, '#3b2c1e', 0.22, true);
+        const nv = 0.75 + 0.25 * noise.at(s * 0.07 + seed, 9);
+        for (const sgn of [-1, 1]) {
+          const wv = (q) => sgn * 0.8 + wob(q) + 0.05 * noise.at(q * 0.4 + seed, sgn * 4);
+          band(wv, s, s1, 1.0, '#9a8b70', 0.22 * nv);
+          band(wv, s, s1, 0.8, null, 0.8 * nv, false, 'dirt');
+          band(wv, s, s1, 0.46, '#6f5e48', 0.3 * nv);
+        }
+        band((q) => -0.8 + wob(q) + 0.08, s, s1, 0.12, '#4a3b2b', 0.18, true);
+        band((q) => 0.8 + wob(q) - 0.08, s, s1, 0.12, '#4a3b2b', 0.18, true);
       }
       dec.push({ k: 'grassStrip', ch, s0: 0, s1: L, w: 0.85, density: 1, seed: rng.int(1, 1e9), bbox: ch.bbox });
       for (let s = 2; s < L - 2; s += 1.5) {
@@ -190,11 +201,40 @@ export function buildDecals(D, rngBase, noise) {
         dec.push({ k: 'manhole', x, y, r: 0.33, bbox: { x0: x - 0.5, y0: y - 0.5, x1: x + 0.5, y1: y + 0.5 } });
       }
     }
+    if (J.through && (cls === 'regional' || cls === 'village')) {
+      const [A, B] = J.through;
+      const P = (arm, lat) => { const m = [arm.d[1], -arm.d[0]]; return [J.x + arm.d[0] * arm.s + m[0] * lat, J.y + arm.d[1] * arm.s + m[1] * lat]; };
+      const lanes = [-A.hw / 2, A.hw / 2];
+      for (const lc of lanes) {
+        for (const [off, w, col, a] of [[-0.85, 0.55, '#8b8982', cls === 'regional' ? 0.08 : 0.05], [0.85, 0.55, '#8b8982', cls === 'regional' ? 0.08 : 0.05], [0, 0.8, '#1e2024', 0.05]]) {
+          const pts = [P(A, lc + off), P(B, -(lc + off))];
+          dec.push({ k: 'band', pts, w, col, a, bbox: bboxOf(pts, 1) });
+        }
+      }
+    }
     J.decals = dec;
     J.cls = cls;
   }
   D.puddles = puddles;
 }
+
+/** wing walls of a bridge span [a,b] on chain ch: [{p0,p1,nx,ny}] (world metres) */
+export function wingWalls(ch, a, b) {
+  const out = [];
+  const dw = ch.hw + 1.15;
+  for (const [s, dir] of [[a - 1.2, -1], [b + 1.2, 1]]) {
+    const p = sampleAt(ch.pts, ch.cum, Math.max(0, Math.min(ch.L, s)));
+    for (const side of [1, -1]) {
+      const nx = -p.ty * side, ny = p.tx * side;
+      const p0 = [p.x + nx * (dw - 0.25), p.y + ny * (dw - 0.25)];
+      const d = norm(p.tx * dir * 0.8 + nx, p.ty * dir * 0.8 + ny);
+      const p1 = [p0[0] + d[0] * 3.4, p0[1] + d[1] * 3.4];
+      out.push({ p0, p1, nx: -d[1], ny: d[0] });
+    }
+  }
+  return out;
+}
+const prngLocal = (s) => prng(s >>> 0);
 
 // ======================================================================
 // Chunk painter
@@ -255,6 +295,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
       concrete: patternFor(g, tex.concrete, res), dirt: patternFor(g, tex.dirt, res), gravel: patternFor(g, tex.gravel, res),
     };
     const shoulderCol = M(palette.soil.dry, palette.gravel[1], 0.55);
+    const kW = CLASSES.village.kerbW, pave = CLASSES.village.pave;
 
     // ---------- 1. ground contact: shoulders / verge AO / pavement shadow
     for (const [ch, r] of ranges) {
@@ -263,34 +304,44 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         if (ch.spec.kerb) {
           strokePts(g, pts, 2 * (ch.hw + ch.spec.kerbW + ch.spec.pave) + 0.7, 'rgba(34,40,26,1)', 0.16);
         } else if (ch.cls === 'track') {
-          strokePts(g, pts, 2 * ch.hw + 1.2, M(palette.soil.dry, grassCols[2], 0.55), 0.35);
+          strokePts(g, pts, 2 * ch.hw + 1.4, M(grassCols[1], '#d9cf9c', 0.35), 0.25);
+          strokePts(g, pts, 2 * ch.hw + 0.6, M(grassCols[1], '#cfc08c', 0.5), 0.3);
         } else {
-          strokePts(g, pts, 2 * ch.hw + 1.5, 'rgba(40,44,28,1)', 0.12);
-          g.lineCap = 'butt';
-          strokePts(g, pts, 2 * ch.hw + 0.8, shoulderCol, 0.55);
-          g.lineCap = 'round';
+          strokePts(g, pts, 2 * ch.hw + 1.9, 'rgba(40,44,28,1)', 0.1);
+          strokePts(g, pts, 2 * ch.hw + 1.3, shoulderCol, 0.22);
+          strokePts(g, pts, 2 * ch.hw + 0.9, shoulderCol, 0.3);
+          strokePts(g, pts, 2 * ch.hw + 0.55, shoulderCol, 0.4);
         }
       }
     }
+    const kerbCorner = (c, J) => J.degree > 2 && (CLASSES[J.arms[c.i].cls].kerb || CLASSES[J.arms[c.j].cls].kerb) && c.type === 'fillet';
     for (const J of js) {
-      const kerbed = J.arms.some((a) => CLASSES[a.cls].kerb);
-      g.beginPath(); pathFrom(g, junctionPoly(J, kerbed ? CLASSES.village.kerbW + CLASSES.village.pave + 0.35 : 0.5), true);
-      g.fillStyle = kerbed ? 'rgba(34,40,26,0.16)' : J.cls === 'track' ? M(palette.soil.dry, grassCols[2], 0.55) : shoulderCol;
-      g.globalAlpha = kerbed ? 1 : J.cls === 'track' ? 0.35 : 0.55; g.fill(); g.globalAlpha = 1;
+      if (J.cls === 'track') {
+        g.beginPath(); pathFrom(g, junctionPoly(J, 0.6), true);
+        g.fillStyle = M(palette.soil.dry, grassCols[2], 0.55); g.globalAlpha = 0.35; g.fill(); g.globalAlpha = 1;
+        continue;
+      }
+      g.beginPath(); pathFrom(g, junctionPoly(J, 0.95), true);
+      g.fillStyle = 'rgba(40,44,28,1)'; g.globalAlpha = 0.1; g.fill();
+      if (!J.arms.every((a) => CLASSES[a.cls].kerb)) for (const [k, al] of [[0.65, 0.22], [0.45, 0.3]]) {
+        g.beginPath(); pathFrom(g, junctionPoly(J, k), true); g.fillStyle = shoulderCol; g.globalAlpha = al; g.fill();
+      }
+      const allKerb = J.arms.every((a) => CLASSES[a.cls].kerb);
+      g.beginPath(); pathFrom(g, junctionPoly(J, (c) => (kerbCorner(c, J) ? kW + pave + 0.35 : 0.25)), true);
+      g.fillStyle = allKerb ? 'rgba(34,40,26,1)' : shoulderCol; g.globalAlpha = allKerb ? 0.16 : 0.4; g.fill(); g.globalAlpha = 1;
     }
 
     // ---------- 2. bridge decks + abutments
     for (const [ch] of ranges) for (const [a, b] of ch.bridges) paintDeck(g, ch, a, b, pats, lod);
 
     // ---------- 3. village pavements
-    const kW = CLASSES.village.kerbW, pave = CLASSES.village.pave;
     for (const [ch, r] of ranges) {
       if (!ch.spec.kerb) continue;
       for (const side of [1, -1]) {
         const inner = offLine(ch, r, side * ch.hw), outer = offLine(ch, r, side * (ch.hw + kW + pave));
         g.beginPath(); pathFrom(g, inner.concat(outer.slice().reverse()), true);
         g.fillStyle = pats.concrete; g.fill();
-        g.fillStyle = 'rgba(214,200,170,0.18)'; g.fill();
+        g.fillStyle = 'rgba(150,132,104,0.16)'; g.fill();
         if (lod >= 1) slabJoints(g, ch, r, side, lod);
         backEdge(g, outer, grassCols, lod, hs(ch.key + side));
       }
@@ -298,13 +349,12 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
     for (const J of js) {
       J.corners.forEach((c, ci) => {
         const A = J.arms[c.i], B = J.arms[c.j];
-        if (!(CLASSES[A.cls].kerb || CLASSES[B.cls].kerb)) return;
-        if (c.type !== 'fillet') return;
+        if (!kerbCorner(c, J)) return;
         const n = Math.max(4, Math.ceil(c.R * c.half * 2 / 0.9));
         const inner = cornerCurve(J, ci, 0), outer = cornerCurve(J, ci, kW + pave);
         g.beginPath(); pathFrom(g, inner.concat(outer.slice().reverse()), true);
         g.fillStyle = pats.concrete; g.fill();
-        g.fillStyle = 'rgba(214,200,170,0.18)'; g.fill();
+        g.fillStyle = 'rgba(150,132,104,0.16)'; g.fill();
         if (lod >= 2) {
           g.strokeStyle = 'rgba(90,84,72,0.35)'; g.lineWidth = 0.03; g.beginPath();
           for (let k = 1; k < n; k++) {
@@ -323,14 +373,14 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
       for (const [ch, r] of ranges) {
         if (ch.cls !== cls) continue;
         g.beginPath(); ribbonPath(g, ch, r);
-        if (cls === 'track') { g.globalAlpha = 0.4; g.fillStyle = pats.dirt; g.fill(); g.globalAlpha = 1; }
+        if (cls === 'track') { g.globalAlpha = 0.18; g.fillStyle = pats.dirt; g.fill(); g.globalAlpha = 1; }
         else { g.fillStyle = pats[cls]; g.fill(); }
       }
       for (const J of js) {
         if (J.cls !== cls) continue;
         g.beginPath(); pathFrom(g, J.poly, true);
         if (cls === 'track') { g.globalAlpha = 0.4; g.fillStyle = pats.dirt; g.fill(); g.globalAlpha = 1; }
-        else { g.fillStyle = pats[cls]; g.fill(); }
+        else { g.fillStyle = pats[cls]; g.fill(); g.strokeStyle = pats[cls]; g.lineWidth = 0.14; g.stroke(); }
         // minor arms of a different surface fade into the junction: draw their mouths first
       }
     }
@@ -357,8 +407,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
       for (const side of [1, -1]) kerbLine(g, offLine(ch, r, side * (ch.hw + kW / 2)), offLine(ch, r, side * ch.hw), lod);
     }
     for (const J of js) J.corners.forEach((c, ci) => {
-      const A = J.arms[c.i], B = J.arms[c.j];
-      if (!(CLASSES[A.cls].kerb || CLASSES[B.cls].kerb)) return;
+      if (!kerbCorner(c, J)) return;
       kerbLine(g, cornerCurve(J, ci, kW / 2), cornerCurve(J, ci, 0), lod);
     });
 
@@ -461,8 +510,9 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         break;
       case 'band':
         if (d.fine && lod < 1) return;
-        g.lineCap = 'round';
+        g.lineCap = 'butt';
         strokePts(g, d.pts, d.w, d.pattern ? pats[d.pattern] : d.col, d.a);
+        g.lineCap = 'round';
         break;
       case 'patch': {
         g.beginPath(); pathFrom(g, d.poly, true);
@@ -470,7 +520,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         if (d.ragged) {
           g.strokeStyle = 'rgba(60,56,50,0.5)'; g.lineWidth = 0.06; g.stroke();
         } else {
-          g.strokeStyle = 'rgba(18,19,22,0.55)'; g.lineWidth = lod >= 2 ? 0.07 : 0.1; g.stroke();
+          g.strokeStyle = 'rgba(18,19,22,0.38)'; g.lineWidth = lod >= 2 ? 0.05 : 0.08; g.stroke();
           if (lod >= 2) { g.strokeStyle = 'rgba(200,200,200,0.08)'; g.lineWidth = 0.02; g.stroke(); }
         }
         break;
@@ -478,7 +528,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
       case 'crack':
         if (lod < 1) return;
         if (d.sealed) {
-          strokePts(g, d.pts, lod >= 2 ? 0.09 : 0.12, '#1c1d21', 0.7);
+          strokePts(g, d.pts, lod >= 2 ? 0.08 : 0.11, '#25262a', 0.55);
           if (lod >= 2) strokePts(g, d.pts, 0.025, 'rgba(150,160,175,1)', 0.18);
         } else strokePts(g, d.pts, 0.035, '#202125', 0.6);
         break;
@@ -518,18 +568,20 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         break;
       }
       case 'pothole': {
+        const rnd = prng(hs(d.x.toFixed(2) + d.y.toFixed(2)));
         g.save(); g.translate(d.x, d.y); g.rotate(d.rot);
-        g.fillStyle = d.mud ? palette.mud : '#6a6052'; g.globalAlpha = 0.8;
-        g.beginPath(); g.ellipse(0, 0, d.rx + 0.15, d.ry + 0.12, 0, 0, 6.283); g.fill();
-        g.fillStyle = d.mud ? S(palette.mud, -0.25) : '#544b3f'; g.globalAlpha = 0.9;
-        g.beginPath(); g.ellipse(0, 0, d.rx, d.ry, 0, 0, 6.283); g.fill();
+        const blobs = [];
+        for (let k = 0; k < 5; k++) blobs.push([(rnd() - 0.5) * d.rx, (rnd() - 0.5) * d.ry * 0.6, d.rx * (0.45 + rnd() * 0.35), d.ry * (0.55 + rnd() * 0.4), (rnd() - 0.5) * 0.6]);
+        const draw = (grow, col, a) => { g.fillStyle = col; g.globalAlpha = a; g.beginPath(); for (const [x, y, rx, ry, r] of blobs) { g.moveTo(x + rx + grow, y); g.ellipse(x, y, rx + grow, ry + grow * 0.8, r, 0, 6.283); } g.fill(); };
+        draw(0.14, d.mud ? M(palette.mud, palette.soil.dry, 0.4) : '#8a8070', 0.45);
+        draw(0.02, d.mud ? palette.mud : '#6a6052', 0.75);
+        draw(-0.1, d.mud ? S(palette.mud, -0.2) : '#584f43', 0.6);
         g.globalAlpha = 1;
         if (lod >= 2) {
-          const rnd = prng(hs(d.x.toFixed(2) + d.y.toFixed(2)));
-          for (let k = 0; k < 14; k++) {
-            const a = rnd() * 6.28, rr = 1 + rnd() * 0.25;
+          for (let k = 0; k < 12; k++) {
+            const a2 = rnd() * 6.28, rr = 0.9 + rnd() * 0.4;
             g.fillStyle = rnd() < 0.5 ? palette.gravel[2] : palette.gravel[3];
-            g.beginPath(); g.ellipse(Math.cos(a) * d.rx * rr, Math.sin(a) * d.ry * rr, 0.04 + rnd() * 0.04, 0.03, a, 0, 6.283); g.fill();
+            g.beginPath(); g.ellipse(Math.cos(a2) * d.rx * rr, Math.sin(a2) * d.ry * rr, 0.035 + rnd() * 0.04, 0.03, a2, 0, 6.283); g.fill();
           }
         }
         g.restore();
@@ -544,7 +596,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         const ch = d.ch;
         const r = rangeIdx(ch, rect, 2);
         if (!r) return;
-        strokePts(g, sub(ch.pts, r), d.w * 0.7, grassCols[0], 0.35 * d.density);
+        strokePts(g, sub(ch.pts, r), d.w * 0.6, grassCols[2], 0.25 * d.density);
         g.lineWidth = lod >= 2 ? 0.035 : 0.06;
         for (let i = r[0]; i <= r[1]; i++) {
           const rnd = prng(d.seed + i * 7919);
@@ -581,11 +633,11 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
           const along = (rnd() - 0.5) * 0.5;
           const x0 = p[0] + ch.tx[i] * along, y0 = p[1] + ch.ty[i] * along;
           const roll = rnd();
-          if (roll < 0.35) {
+          if (roll < (asph ? 0.2 : 0.35)) {
             // crumbs of surface outside the edge
             const o = w + rnd() * 0.3;
-            g.fillStyle = asph ? (rnd() < 0.5 ? '#45474c' : '#55565a') : (rnd() < 0.5 ? palette.gravel[1] : palette.gravel[2]);
-            g.globalAlpha = 0.85;
+            g.fillStyle = asph ? (rnd() < 0.5 ? '#5a5b5e' : '#6b6a66') : (rnd() < 0.5 ? palette.gravel[1] : palette.gravel[2]);
+            g.globalAlpha = asph ? 0.55 : 0.85;
             g.beginPath(); g.ellipse(x0 + nx * o, y0 + ny * o, 0.04 + rnd() * 0.1, 0.03 + rnd() * 0.06, rnd() * 3, 0, 6.283); g.fill();
           } else if (roll < 0.55 && asph) {
             // bites taken out of the edge
@@ -687,11 +739,6 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         g.moveTo(p1[0], p1[1]); g.lineTo(p2[0], p2[1]); g.lineTo(p3[0], p3[1]); g.closePath();
       }
       g.fill(); g.globalAlpha = 1;
-      if (lanes >= 2) {
-        // short centre line leading to the give-way
-        const a = [P[0] + A.d[0] * (A.s + 1.2), P[1] + A.d[1] * (A.s + 1.2)], b = [P[0] + A.d[0] * (A.s + 9), P[1] + A.d[1] * (A.s + 9)];
-        strokePts(g, [a, b], 0.12, white, 0.85);
-      }
       if (lod >= 2) {
         const pts = [];
         for (let k = 0; k <= 10; k++) { const la = l0 + (l1 - l0) * k / 10; pts.push([P[0] + A.d[0] * (base + 0.3) + m[0] * la, P[1] + A.d[1] * (base + 0.3) + m[1] * la]); }
@@ -740,24 +787,34 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
     for (let s = s0; s <= s1 + 0.01; s += 0.5) { const p = sampleAt(ch.pts, ch.cum, Math.min(s, s1)); pts.push([p.x, p.y]); tx.push(p.tx); ty.push(p.ty); }
     const hw = ch.hw, dw = hw + 1.15;
     const off = (k) => offsetPts(pts, tx, ty, k);
-    // abutments / wing walls (masonry) at both ends
-    for (const [s, dir] of [[s0, -1], [s1, 1]]) {
-      const p = sampleAt(ch.pts, ch.cum, s);
-      for (const side of [1, -1]) {
-        const nx = -p.ty * side, ny = p.tx * side;
-        const bx = p.x + nx * (dw - 0.1), by = p.y + ny * (dw - 0.1);
-        const ex = bx + (p.tx * dir + nx) * 2.6, ey = by + (p.ty * dir + ny) * 2.6;
-        const wx = -(ey - by), wy = ex - bx; const wl = Math.hypot(wx, wy) || 1;
-        const t = 0.35;
-        const q = [[bx - p.tx * dir * 1.2, by - p.ty * dir * 1.2], [ex, ey], [ex + wx / wl * t * side * dir, ey + wy / wl * t * side * dir], [bx - p.tx * dir * 1.2 + nx * 0.5, by - p.ty * dir * 1.2 + ny * 0.5]];
-        g.beginPath(); pathFrom(g, q, true); g.fillStyle = M(palette.rock[0], palette.concrete[1], 0.3); g.fill();
-        g.strokeStyle = S(palette.rock[0], -0.4); g.lineWidth = 0.05; g.stroke();
-        if (lod >= 2) {
-          g.strokeStyle = 'rgba(60,58,54,0.5)'; g.lineWidth = 0.025; g.beginPath();
-          for (let k = 1; k < 6; k++) { const t2 = k / 6; g.moveTo(q[0][0] + (q[1][0] - q[0][0]) * t2, q[0][1] + (q[1][1] - q[0][1]) * t2); g.lineTo(q[3][0] + (q[2][0] - q[3][0]) * t2, q[3][1] + (q[2][1] - q[3][1]) * t2); }
-          g.stroke();
+    // abutments / wing walls (masonry) at both ends, splaying along the banks
+    for (const w of wingWalls(ch, a, b)) {
+      const { p0, p1, nx, ny } = w;
+      const t = 0.3;
+      const q = [[p0[0] + nx * t, p0[1] + ny * t], [p1[0] + nx * t, p1[1] + ny * t], [p1[0] - nx * t, p1[1] - ny * t], [p0[0] - nx * t, p0[1] - ny * t]];
+      g.beginPath(); pathFrom(g, q, true);
+      g.fillStyle = 'rgba(30,34,28,0.25)'; g.lineWidth = 0.5; g.strokeStyle = 'rgba(30,34,28,0.18)'; g.stroke();
+      g.fillStyle = M(palette.rock[1], palette.concrete[0], 0.25); g.fill();
+      g.save(); g.clip();
+      const rnd = prngLocal(Math.round(p0[0] * 13 + p0[1] * 7));
+      const L = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+      const ux = (p1[0] - p0[0]) / L, uy = (p1[1] - p0[1]) / L;
+      // stone blocks, two courses
+      for (let row = 0; row < 2; row++) {
+        const o0 = -t + row * t, o1 = o0 + t;
+        for (let s = (row ? -0.25 : 0); s < L; s += 0.35 + rnd() * 0.3) {
+          const e = Math.min(L, s + 0.3 + rnd() * 0.35);
+          const pp = [[s, o0], [e, o0], [e, o1], [s, o1]].map(([u, v]) => [p0[0] + ux * u + nx * v, p0[1] + uy * u + ny * v]);
+          g.beginPath(); pathFrom(g, pp, true);
+          g.fillStyle = palette.rock[(rnd() * 4) | 0]; g.globalAlpha = 0.55; g.fill();
+          if (lod >= 1) { g.globalAlpha = 0.6; g.strokeStyle = S(palette.rock[2], -0.35); g.lineWidth = 0.035; g.stroke(); }
         }
       }
+      g.globalAlpha = 1;
+      g.restore();
+      // coping stone on top
+      strokePts(g, [p0, p1], 0.16, M(palette.concrete[2], '#ffffff', 0.15), 0.8);
+      g.beginPath(); pathFrom(g, q, true); g.strokeStyle = S(palette.rock[0], -0.5); g.lineWidth = 0.05; g.stroke();
     }
     // deck slab
     const L = off(dw), R = off(-dw);

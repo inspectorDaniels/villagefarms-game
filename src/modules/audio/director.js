@@ -48,7 +48,7 @@ export function ambienceLevels(h, season, yearFrac, W, water = 0) {
   const chorus = bell(h, rise + 0.45, 0.75);
   const dusk = bell(h, set - 0.4, 0.55);
   const birds = clamp((SEASON_BIRDS[season] || 0.5) * (chorus * 1.0 + day * 0.32 + dusk * 0.35) * wetK * windK * snowK, 0, 1);
-  const crickets = clamp((SEASON_CRICKETS[season] || 0) * night * (1 - W.rain) * windK * (W.temp != null ? temp : 1) * (W.snow ? 0 : 1), 0, 1);
+  const crickets = clamp((SEASON_CRICKETS[season] || 0) * night * (1 - W.rain) * (1 - W.rain) * windK * (W.temp != null ? temp : 1) * (W.snow ? 0 : 1), 0, 1);
   const owl = clamp((SEASON_OWL[season] || 0.5) * night * bell(h < 12 ? h + 24 : h, 23.5, 2.2) * (1 - 0.8 * W.rain) * windK, 0, 1);
   const wind = clamp(0.18 + W.windSpeed / 14, 0, 1);
   const rain = W.rain;

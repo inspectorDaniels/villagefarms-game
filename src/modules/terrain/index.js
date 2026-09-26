@@ -1,6 +1,6 @@
 // terrain — heightmap, surfaces, river + lakes, chunked LOD painted ground, water shimmer.
-import { generateData, SURFACES, S, NO_WATER, flattenCircle, computeShade, reclassify, rebuildReeds } from './gen.js';
-import { makeLook, makeDecals } from './paint.js';
+import { generateData, SURFACES, S, NO_WATER, flattenCircle, computeShade, reclassify, computeUniform } from './gen.js';
+import { makeLook, makeDecals, warmShader, opSD, codeAt } from './paint.js';
 import { TileManager } from './tiles.js';
 
 export const manifest = {
@@ -30,6 +30,7 @@ export async function init(ctx) {
   let tm = null;
   let drawnTiles = [];
   let minimapCache = null;
+  let wetNow = 0;
 
   function getLook() {
     const season = ctx.clock.season || 'spring';
@@ -38,10 +39,11 @@ export async function init(ctx) {
     const snowRaw = wx && typeof wx.snowCover === 'number' ? Math.max(wx.snowCover, local.snowOverride) : local.snowOverride;
     const wetRaw = local.wetOverride != null ? local.wetOverride : (wx && typeof wx.wetness === 'number' ? wx.wetness : 0);
     const snow = Math.round(clamp(snowRaw, 0, 1) * 4) / 4;
-    const wet = Math.round(clamp(wetRaw, 0, 1) * 2) / 2;
-    const sig = `${season}|${snow}|${wet}`;
+    // wetness changes continuously → applied as a live multiply overlay, not baked into tiles
+    wetNow = clamp(wetRaw, 0, 1);
+    const sig = `${season}|${snow}`;
     let L = looks.get(sig);
-    if (!L) { L = makeLook(ctx.art, P, season, snow, wet); looks.set(sig, L); }
+    if (!L) { L = makeLook(ctx.art, P, season, snow, 0); looks.set(sig, L); }
     return L;
   }
 
@@ -99,6 +101,7 @@ export async function init(ctx) {
   function changed(kind, bb, extra) {
     world.terrain.version = (world.terrain.version || 0) + 1;
     minimapCache = null;
+    computeUniform(T, Math.floor(bb.x0) - 3, Math.floor(bb.y0) - 3, Math.ceil(bb.x1) + 3, Math.ceil(bb.y1) + 3);
     tm.markDirty(bb.x0 - 2, bb.y0 - 2, bb.x1 + 2, bb.y1 + 2);
     ctx.events.emit('terrain:changed', Object.assign({ kind, x0: bb.x0, y0: bb.y0, x1: bb.x1, y1: bb.y1, version: world.terrain.version }, extra || {}));
   }
@@ -153,10 +156,21 @@ export async function init(ctx) {
       const auxV = angle == null ? 0 : Math.round((((angle + Math.PI / 2) % Math.PI) + Math.PI) % Math.PI / Math.PI * 255) & 255;
       const x0 = Math.max(0, Math.floor(bb.x0)), y0 = Math.max(0, Math.floor(bb.y0));
       const x1 = Math.min(T.w - 1, Math.ceil(bb.x1)), y1 = Math.min(T.h - 1, Math.ceil(bb.y1));
+      // record the op so the shader can draw its true (sub-cell) outline
+      const op = shape.poly ? { code, aux: auxV, poly: [].concat(...shape.poly.map((p) => [p[0], p[1]])) } : { code, aux: auxV, cx: shape.x, cy: shape.y, r: shape.r };
+      if (T.ops.length >= 65000) T.ops.length = 0; // pathological: fall back to cell edges
+      T.ops.push(op);
+      const idx = T.ops.length;
+      const BAND = 1.6;
       let n = 0;
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
-        if (!inside(shape, x, y)) continue;
+      const bx0 = Math.max(0, Math.floor(bb.x0 - BAND)), by0 = Math.max(0, Math.floor(bb.y0 - BAND));
+      const bx1 = Math.min(T.w - 1, Math.ceil(bb.x1 + BAND)), by1 = Math.min(T.h - 1, Math.ceil(bb.y1 + BAND));
+      for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
         const o = y * T.w + x;
+        const sd = opSD(op, x, y);
+        if (Math.abs(sd) < BAND) { T.prev[o] = codeAt(T, x, y); T.pedge[o] = idx; }
+        else if (sd > 0) T.pedge[o] = 0;
+        if (sd < 0) continue;
         T.surface[o] = code; T.painted[o] = 1; T.aux[o] = auxV; n++;
       }
       if (n) changed('surface', bb, { type, cells: n });
@@ -226,14 +240,30 @@ export async function init(ctx) {
     surfaceTypes() { return SURFACES.map((name, code) => ({ name, code })); },
   };
 
+  try {
+    warmShader([makeLook(ctx.art, P, 'summer', 0, 0), makeLook(ctx.art, P, 'winter', 0.75, 0), makeLook(ctx.art, P, 'autumn', 0.25, 0)], NZ);
+  } catch (e) { ctx.warn('shader warm-up failed: ' + (e && e.message)); }
   await api.generate({});
 
   // ------------------------------------------------------------ rendering
-  const BUDGET = 60000;
+  const BUDGET = 12000; // ≈ 1.5 ms of shading per frame (tripled while visible tiles are still blank)
   ctx.renderer.addLayer('ground', (g, view) => {
     if (!tm) return;
     const need = tm.work(view, BUDGET);
     drawnTiles = tm.draw(g, view, need);
+  }, 0);
+
+  // wet ground: darken soils (and a little the grass) while it rains / dries
+  ctx.renderer.addLayer('ground-overlay', (g, view) => {
+    if (!tm || wetNow < 0.04) return;
+    g.globalCompositeOperation = 'multiply';
+    g.globalAlpha = Math.min(1, wetNow);
+    for (const tile of drawnTiles) {
+      const m = tm.wetMask(tile);
+      if (m) g.drawImage(m, tile.x, tile.y, tile.size, tile.size); // no overlap pad: multiply would double up
+    }
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
   }, 0);
 
   ctx.renderer.addLayer('ground-detail', (g, view) => {
@@ -244,11 +274,10 @@ export async function init(ctx) {
       const sh = tile.shimmer;
       if (!sh) continue;
       const a = 0.5 + 0.5 * Math.sin(t * 1.2 + sh.phase);
-      const pad = 1.2 / view.zoom;
       g.globalAlpha = 0.9 * a;
-      g.drawImage(sh.frames[0], tile.x + drift, tile.y, tile.size + pad, tile.size + pad);
+      g.drawImage(sh.frames[0], tile.x + drift, tile.y, tile.size, tile.size);
       g.globalAlpha = 0.9 * (1 - a);
-      g.drawImage(sh.frames[1], tile.x - drift, tile.y + drift * 0.5, tile.size + pad, tile.size + pad);
+      g.drawImage(sh.frames[1], tile.x - drift, tile.y + drift * 0.5, tile.size, tile.size);
     }
     g.globalAlpha = 1;
   }, 0);
@@ -271,6 +300,7 @@ export async function init(ctx) {
 
   if (ctx.params.weather === 'snow') local.snowOverride = 0.6;
   INST = { local, warm(view) { if (tm) tm.work(view, Infinity); } };
+  if (ctx.params.tdebug) window.__TDBG = () => ({ tm, jobs: [...tm.jobs.keys()], tiles: tm.tiles.size, mb: tm.bytes / 1048576, ov: tm.overviewSig, look: getLook().sig, ovJob: !!tm.overviewJob, bench(L) { const out = {}; for (const lv of [8, 16, 32]) { const t = tm.tileAt(lv, 11, 12); const t0 = performance.now(); const it = tm.tileJob(t, getLook(), 0); let u = 0, r; const ph = []; let tp = performance.now(); while (!(r = it.next()).done) { u += r.value; const tn = performance.now(); ph.push(Math.round(tn - tp) + "/" + r.value); tp = tn; } out[lv] = [performance.now() - t0, u, ph.join(" ")]; } return out; } });
 
   return {
     api,
@@ -283,9 +313,10 @@ let INST = null;
 // ---------------------------------------------------------------- showcase
 // Camera targets are for the default seed ('harvest-1').
 const SC = {
-  overview: { x: 470, y: 520 },
-  river: { x: 470, y: 520 },
-  close: { x: 470, y: 520 },
+  overview: { x: 440, y: 745 },
+  river: { x: 322, y: 300 },
+  close: { x: 553, y: 779 },
+  lake: { x: 392, y: 757 },
 };
 
 export const showcase = {
@@ -294,8 +325,9 @@ export const showcase = {
     default: { camera: { x: SC.overview.x, y: SC.overview.y, zoom: 5 }, time: '10:00' },
     river: { camera: { x: SC.river.x, y: SC.river.y, zoom: 24 }, time: '17:00' },
     closeup: { camera: { x: SC.close.x, y: SC.close.y, zoom: 56 }, time: '10:00' },
-    autumn: { camera: { x: SC.overview.x, y: SC.overview.y, zoom: 12 }, time: '11:00', day: 28 },
-    winter: { camera: { x: SC.overview.x, y: SC.overview.y, zoom: 12 }, time: '12:00', day: 1 },
+    lake: { camera: { x: SC.lake.x, y: SC.lake.y, zoom: 12 }, time: '12:30', day: 16 },
+    autumn: { camera: { x: SC.lake.x, y: SC.lake.y, zoom: 12 }, time: '11:00', day: 28 },
+    winter: { camera: { x: SC.lake.x, y: SC.lake.y, zoom: 12 }, time: '12:00', day: 1 },
   },
   async stage(ctx, presetName) {
     const terr = ctx.modules.get('terrain');
@@ -320,7 +352,12 @@ export const showcase = {
   },
 };
 
-// demonstrate paintSurface / flatten: a small farm plot beside the river (default seed)
+// demonstrate paintSurface / flatten: a small farm plot east of the river (default seed)
 function stageFarm(terr) {
-  void terr;
+  terr.flatten({ x: 576, y: 760, r: 10 });
+  terr.paintSurface({ x: 576, y: 760, r: 10 }, 'farmyard');
+  terr.paintSurface({ poly: [[492, 735], [545, 728], [552, 775], [498, 782]] }, 'ploughed');
+  terr.paintSurface({ poly: [[498, 790], [553, 783], [558, 815], [503, 822]] }, 'soil');
+  terr.paintSurface({ poly: [[559, 766], [565, 766], [566, 830], [560, 830]] }, 'gravel');
+  terr.paintSurface({ poly: [[595, 700], [640, 695], [645, 740], [600, 745]] }, 'ploughed', { angle: Math.PI / 2 });
 }

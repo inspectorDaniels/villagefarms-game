@@ -27,6 +27,9 @@ const TREES = [
   { x: 91, y: 68, r: 3.1, type: 'oak', seed: 2 },
   { x: 28, y: 63, r: 2.5, type: 'pine', seed: 3 },
   { x: 99, y: 58, r: 2.2, type: 'pine', seed: 4 },
+  { x: 82, y: 42.5, r: 1.5, type: 'oak', seed: 5, z0: 1.5, tall: 14 },     // a row of poplars: tall, slim shadows
+  { x: 86.5, y: 41, r: 1.4, type: 'oak', seed: 6, z0: 1.5, tall: 13 },
+  { x: 91, y: 39.5, r: 1.5, type: 'oak', seed: 7, z0: 1.5, tall: 14.5 },
 ];
 const LAMP = { x: 56.5, y: 60.6, height: 4.4 };
 const SOCK = { x: 48, y: 53, height: 6.5 };
@@ -79,7 +82,7 @@ export async function stageShowcase(ctx, presetName, inst) {
     for (let i = 0; i < 2600; i++) {
       const x = rng.float() * w, y = rng.float() * h;
       const v = n.fbm(x * 0.006, y * 0.006, 2);
-      g.globalAlpha = 0.16 + rng.float() * 0.14;
+      g.globalAlpha = 0.08 + rng.float() * 0.08;
       g.fillStyle = v > 0 ? art.shade(rng.pick(cols), 0.12) : art.shade(rng.pick(cols), -0.18);
       g.beginPath();
       g.ellipse(x, y, rng.range(4, 14), rng.range(3, 8), rng.float() * 3.14, 0, 6.283);
@@ -191,10 +194,11 @@ export async function stageShowcase(ctx, presetName, inst) {
         const t = clamp(((wx - ax) * dx + (wy - ay) * dy) / l2, 0, 1);
         dTrack = Math.min(dTrack, Math.hypot(wx - ax - dx * t, wy - ay - dy * t));
       }
-      if (dTrack < 1.5) a *= 0.55 + 0.3 * smooth(0.3, 1.5, dTrack);
+      if (dTrack < 1.5) a *= 0.8 + 0.2 * smooth(0.3, 1.5, dTrack);
       const m = (n2.fbm(x * 0.012, y * 0.012, 3) + 1) / 2;
-      const c = cols[(x * 7 + y * 13) % 3];
-      const hk = smooth(0.35, 0.75, 1 - m) * 0.55;
+      const mt = smooth(0.25, 0.75, m);
+      const c = [cols[1][0] + (cols[2][0] - cols[1][0]) * mt, cols[1][1] + (cols[2][1] - cols[1][1]) * mt, cols[1][2] + (cols[2][2] - cols[1][2]) * mt];
+      const hk = smooth(0.3, 0.85, 1 - m) * 0.32;
       const o = (y * w + x) * 4;
       const gr = 1 + (rng.float() - 0.5) * 0.04;
       d[o] = (c[0] + (hollow[0] - c[0]) * hk) * gr;
@@ -249,15 +253,23 @@ export async function stageShowcase(ctx, presetName, inst) {
     g.fillStyle = '#2b2622'; g.fillRect(cx - 5, cy - 5, 10, 10);
     g.strokeStyle = art.outline(palette.brick[0]); g.lineWidth = 1.5; g.strokeRect(cx - 9, cy - 9, 18, 18);
     if (snow) {
-      g.globalAlpha = 0.92;
-      for (let i = 0; i < 700; i++) {
-        const x = ox + rng.float() * W, y = oy + rng.float() * H;
-        if (Math.abs(y - oy - H / 2) < 5 && rng.chance(0.6)) continue;
-        if (Math.abs(x - cx) < 11 && Math.abs(y - cy) < 11) continue;
-        g.fillStyle = rng.pick(palette.snow);
-        g.beginPath(); g.ellipse(x, y, rng.range(3, 8), rng.range(2, 5), 0, 0, 6.283); g.fill();
+      // one soft blanket per roof plane, thinning at the eaves and ridge so tiles peek through
+      for (const [y0, y1] of [[oy + 3, oy + H / 2 - 4], [oy + H / 2 + 4, oy + H - 3]]) {
+        g.fillStyle = art.rgba(palette.snow[0], 0.82);
+        art.wobblyPath(g, [[ox + 3, y0], [ox + W - 3, y0], [ox + W - 3, y1], [ox + 3, y1]], rng, 2.5);
+        g.fill();
       }
-      g.globalAlpha = 1;
+      g.save();
+      art.dabs(g, rng, 120, ox, oy, W, H, [palette.snow[1], palette.snow[2]], 3, 9, 0.5);
+      g.restore();
+      for (let i = 0; i < 40; i++) {                       // bare patches where tiles show
+        g.fillStyle = art.rgba(art.shade(cols[0], -0.1), 0.55);
+        const x = ox + rng.float() * W, y = rng.chance(0.5) ? oy + rng.range(0, 6) : oy + H - rng.range(0, 6);
+        g.beginPath(); g.ellipse(x, y, rng.range(3, 7), rng.range(1.5, 3), 0, 0, 6.283); g.fill();
+      }
+      g.fillStyle = art.shade(cols[2], -0.1); g.fillRect(cx - 9, cy - 9, 18, 18);
+      g.fillStyle = palette.snow[2]; g.fillRect(cx - 9, cy - 9, 18, 5);
+      g.fillStyle = '#2b2622'; g.fillRect(cx - 5, cy - 3, 10, 8);
       const sg = g.createLinearGradient(0, oy, 0, oy + H);
       sg.addColorStop(0, 'rgba(170,186,214,0.35)'); sg.addColorStop(0.5, 'rgba(255,255,255,0)'); sg.addColorStop(1, 'rgba(170,186,214,0.35)');
       g.fillStyle = sg; g.fillRect(0, 0, w, h);
@@ -277,14 +289,33 @@ export async function stageShowcase(ctx, presetName, inst) {
         // bare crown: branch structure + a few clinging leaves
         g.lineCap = 'round';
         const bark = palette.bark;
+        // twig haze first: the fine crown reads as a soft grey-brown veil from above
+        art.contactShadow(g, c, c, R, R, 0.12);
+        g.save(); g.beginPath(); g.arc(c, c, R * 0.98, 0, 6.283); g.clip();
+        g.globalAlpha = 0.18;
+        for (let i = 0; i < 260; i++) {
+          const a = rng.float() * 6.283, d = Math.sqrt(rng.float()) * R * 0.95;
+          const x = c + Math.cos(a) * d, y = c + Math.sin(a) * d, b = a + rng.range(-0.8, 0.8), l = rng.range(4, 10);
+          g.strokeStyle = rng.pick(bark); g.lineWidth = 0.8;
+          g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(b) * l, y + Math.sin(b) * l); g.stroke();
+        }
+        g.restore(); g.globalAlpha = 1;
         const branch = (x, y, a, len, wd, depth) => {
-          const x2 = x + Math.cos(a) * len, y2 = y + Math.sin(a) * len;
-          g.strokeStyle = art.shade(bark[depth % 3], depth * 0.06); g.lineWidth = wd;
-          g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo((x + x2) / 2 + rng.range(-4, 4), (y + y2) / 2 + rng.range(-4, 4), x2, y2); g.stroke();
-          if (depth < 4) for (let k = 0; k < 2 + (depth < 2 ? 1 : 0); k++) branch(x2, y2, a + rng.range(-0.7, 0.7), len * rng.range(0.55, 0.75), wd * 0.62, depth + 1);
+          // wiggly limb made of short kinks
+          let px = x, py = y, ang = a;
+          const steps = 3;
+          g.strokeStyle = art.shade(bark[depth % 3], depth * 0.07); g.lineWidth = wd;
+          g.beginPath(); g.moveTo(px, py);
+          for (let i = 0; i < steps; i++) { ang += rng.range(-0.35, 0.35); px += Math.cos(ang) * len / steps; py += Math.sin(ang) * len / steps; g.lineTo(px, py); }
+          g.stroke();
+          if (depth < 5) {
+            const n = depth < 1 ? 2 : rng.int(1, 3);
+            for (let k = 0; k < n; k++) branch(px, py, ang + rng.range(-0.75, 0.75), len * rng.range(0.6, 0.8), Math.max(0.7, wd * 0.62), depth + 1);
+          }
         };
-        for (let k = 0; k < 6; k++) branch(c, c, k / 6 * 6.283 + rng.range(-0.3, 0.3), R * 0.42, 6, 0);
-        art.dabs(g, rng, 40, c - R, c - R, 2 * R, 2 * R, palette.foliage.winter, 1.5, 3, 0.5);
+        const limbs = rng.int(4, 5);
+        for (let k = 0; k < limbs; k++) branch(c, c, k / limbs * 6.283 + rng.range(-0.45, 0.45), R * rng.range(0.3, 0.42), 6, 0);
+        art.dabs(g, rng, 30, c - R * 0.8, c - R * 0.8, 1.6 * R, 1.6 * R, palette.foliage.winter, 1.2, 2.4, 0.5);
         g.fillStyle = art.shade(bark[0], -0.1); g.beginPath(); g.arc(c, c, 6, 0, 6.283); g.fill();
         return;
       }
@@ -379,6 +410,18 @@ export async function stageShowcase(ctx, presetName, inst) {
     for (let k = 0; k < 5; k++) { g.beginPath(); g.moveTo(c - R, c - R + k * R * 0.5); g.lineTo(c + R, c - R * 0.8 + k * R * 0.5); g.stroke(); }
   });
 
+  const baleSnow = (r) => art.sprite('env:sc:balesnow', Math.ceil(r * 2.2 * PPM), Math.ceil(r * 2.2 * PPM), (g, w, h, rng) => {
+    const c = w / 2, R = r * PPM;
+    art.blobPath(g, c, c - 1, R * 0.82, rng, 0.08, 6);
+    g.fillStyle = palette.snow[0]; g.fill();
+    g.save(); g.clip();
+    art.dabs(g, rng, 30, c - R, c - R, 2 * R, 2 * R, [palette.snow[1], palette.snow[2]], 2, 5, 0.6);
+    const gr = g.createRadialGradient(c, c, R * 0.4, c, c, R * 0.85);
+    gr.addColorStop(0, 'rgba(180,196,222,0)'); gr.addColorStop(1, 'rgba(170,186,214,0.45)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    g.restore();
+  });
+
   const crateSprite = (w0, h0) => art.sprite(`env:sc:crate:${w0}x${h0}`, Math.ceil(w0 * PPM) + 4, Math.ceil(h0 * PPM) + 4, (g, w, h, rng) => {
     const cols = palette.timber;
     const W = w0 * PPM, H = h0 * PPM;
@@ -426,6 +469,20 @@ export async function stageShowcase(ctx, presetName, inst) {
     g.strokeStyle = art.outline(palette.rock[i]); g.lineWidth = 1.3; art.blobPath(g, 13, 13, 10, rng, 0.2, 5); g.stroke();
   }));
 
+  // the whole dry-stone wall baked into one sprite (one draw call instead of ~130)
+  let wallCache = null;
+  const wallSprite = () => {
+    if (wallCache) return wallCache;
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const s of stones) { x0 = Math.min(x0, s.x - 0.6); y0 = Math.min(y0, s.y - 0.6); x1 = Math.max(x1, s.x + 0.6); y1 = Math.max(y1, s.y + 0.6); }
+    const img = art.sprite('env:sc:wallbaked', (x1 - x0) * PPM, (y1 - y0) * PPM, (g) => {
+      g.scale(PPM, PPM); g.translate(-x0, -y0);
+      for (const s of stones) art.draw(g, stoneSprites[s.k % 4], s.x, s.y, s.r * 2.6, s.r * 2.6, s.k);
+    });
+    wallCache = { img, x0, y0, w: img.width / PPM, h: img.height / PPM };
+    return wallCache;
+  };
+
   const grassClump = (sea) => art.sprite(`env:sc:clump:${sea}`, 80, 80, (g, w, h, rng) => {
     const cols = sea === 'winter' ? ['#a39a78', '#b7ad86', '#8a8266'] : sea === 'autumn' ? ['#a39a4e', '#b8a860', '#8a8a44'] : [palette.grass[sea][2], palette.grass[sea][1], palette.meadow[1], palette.grass[sea][3]];
     const c = 40;
@@ -466,6 +523,7 @@ export async function stageShowcase(ctx, presetName, inst) {
       if (depth < 3) for (let k = 0; k < 2; k++) branch(x2, y2, z2, a + rng.range(-0.8, 0.8), len * rng.range(0.55, 0.75), wd * 0.6, depth + 1);
     };
     for (let k = 0; k < 6; k++) branch(t.x, t.y, 2.6, k / 6 * 6.283 + rng.range(-0.3, 0.3), t.r * 0.45, 0.22, 0);
+    segs.sort((p, q) => q[6] - p[6]);
     return { t, segs };
   });
 
@@ -490,8 +548,8 @@ export async function stageShowcase(ctx, presetName, inst) {
       let i = 0; while (i < 2 && lv > levels[i]) i++;
       const lo = i === 0 ? 0 : levels[i - 1], hi = levels[i];
       const t = clamp((lv - lo) / (hi - lo), 0, 1);
-      if (i > 0) g.drawImage(snowSprite(levels[i - 1]), GX, GY, GW, GH);
-      g.globalAlpha = t;
+      if (i > 0 && t < 0.985) g.drawImage(snowSprite(levels[i - 1]), GX, GY, GW, GH);
+      g.globalAlpha = t < 0.985 ? t : 1;
       g.drawImage(snowSprite(levels[i]), GX, GY, GW, GH);
       g.globalAlpha = 1;
     }
@@ -526,7 +584,9 @@ export async function stageShowcase(ctx, presetName, inst) {
     if (a < 0.02) return;
     const sky = env.sky, amb = env.ambient;
     // reflected sky, pre-divided by the ambient so the lighting pass doesn't darken it twice
-    const rr = Math.min(235, sky[0] * 235 / Math.max(70, amb[0])), gg = Math.min(240, sky[1] * 235 / Math.max(70, amb[1])), bb = Math.min(245, sky[2] * 235 / Math.max(70, amb[2]));
+    const comp = (i) => Math.sqrt(255 / Math.max(40, amb[i]));
+    const water = [44, 56, 62];
+    const rr = Math.min(220, (sky[0] * 0.5 + water[0] * 0.5) * comp(0)), gg = Math.min(225, (sky[1] * 0.5 + water[1] * 0.5) * comp(1)), bb = Math.min(232, (sky[2] * 0.5 + water[2] * 0.5) * comp(2));
     const k = 0.45 + 0.55 * a;
     for (const p of puddleShapes) {
       if (!inView(p.x, p.y, p.rx * 1.4, view)) continue;
@@ -594,17 +654,20 @@ export async function stageShowcase(ctx, presetName, inst) {
       if (!inView(t.x, t.y, t.r + 12, view)) continue;
       const bare = t.type === 'oak' && sea === 'winter';
       if (t.type === 'pine') F.shadow.circle(t.x, t.y, t.r * 0.9, 0.8, 0.8 + t.r * 3.2, 0.3);
-      else if (!bare) F.shadow.circle(t.x, t.y, t.r * 0.95, 2.4, 2.4 + t.r * 1.8, 0.45);
+      else if (!bare) F.shadow.circle(t.x, t.y, t.r * 0.95, t.z0 || 2.4, t.tall || 2.4 + t.r * 1.8, 0.45);
       else {
         const set = branchSets.find((b) => b.t === t);
         F.shadow.pole(t.x, t.y, 2.6, 0.5);
         F.shadow.custom((sg, sun) => {
           const L = Math.min(8, sun.shadowLen), dx = sun.dirX * L, dy = sun.dirY * L;
           sg.lineCap = 'round'; sg.strokeStyle = sg.fillStyle;
+          // one stroke per branch generation (segments of equal width batched into a single path)
+          let wd0 = -1;
           for (const [x0, y0, z0, x1, y1, z1, wd] of set.segs) {
-            sg.lineWidth = wd * 1.4;
-            sg.beginPath(); sg.moveTo(x0 + dx * z0, y0 + dy * z0); sg.lineTo(x1 + dx * z1, y1 + dy * z1); sg.stroke();
+            if (wd !== wd0) { if (wd0 >= 0) sg.stroke(); sg.lineWidth = wd * 1.4; sg.beginPath(); wd0 = wd; }
+            sg.moveTo(x0 + dx * z0, y0 + dy * z0); sg.lineTo(x1 + dx * z1, y1 + dy * z1);
           }
+          if (wd0 >= 0) sg.stroke();
         });
       }
       F.object({ y: t.y + 0.5, draw(g, v) {
@@ -674,7 +737,7 @@ export async function stageShowcase(ctx, presetName, inst) {
       F.shadow.cylinder(x, y, r, 1.3);
       F.object({ y: y + r, draw(g) {
         art.draw(g, baleSprite(r), x, y, r * 2.2, r * 2.2);
-        if (snow > 0.1) { g.globalAlpha = clamp(snow, 0, 0.9); g.fillStyle = palette.snow[0]; g.beginPath(); g.ellipse(x, y, r * 0.8, r * 0.75, 0, 0, 6.283); g.fill(); g.globalAlpha = 1; }
+        if (snow > 0.1) { g.globalAlpha = clamp(snow * 1.2, 0, 1); art.draw(g, baleSnow(r), x, y, r * 2.2, r * 2.2); g.globalAlpha = 1; }
       } });
     }
     // crates
@@ -708,12 +771,13 @@ export async function stageShowcase(ctx, presetName, inst) {
     // dry-stone wall
     for (let i = 0; i < WALL.length - 1; i++) F.shadow.wall(WALL[i][0], WALL[i][1], WALL[i + 1][0], WALL[i + 1][1], 0.95, 0.7);
     F.object({ y: 50, draw(g) {
-      for (const s of stones) {
-        art.draw(g, stoneSprites[s.k % 4], s.x, s.y, s.r * 2.6, s.r * 2.6, s.k);
-      }
+      const ws = wallSprite();
+      g.drawImage(ws.img, ws.x0, ws.y0, ws.w, ws.h);
       if (snow > 0.15) {
         g.globalAlpha = clamp(snow, 0, 0.85); g.fillStyle = palette.snow[0];
-        for (const s of stones) if (s.k % 3 !== 0) { g.beginPath(); g.ellipse(s.x, s.y, s.r * 0.8, s.r * 0.6, 0, 0, 6.283); g.fill(); }
+        g.beginPath();
+        for (const s of stones) if (s.k % 3 !== 0) { g.moveTo(s.x + s.r * 0.8, s.y); g.ellipse(s.x, s.y, s.r * 0.8, s.r * 0.6, 0, 0, 6.283); }
+        g.fill();
         g.globalAlpha = 1;
       }
     } });
@@ -732,4 +796,11 @@ export async function stageShowcase(ctx, presetName, inst) {
       } });
     }
   });
+
+  // pre-paint the sprites this preset needs (stage time is not billed to per-frame health)
+  const sea0 = season();
+  groundSprite(sea0); shedSprite(false);
+  for (const t of TREES) { if (t.type === 'pine') { pineSprite(t.r, t.seed); if (sea0 === 'winter') pineSnowSprite(t.r, t.seed); } else oakSprite(t.r, sea0, t.seed); }
+  grassClump(sea0); baleSprite(BALES[0][2]); wallSprite();
+  if (env.weather.snowCover > 0.02) { snowSprite(0.35); snowSprite(0.7); snowSprite(1); shedSprite(true); baleSnow(BALES[0][2]); }
 }

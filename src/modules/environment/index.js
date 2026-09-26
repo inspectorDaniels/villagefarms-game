@@ -34,6 +34,7 @@ export async function init(ctx) {
   const plan = new WeatherPlan(ctx.noise('weather'), (s) => ctx.rng(s), MONTH_DAYS, YEAR_DAYS);
   const gustNoise = ctx.noise('gusts');
   const fx = createFx(ctx);
+  fx.ensureFields();                     // bake the cloud/fog noise field at load, not in the first frame
   const flashRng = ctx.rng('lightning');
 
   // live continuous weather parameters (blended toward targets)
@@ -134,7 +135,7 @@ export async function init(ctx) {
     baseAmbient = ambientFor(elevDeg, rising, w, mp);
 
     // which light casts the shadows: sun by day, the moon on clear moonlit nights
-    const sunStrength = 0.45 * smooth(-1, 5.5, elevDeg) * (1 - 0.85 * cur.cloudCover) * (1 - 0.7 * cur.fog);
+    const sunStrength = 0.45 * smooth(-1, 5.5, elevDeg) * (1 - 0.85 * cur.cloudCover) * (1 - 0.7 * cur.fog) * (1 - 0.6 * Math.max(cur.rain, cur.snow));
     const moonStrength = 0.17 * mp.illumination * smooth(3, 22, mp.elevation / DEG) * smooth(-5, -12, elevDeg) * (1 - 0.9 * cur.cloudCover) * (1 - 0.8 * cur.fog);
     const useMoon = moonStrength > sunStrength;
     const src = useMoon ? mp : sp;

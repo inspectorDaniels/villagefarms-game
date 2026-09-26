@@ -53,6 +53,7 @@ export function buildCss(P, tex) {
   font: 13px/1.35 'Segoe UI', system-ui, sans-serif; color: var(--ink);
   user-select: none; -webkit-user-select: none; -webkit-font-smoothing: antialiased;
 }
+.hv-ui.hv-night .hv-mini canvas, .hv-ui.hv-night .hv-char .pt svg { filter: brightness(.84) saturate(.9); }
 .hv-ui.hv-night { --paper: #eadcbd; --paper2: #dccaa3; --paper3: #cdb991; --shadow: 0 0 0 1px rgba(255,214,150,.10), 0 2px 3px rgba(0,0,0,.35), 0 6px 22px rgba(0,0,0,.45); }
 .hv-ui * { box-sizing: border-box; }
 .hv-ui .hv-hit { pointer-events: auto; }
@@ -74,10 +75,10 @@ export function buildCss(P, tex) {
 .hv-ui .hv-slot { position: absolute; display: flex; gap: 10px; pointer-events: none; }
 .hv-ui .hv-slot > * { pointer-events: auto; }
 .hv-ui .hv-slot.tl { top: 14px; left: 14px; flex-direction: column; align-items: flex-start; }
-.hv-ui .hv-slot.tc { top: 12px; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; }
+.hv-ui .hv-slot.tc { width: max-content; top: 12px; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; }
 .hv-ui .hv-slot.tr { top: 14px; right: 14px; flex-direction: column; align-items: flex-end; }
 .hv-ui .hv-slot.bl { bottom: 14px; left: 14px; flex-direction: column; align-items: flex-start; }
-.hv-ui .hv-slot.bc { bottom: 14px; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; }
+.hv-ui .hv-slot.bc { width: max-content; bottom: 14px; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; }
 .hv-ui .hv-slot.br { bottom: 14px; right: 14px; flex-direction: column; align-items: flex-end; }
 .hv-ui .hv-hud { padding: 8px 12px; }
 .hv-ui .hv-hud.bare { padding: 0; background: none; border: 0; box-shadow: none; }
@@ -98,11 +99,11 @@ export function buildCss(P, tex) {
 
 /* ---------- clock ---------- */
 .hv-ui .hv-clock { display: flex; align-items: stretch; padding: 6px 8px 6px 10px; gap: 0; }
-.hv-ui .hv-clock .sec { display: flex; align-items: center; gap: 9px; padding: 0 12px; }
+.hv-ui .hv-clock .sec { flex: none; display: flex; align-items: center; gap: 9px; padding: 0 12px; }
 .hv-ui .hv-clock .sec + .sec { border-left: 1px solid rgba(116,96,63,.35); box-shadow: -1px 0 0 rgba(255,250,236,.6); }
 .hv-ui .hv-clock .dial { width: 50px; height: 34px; flex: none; }
 .hv-ui .hv-clock .time { font: 600 26px/1 Georgia, serif; letter-spacing: .02em; }
-.hv-ui .hv-clock .date { font: italic 13px/1.2 Georgia, serif; color: var(--ink2); margin-top: 3px; white-space: nowrap; }
+.hv-ui .hv-clock .cdate { font: italic 13px/1.2 Georgia, serif; color: var(--ink2); margin-top: 3px; white-space: nowrap; }
 .hv-ui .hv-clock .wx .hv-ic { width: 30px; height: 30px; color: var(--ink); }
 .hv-ui .hv-clock .wx .wi.sun { color: #a8661c; }
 .hv-ui .hv-clock .wx .wi.moon { color: #4a5a7c; }
@@ -321,7 +322,7 @@ export function buildCss(P, tex) {
 /* help */
 .hv-ui .hv-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 26px; }
 .hv-ui .hv-keys .hv-row { min-height: 30px; padding: 4px 2px; }
-.hv-ui .hv-keys .kcs { display: flex; gap: 4px; width: 92px; flex: none; }
+.hv-ui .hv-keys .kcs { display: flex; gap: 3px; width: 118px; flex: none; }
 
 /* ---------- modal ---------- */
 .hv-ui .hv-modal { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(28,20,10,.32); pointer-events: auto; opacity: 0; transition: opacity .18s; }

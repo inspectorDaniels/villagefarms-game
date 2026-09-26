@@ -26,7 +26,7 @@ export const ENGINES = {
   combine: {
     cyl: 6, idle: 900, max: 2200, inertia: 0.35, irregular: 0.2, soft: 2.1, hard: 1.2, drive: 2,
     res: [[80, 6, 2], [200, 4, 1.8], [470, 3, 1.4], [1100, 2, 1.2]], lp: [480, 1100, 2300],
-    clatter: 0.4, clatterF: 2000, intake: 0.2, turbo: 0.8, gain: 0.5, combine: true,
+    clatter: 0.4, clatterF: 2000, intake: 0.2, turbo: 0.8, gain: 0.34, combine: true,
   },
 };
 
@@ -129,7 +129,7 @@ function engineLoop(kind) {
       tgt(gS.gain, 1 - L * 0.9, t, 0.12); tgt(gH.gain, L * 0.95, t, 0.12);
       tgt(drive.gain, 1 + L * C.drive, t, 0.12);
       tgt(lp.frequency, C.lp[0] + C.lp[1] * r + C.lp[2] * L, t, 0.12);
-      const cl = C.clatter * (0.35 + 0.65 * L) * (0.4 + 0.6 * r);
+      const cl = C.clatter * (0.6 + 0.4 * L) * (0.55 + 0.45 * r);
       tgt(clat.gain, cl * 0.25, t, 0.1); tgt(pdepth.gain, cl * 0.75, t, 0.1);
       tgt(inG.gain, C.intake * (0.2 + r) * (0.4 + 0.6 * L), t, 0.15);
       if (turbo) { tgt(turbo.frequency, 1600 + 6500 * r * (0.5 + 0.5 * L), t, 0.6); tgt(turboG.gain, C.turbo * 0.02 * r * L, t, 0.6); }
@@ -185,7 +185,7 @@ function wind(ac, out, R, o) {
   chain(ln, filt(ac, 'highpass', 3200), filt(ac, 'lowpass', 9000), leafG, master);
   const apply = (v, t) => {
     v = clamp(v, 0, 1);
-    tgt(rushG.gain, 0.1 * v, t, 0.5); tgt(mRush.gain, 0.4 * v, t, 0.5);
+    tgt(rushG.gain, 0.18 * v, t, 0.5); tgt(mRush.gain, 0.7 * v, t, 0.5);
     tgt(rbp.frequency, 280 + 260 * v, t, 0.5); tgt(mRushF.gain, 250 + 700 * v, t, 0.5);
     tgt(wbp.frequency, 800 + 600 * v, t, 0.5); tgt(mWh.gain, 0.22 * v * v, t, 0.5);
     tgt(rumG.gain, 0.05 * v, t, 0.5); tgt(mRum.gain, 0.4 * v * v, t, 0.5);
@@ -343,8 +343,9 @@ function note(ac, out, t, f0, f1, dur, amp, { fm = 0, fmr = 40, h2 = 0.12, shape
     chain(o, g, out);
     env(g.gain, t, [[0, 0], [a, g0], [dur * 0.7, g0 * 0.8], [dur, 0]]);
   };
-  mk(1, amp);
-  if (h2) mk(2, amp * h2);
+  const ny = ac.sampleRate * 0.45;
+  if (Math.max(f0, f1) < ny) mk(1, amp);
+  if (h2 && Math.max(f0, f1) * 2 < ny) mk(2, amp * h2);
 }
 export const BIRDS = {
   blackbird(ac, out, t, rng) { // fluty, melodic phrases with a twittery end

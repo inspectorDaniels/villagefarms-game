@@ -138,5 +138,7 @@ export function ambientFor(elevDeg, rising, w, moon) {
     const k = w.snowCover * smooth(-6, 6, elevDeg);
     c = [c[0] * (1 + 0.02 * k), c[1] * (1 + 0.04 * k), c[2] * (1 + 0.1 * k)];
   }
+  // gameplay floor: even a rainy new-moon night keeps shapes readable
+  c = [Math.max(c[0], 32), Math.max(c[1], 40), Math.max(c[2], 76)];
   return c.map((v) => clamp(Math.round(v), 0, 255));
 }

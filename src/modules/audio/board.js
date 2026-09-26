@@ -119,7 +119,7 @@ function pitch(x, fmin, fmax, t0 = null, t1 = null) {
   // first local peak within 90 % of the best (avoids octave errors)
   for (let l = lmin + 1; l < lmax; l++) {
     if (ac[l] >= top * 0.9 && ac[l] >= ac[l - 1] && ac[l] >= ac[l + 1]) {
-      const y0 = ac[l - 1], y1 = ac[l], y2 = ac[l + 1], d = (y0 - y2) / (2 * (y0 - 2 * y1 + y2) || 1);
+      const y0 = ac[l - 1], y1 = ac[l], y2 = ac[l + 1], d = clamp((y0 - y2) / (2 * (y0 - 2 * y1 + y2) || 1), -0.5, 0.5);
       return { f: SR / (l + d), clarity: y1 };
     }
   }
@@ -227,7 +227,7 @@ const LOOPS_SHOWN = [
   ['crickets', 'amb', 3, { intensity: 0.9 }], ['birds', 'amb', 5, { density: 1, season: 'spring' }],
   ['owl', 'amb', 5, { density: 1 }], ['music', 'music', 7, {}],
 ];
-const PITCH_RANGE = { moo: [60, 400], baa: [150, 600], cluck: [250, 1200], bark: [250, 1200], horn: [300, 700], coin: [700, 2000], 'ui-open': [500, 2000], error: [150, 400], 'engine-tractor': [3, 60], 'engine-car': [3, 60], 'engine-combine': [3, 60] };
+const PITCH_RANGE = { moo: [60, 400], baa: [150, 600], cluck: [300, 600], bark: [250, 1200], horn: [300, 700], error: [150, 400], 'engine-tractor': [3, 60], 'engine-car': [3, 60], 'engine-combine': [3, 60] };
 
 // ------------------------------------------------------------------ build
 export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) {
@@ -291,6 +291,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
         mkL('wind', amb * lv.wind, { speed: clamp(W.windSpeed / 15, 0, 1) });
         mkL('rain', amb * (lv.rain > 0.012 ? 0.5 + 0.5 * lv.rain : 0), { intensity: lv.rain });
         mkL('music', 0.35 * lv.music, {});
+        if (W.storm) { const g = gain(ac, 0.9 * amb); g.connect(out); ONESHOTS.thunder(ac, g, 2.2, R, { rng: mk('mix:thunder'), p: 1, dist: 0.45 }); }
       }));
       const night = preset === 'ambience-night';
       const list = [
@@ -344,8 +345,8 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
     it.centroid = S.centroid;
     drawSpec(g, art, pal, rng, x + pad, sy, w - pad * 2, sh, specCanvas(S, lut, rng), S);
     g.font = '10px "Segoe UI", system-ui, sans-serif'; g.fillStyle = pal.inkSoft;
-    let foot = `pk ${it.lv.peakDb.toFixed(1)} dB · rms ${it.lv.rmsDb.toFixed(0)} · centroid ${fmtHz(S.centroid)}`;
-    if (it.f0 && !it.sweep) foot += ` · f0 ${Math.round(it.f0.f)} Hz`;
+    let foot = `pk ${it.lv.peakDb.toFixed(1)} · rms ${it.lv.rmsDb.toFixed(0)} dB · c ${fmtHz(S.centroid)}`;
+    if (it.f0 && !it.sweep) foot += ` · f0 ${Math.round(it.f0.f)}`;
     if (opts.foot) foot = opts.foot;
     g.fillText(foot, x + pad, y + h - 6);
     analysis[it.key || it.id].centroid = Math.round(S.centroid);
@@ -382,7 +383,8 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
         g.fillText(`${lab} — 300 ms`, rx, yy + 10);
         drawWave(g, art, pal, rx, yy + 14, rw, wh - 6, it.data, a, b);
         g.font = '11px "Segoe UI", system-ui, sans-serif'; g.fillStyle = pal.ink;
-        const meas = p ? `measured cycle ${p.f.toFixed(2)} Hz → ${Math.round(p.f * 120)} rpm` : 'cycle not detected';
+        const cyc = rpm / 120, mult = p ? Math.max(1, Math.round(p.f / cyc)) : 1;
+        const meas = p ? `periodicity ${p.f.toFixed(2)} Hz = ${mult}× cycle → ${Math.round(p.f / mult * 120)} rpm` : 'cycle not detected';
         g.fillText(`${meas}  (target ${rpm} rpm, firing ${(rpm / 120 * C[2]).toFixed(0)} Hz)`, rx, yy + wh + 16);
       });
       analysis[it.id].centroid = Math.round(S.centroid);
@@ -394,6 +396,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
     if (mix) {
       const lv = mix.lv0;
       const parts = ['birds', 'crickets', 'owl', 'wind', 'rain', 'music'].filter((k) => lv[k] > 0.012).map((k) => `${k} ${(lv[k] * 100).toFixed(0)}%`);
+      if (weather().storm) parts.push('+ thunder at 2.2 s');
       card(mix, gx, gy, gw, topH, { big: true, waveH: 36, foot: `director mix at ${ctx.clock.format()}, ${ctx.clock.season}: ${parts.join(' · ')}   (pk ${mix.lv.peakDb.toFixed(1)} dB, rms ${mix.lv.rmsDb.toFixed(0)} dB)` });
     }
     const cols = 4, rows = 2, cw = (gw - (cols - 1) * 10) / cols, ch = (gh - topH - 10 - (rows - 1) * 10) / rows;
@@ -438,13 +441,28 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
   LAYERS.forEach(([k, col], i) => { const lx = chart.x + (i % 3) * 90, ly = chart.y + chart.h + 28 + Math.floor(i / 3) * 14; g.fillStyle = col; g.fillRect(lx, ly - 7, 12, 3); g.fillStyle = pal.inkSoft; g.fillText(k, lx + 16, ly - 3); });
   g.fillText(`${ctx.clock.season}, sunrise ${hm(sun.sunrise)} · sunset ${hm(sun.sunset)}`, chart.x, chart.y + chart.h + 62);
 
+  // legend of analysis at bottom of sidebar
+      let yy = chart.y + chart.h + 86;
+      g.fillStyle = pal.ink; g.font = 'bold 13px Georgia, serif'; g.fillText('How to read', sx + 14, yy); yy += 16;
+      g.font = '11px "Segoe UI", system-ui, sans-serif'; g.fillStyle = pal.inkSoft;
+      for (const line of ['ink = waveform (auto-scaled, never above 0 dBFS)', 'wash = spectrogram, dark = loud (−80…0 dB)', 'pk/rms = peak & active RMS in dBFS', 'f0 = autocorrelation pitch (voices, engines)']) { g.fillText(line, sx + 14, yy); yy += 14; }
+      // colour scale
+      for (let i = 0; i < 100; i++) { const k = Math.round(i / 99 * 255); g.fillStyle = `rgb(${lut[k * 3]},${lut[k * 3 + 1]},${lut[k * 3 + 2]})`; g.fillRect(sx + 14 + i * 2.6, yy, 2.7, 8); }
+
+  const comp = document.createElement('canvas'); comp.width = can.width; comp.height = can.height;
+  const cg = comp.getContext('2d');
+  let nFrame = 0;
   const frameRng = ctx.rng('board-frame');
   const barJ = []; for (let i = 0; i < 16; i++) barJ.push(frameRng.range(-1, 1));
 
   // ---------------- per-frame
   return {
     items,
-    draw(g2, view) {
+    draw(gOut, view) {
+      nFrame++;
+      if (nFrame % 8 !== 1) { gOut.drawImage(comp, 0, 0, W, H); return; }
+      const g2 = cg;
+      g2.setTransform(dpr, 0, 0, dpr, 0, 0);
       g2.drawImage(can, 0, 0, W, H);
       const A = ctx.world.audio;
       let y = sy + 26;
@@ -466,7 +484,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
         g2.fillText((v * 100).toFixed(0) + '%', bx + bw + 6, y + 11);
         y += 19;
       });
-      y += 10;
+      y += 24;
       g2.fillStyle = pal.ink; g2.font = 'bold 14px Georgia, serif'; g2.fillText('Live buses (real AudioContext)', sx + 14, y); y += 8;
       for (const b of ['sfx', 'ambience', 'music']) {
         const db = busLevel(b), bx = sx + 78, bw = sw - 130;
@@ -486,13 +504,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
       const px = chart.x + ctx.clock.timeOfDay / 24 * chart.w;
       g2.strokeStyle = art.rgba(pal.danger, 0.8); g2.lineWidth = 1.5;
       g2.beginPath(); g2.moveTo(px, chart.y - 2); g2.lineTo(px, chart.y + chart.h + 2); g2.stroke();
-      // legend of analysis at bottom of sidebar
-      let yy = chart.y + chart.h + 86;
-      g2.fillStyle = pal.ink; g2.font = 'bold 13px Georgia, serif'; g2.fillText('How to read', sx + 14, yy); yy += 16;
-      g2.font = '11px "Segoe UI", system-ui, sans-serif'; g2.fillStyle = pal.inkSoft;
-      for (const line of ['ink = waveform (auto-scaled, never above 0 dBFS)', 'wash = spectrogram, dark = loud (−80…0 dB)', 'pk/rms = peak & active RMS in dBFS', 'f0 = autocorrelation pitch (voices, engines)']) { g2.fillText(line, sx + 14, yy); yy += 14; }
-      // colour scale
-      for (let i = 0; i < 100; i++) { const k = Math.round(i / 99 * 255); g2.fillStyle = `rgb(${lut[k * 3]},${lut[k * 3 + 1]},${lut[k * 3 + 2]})`; g2.fillRect(sx + 14 + i * 2.6, yy, 2.7, 8); }
+      gOut.drawImage(comp, 0, 0, W, H);
     },
   };
 }

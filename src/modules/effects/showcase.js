@@ -12,8 +12,8 @@ const trackSlope = (x) => (2.6 / 15) * Math.cos(x / 15 + 0.4);
 const TRACK_HW = 2.2;
 const POND = { x: 84, y: 44 };
 const pondR = (a) => 7 + 1.0 * Math.sin(3 * a + 1) + 0.6 * Math.sin(5 * a);
-const COTTAGE = { x: 52, y: 43, w: 9, h: 7 };
-const CHIMNEY = { x: 55.4, y: 41.4 };
+const COTTAGE = { x: 52, y: 45, w: 9, h: 7 };
+const CHIMNEY = { x: 55.4, y: 43.4 };
 const TREES = [[26, 42, 3.4], [36, 52.5, 3.0], [17, 55, 3.2], [102, 31, 3.6], [71, 33, 3.0], [66, 51, 2.5, 'blossom']];
 const BACK = { x0: 0, y0: 16, x1: 128, y1: 112 };
 const TILE = 16, PPM = 32;
@@ -29,7 +29,7 @@ function inFarmyard(x, y) {
     const dx = Math.max(x0 - x, 0, x - x1), dy = Math.max(y0 - y, 0, y - y1);
     return Math.hypot(dx, dy) < r;
   };
-  return inRect(47.5, 39, 57.5, 49, 1.6) || inRect(54, 49, 57, trackY(55.5), 0.8);
+  return inRect(47.5, 41, 57.5, 51, 1.6) || inRect(54, 49, 57, trackY(55.5), 0.8);
 }
 
 /** region classification used by both the painter and the fx surface hook */
@@ -60,7 +60,7 @@ function smooth(e0, e1, x) { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - 
 // ---------------- presets ----------------
 const PRESETS = {
   default: { camera: { x: 58, y: 57.5, zoom: 26 }, time: '10:00', day: 13 },
-  harvest: { camera: { x: 76, y: 80, zoom: 32 }, time: '16:30', day: 22 },
+  harvest: { camera: { x: 73, y: 80, zoom: 32 }, time: '16:30', day: 22 },
   night: { camera: { x: 72, y: 45, zoom: 30 }, time: '22:30', day: 19 },
   autumn: { camera: { x: 33, y: 50, zoom: 30 }, time: '11:00', day: 29 },
   rain: { camera: { x: 68, y: 56, zoom: 34 }, time: '15:00', day: 13 },
@@ -68,7 +68,7 @@ const PRESETS = {
   closeup: { camera: { x: 57, y: 63, zoom: 60 }, time: '09:30', day: 13 },
 };
 const PRESET_WEATHER = {
-  default: { kind: 'clear', intensity: 0, cloudCover: 0.2, wetness: 0.1, snowCover: 0, wind: { x: 1.6, y: 0.5, speed: 1.7 } },
+  default: { kind: 'clear', intensity: 0, cloudCover: 0.2, wetness: 0.1, snowCover: 0, wind: { x: -1.1, y: 1.0, speed: 1.5 } },
   harvest: { kind: 'clear', intensity: 0, cloudCover: 0.1, wetness: 0, snowCover: 0, wind: { x: 2.2, y: -0.6, speed: 2.3 } },
   night: { kind: 'clear', intensity: 0, cloudCover: 0.1, wetness: 0.2, snowCover: 0, wind: { x: 0.5, y: -0.3, speed: 0.6 } },
   autumn: { kind: 'cloudy', intensity: 0.2, cloudCover: 0.5, wetness: 0.3, snowCover: 0, wind: { x: 3.4, y: 1.1, speed: 3.6 } },
@@ -132,7 +132,7 @@ function makePainter(ctx, season, preset) {
         const mid = smooth(0.45, 0.1, Math.abs(d)) * (0.6 + 0.4 * b);
         const edge = smooth(TRACK_HW - 0.7, TRACK_HW, Math.abs(d + fine * 0.3));
         c = pal(wetTrack ? wetDirt : dirt, a * 0.7 + b * 0.3);
-        c = lerp(c, rut, rutK * 0.55);
+        c = lerp(c, rut, rutK * 0.18);
         c = lerp(c, pal(grass, a), Math.max(mid * 0.8, edge));
         if (winter) c = lerp(pal(snow, b), [150, 140, 128], rutK * 0.5 + 0.08);
         break;
@@ -442,18 +442,20 @@ function treeSprite(art, palette, season, r, kind, idx) {
       for (let i = 0; i < 6; i++) br(cx, cy, (i / 6) * TAU + rng.range(-0.3, 0.3), R * 0.38, 6, 0);
       return;
     }
-    art.blobPath(g, cx, cy, R, rng, 0.12, 8);
+    const shapeSeed = rng.fork('shape');
+    const outlinePath = () => art.blobPath(g, cx, cy, R, shapeSeed.fork('p'), 0.1, 5);
+    outlinePath();
     g.fillStyle = cols[2 % cols.length]; g.fill();
     g.save(); g.clip();
-    art.dabs(g, rng, 220, cx - R, cy - R, R * 2, R * 2, cols, R * 0.08, R * 0.2, 0.75);
+    art.dabs(g, rng, 520, cx - R, cy - R, R * 2, R * 2, cols, R * 0.05, R * 0.12, 0.8);
     for (let i = 0; i < 8; i++) {
       const a = rng.float() * TAU, rr = rng.range(0.1, 0.6) * R;
       art.dabs(g, rng, 12, cx + Math.cos(a) * rr - R * 0.2, cy + Math.sin(a) * rr - R * 0.2, R * 0.4, R * 0.4, [art.shade(cols[1], 0.25)], R * 0.05, R * 0.1, 0.6);
     }
     g.restore();
-    art.blobPath(g, cx, cy, R, rng, 0.12, 8);
+    outlinePath();
     art.volume(g, cx, cy, R, 0.38);
-    art.blobPath(g, cx, cy, R, rng.fork('o'), 0.12, 8);
+    outlinePath();
     g.strokeStyle = art.rgba(art.outline(cols[0]), 0.5); g.lineWidth = 2; g.stroke();
   });
 }
@@ -509,15 +511,33 @@ export const showcase = {
         if (tx * TILE >= BACK.x0 && ty * TILE >= BACK.y0 && tx * TILE < BACK.x1 && ty * TILE < BACK.y1) painter.paintTile(tx, ty);
       }
     }
-    ctx.renderer.addLayer('ground', (g, view) => {
-      if (I.off.has('backdrop')) return;
+    // The showcase camera is static, so the tiles are composited once into a screen-sized
+    // canvas and blitted 1:1 (one unscaled copy per frame instead of ~15 scaled tile blits).
+    const comp = { canvas: null, key: '' };
+    const drawTiles = (g, view) => {
       const tx0 = Math.max(Math.floor(view.x0 / TILE), BACK.x0 / TILE), tx1 = Math.min(Math.floor(view.x1 / TILE), BACK.x1 / TILE - 1);
       const ty0 = Math.max(Math.floor(view.y0 / TILE), BACK.y0 / TILE), ty1 = Math.min(Math.floor(view.y1 / TILE), BACK.y1 / TILE - 1);
       for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-        const key = `fxsc:tile:${season}:${preset === 'rain' ? 'wet' : 'dry'}:${tx}:${ty}`;
-        if (!art.has(key) && !(view.zoom >= 3)) continue;
         g.drawImage(painter.paintTile(tx, ty), tx * TILE, ty * TILE, TILE + 0.02, TILE + 0.02);
       }
+    };
+    ctx.renderer.addLayer('ground', (g, view) => {
+      if (I.off.has('backdrop')) return;
+      const m = g.getTransform();
+      const W = g.canvas.width, H = g.canvas.height;
+      const key = [m.a, m.e, m.f, W, H].map((v) => v.toFixed(2)).join(',');
+      if (comp.key !== key) {
+        if (!comp.canvas) comp.canvas = art.canvas(W, H);
+        if (comp.canvas.width !== W || comp.canvas.height !== H) { comp.canvas.width = W; comp.canvas.height = H; }
+        const cg = comp.canvas.getContext('2d');
+        cg.setTransform(1, 0, 0, 1, 0, 0);
+        cg.fillStyle = '#6f9a3f'; cg.fillRect(0, 0, W, H);
+        cg.setTransform(m);
+        drawTiles(cg, view);
+        comp.key = key;
+      }
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.drawImage(comp.canvas, 0, 0);
     }, -10);
 
     // ---- static props
@@ -566,9 +586,12 @@ export const showcase = {
 
     const W2 = hooks.weather.wind;
     if (preset === 'default' || preset === 'winter' || preset === 'closeup') {
-      const tA = trackVehicle('sc:tA', preset === 'closeup' ? 50 : 52, 2.2, palette.paint.tractorRed);
+      // drive against the wind so the dust plume streams out behind the tractor
+      const wx = (I.wind() || {}).x || 0;
+      const dirSign = wx > 0.2 ? -1 : 1;
+      const tA = trackVehicle('sc:tA', (preset === 'closeup' ? 54 : 56) - dirSign * 4, 2.2 * dirSign, palette.paint.tractorRed);
       vehicles.push(tA);
-      addTractorFx(tA, { dust: preset === 'winter' ? 0 : 11, dustColor: '#a88b64' });
+      addTractorFx(tA, { dust: preset === 'winter' ? 0 : 6, dustColor: '#a88b64' });
       if (preset === 'winter') {
         const sp1 = api.emitter('snowpuff', { rate: 10 }), sp2 = api.emitter('snowpuff', { rate: 10 });
         E.push(() => { sp1.setPosition(...local(tA, -0.97, 2.2)); sp2.setPosition(...local(tA, 0.97, 2.2)); });
@@ -579,17 +602,22 @@ export const showcase = {
         tB.boom = boomSprite(art);
         vehicles.push(tB);
         addTractorFx(tB, { dust: 3, exhaust: 4, dustColor: '#8a6a48' });
-        const nozzles = [];
-        for (let i = 0; i < 6; i++) nozzles.push(api.emitter('spray', { rate: 11 }));
-        E.push(() => nozzles.forEach((em, i) => { const [x, y] = local(tB, -5.6 + i * 2.25, 3.2); em.setPosition(x, y).setDir(...(() => { const b = local(tB, 0, 1); return [b[0] - tB.x, b[1] - tB.y]; })()); }));
+        // one emitter sweeping along the 12 m boom gives a continuous mist band
+        const mist = api.emitter('spray', { rate: 36, jitter: 0.35 });
+        const boomRng = ctx.rng('showcase-boom');
+        E.push(() => {
+          const [x, y] = local(tB, boomRng.range(-5.9, 5.9), 3.1);
+          const b = local(tB, 0, 1);
+          mist.setPosition(x, y).setDir(b[0] - tB.x, b[1] - tB.y);
+        });
       }
     }
     if (preset === 'harvest') {
       const cmb = lineVehicle('sc:cmb', COMBINE_X0, COMBINE_Y, -1.2, combineSprite(art, palette), 6.8, 9.2);
       vehicles.push(cmb);
-      const chaff = api.emitter('chaff', { rate: 30, speed: 2.4, spread: 0.5 });
-      const chDust = api.emitter('dust', { rate: 10, size: 1.3, color: '#c9ad78' });
-      const hdDust = api.emitter('dust', { rate: 8, size: 1.1, color: '#c9ad78' });
+      const chaff = api.emitter('chaff', { rate: 26, speed: 3.0, spread: 0.8 });
+      const chDust = api.emitter('dust', { rate: 7, size: 1.6, color: '#b89a64' });
+      const hdDust = api.emitter('dust', { rate: 5, size: 1.2, color: '#c9ad78' });
       const exh = api.emitter('exhaust', { rate: 4, z: 3.8 });
       E.push(() => {
         const b = local(cmb, 0, 1);
@@ -602,12 +630,12 @@ export const showcase = {
         api.trail('sc:cmb:l', ...local(cmb, -1.6, 3.3), cmb.rot, 0.75, 'tyre');
         api.trail('sc:cmb:r', ...local(cmb, 1.6, 3.3), cmb.rot, 0.75, 'tyre');
       });
-      const pl = lineVehicle('sc:pl', 50, 88.5, 1.5, tractorSprite(art, palette, palette.paint.tractorBlue), 2.6, 4.2);
+      const pl = lineVehicle('sc:pl', 53.5, 88.5, 1.5, tractorSprite(art, palette, palette.paint.tractorBlue), 2.6, 4.2);
       pl.plough = ploughSprite(art);
       vehicles.push(pl);
-      addTractorFx(pl, { dust: 6, exhaust: 6, dustColor: '#8a6a48' });
-      const clods = api.emitter('clods', { rate: 16, speed: 1.6, spread: 0.6 });
-      const pDust = api.emitter('dust', { rate: 6, size: 0.9, color: '#8a6a48' });
+      addTractorFx(pl, { dust: 3, exhaust: 4, dustColor: '#8a6a48' });
+      const clods = api.emitter('clods', { rate: 18, speed: 1.8, spread: 0.6, size: 0.3 });
+      const pDust = api.emitter('dust', { rate: 4, size: 1.0, color: '#8a6a48' });
       E.push(() => {
         const [cx, cy] = local(pl, 0.9, 4.2);
         const side = local(pl, 1, 0);
@@ -627,7 +655,7 @@ export const showcase = {
     }
 
     // chimney smoke (every preset) + autumn bonfire
-    api.emitter('chimney', { x: CHIMNEY.x, y: CHIMNEY.y, rate: 3.2, z: 7.2 });
+    api.emitter('chimney', { x: CHIMNEY.x, y: CHIMNEY.y, rate: 2.6, z: 7.2 });
     if (preset === 'autumn') {
       api.decal('scorch', 44.5, 56, 0.4, { size: 3 });
       api.emitter('chimney', { x: 44.5, y: 56, rate: 4, z: 0.4, size: 0.8, color: '#9d9a92' });
@@ -646,7 +674,7 @@ export const showcase = {
     // ---- decals: footprints, hoofprints, puddles, spills
     {
       // footprints from the cottage door down to the track (pairs every ~1.3 m)
-      let x = 54.5, y = 47, i = 0;
+      let x = 54.5, y = 49, i = 0;
       const tx = 57.5, ty = trackY(57.5) - 2.4;
       const L = Math.hypot(tx - x, ty - y), dx = (tx - x) / L, dy = (ty - y) / L;
       for (let s = 0; s < L; s += 1.3, i++) api.decal('footprint', x + dx * s + Math.sin(s) * 0.2, y + dy * s, Math.atan2(dx, -dy), { variant: i });
@@ -656,7 +684,7 @@ export const showcase = {
         api.decal('hoofprint', s, hy + ((s * 10 | 0) % 2 ? 0.2 : -0.2), Math.PI / 2, { variant: (s * 3) | 0 });
       }
       if (preset === 'default' || preset === 'rain' || preset === 'closeup') {
-        for (const [px, sz] of [[40, 1.8], [66, 2.4], [74, 1.4], [59.5, 1.3]]) api.decal('puddle', px, trackY(px) + 0.95 * (px % 2 ? 1 : -1), px * 0.3, { size: sz, variant: px | 0 });
+        for (const [px, sz] of [[40, 2.6], [66, 3.2], [75, 2.2], [47.5, 2.0]]) api.decal('puddle', px, trackY(px) + 0.8 * (px % 2 ? 1 : -1), Math.atan2(trackSlope(px), 1), { size: sz, variant: px | 0 });
       }
       if (preset === 'rain') {
         api.decal('puddle', 50, 49, 0.2, { size: 3.2, variant: 1 });
@@ -679,8 +707,10 @@ export const showcase = {
       F.shadow.box(cx, cy, COTTAGE.w, COTTAGE.h, 0, 5.2);
       F.shadow.box(CHIMNEY.x, CHIMNEY.y, 0.9, 0.9, 0, 7.2);
       F.object({ y: cy + COTTAGE.h / 2, draw(g) { g.drawImage(roof, cx - COTTAGE.w / 2, cy - COTTAGE.h / 2, COTTAGE.w, COTTAGE.h); g.drawImage(chim, CHIMNEY.x - 0.5, CHIMNEY.y - 0.5, 1, 1); } });
-      F.light({ x: 49.5, y: cy + 4.1, radius: 5, color: palette.lamp, intensity: 0.8, glow: 0.4 });
-      F.light({ x: 55.5, y: cy + 4.1, radius: 4.5, color: palette.lamp, intensity: 0.7, glow: 0.4 });
+      if (I.daylight() < 0.5) {
+        F.light({ x: 49.5, y: cy + 4.1, radius: 5, color: palette.lamp, intensity: 0.8, glow: 0.4 });
+        F.light({ x: 55.5, y: cy + 4.1, radius: 4.5, color: palette.lamp, intensity: 0.7, glow: 0.4 });
+      }
       for (const t of trees) {
         if (t.x + t.r < view.x0 - 8 || t.x - t.r > view.x1 + 8 || t.y + t.r < view.y0 - 8 || t.y - t.r > view.y1 + 8) continue;
         F.shadow.circle(t.x, t.y, t.r * (season === 'winter' ? 0.6 : 0.95), 2, 7.5, 0.45);

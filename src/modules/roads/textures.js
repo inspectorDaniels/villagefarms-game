@@ -76,7 +76,7 @@ export function makeTextures(art, palette) {
   };
   def('asphalt', asphaltPaint(['#3e4045', '#474950', '#51535a', '#4b4c50'], '#77756f'));
   def('asphaltOld', asphaltPaint(['#4d4e51', '#55575a', '#5d5e60', '#626260'], '#8a877e'));
-  def('asphaltPatch', asphaltPaint(['#34363b', '#3a3c41', '#414349', '#3b3d42'], '#6a6862'));
+  def('asphaltPatch', asphaltPaint(['#393b40', '#404247', '#474950', '#414348'], '#6e6c66'));
 
   def('gravel', (g, w, h, rng, n) => {
     seamlessNoise(g, w, h, ['#8f877a', '#9e968a', '#a9a194', '#958d80'], 1 / (TILE_RES * 1.6), 0.07, n, rng, 2, 3);
@@ -98,7 +98,8 @@ export function makeTextures(art, palette) {
   });
 
   def('dirt', (g, w, h, rng, n) => {
-    seamlessNoise(g, w, h, [palette.soil.moist, M(palette.soil.dry, palette.soil.moist, 0.4), palette.soil.dry, palette.soil.clay], 1 / (TILE_RES * 1.8), 0.06, n, rng, 2, 4);
+    const dd = (c) => M(c, '#8a7f6e', 0.5);
+    seamlessNoise(g, w, h, [dd(palette.soil.moist), dd(M(palette.soil.dry, palette.soil.moist, 0.4)), dd(palette.soil.dry), dd(palette.soil.clay)], 1 / (TILE_RES * 1.8), 0.06, n, rng, 2, 4);
     specks(g, rng, w, h, 400, [palette.soil.wet, palette.mud], 5, 18, 0.12);
     specks(g, rng, w, h, 2200, [palette.gravel[0], palette.gravel[2], palette.sand[0]], 0.7, 2, 0.6);
     specks(g, rng, w, h, 1600, ['#3d2f22'], 0.5, 1.3, 0.4);

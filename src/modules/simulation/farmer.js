@@ -163,7 +163,7 @@ export function defineShowcaseValley(api) {
   api.defineSellPoint('potato', { name: 'Aardappelhandel Maes', x: P(2, 4)[0], y: P(2, 4)[1], accepts: ['potatoes'] });
   const lane = (pts) => pts.map(([i, j]) => P(i, j));
   const brook = [];
-  for (let x = 30; x <= 920; x += 30) brook.push([x, 452 + Math.sin(x * 0.018) * 34 + Math.sin(x * 0.051) * 9 + (x > 500 ? (x - 500) * 0.12 : 0)]);
+  for (let x = 30; x <= 920; x += 30) brook.push([x, 646 + Math.sin(x * 0.021) * 9 + Math.sin(x * 0.057) * 3]);
   const decor = {
     lanes: [lane([[0, 2], [1, 2], [2, 2], [3, 2], [4, 2], [5, 2]]), lane([[2, 0], [2, 1], [2, 2], [2, 3], [2, 4]]), lane([[5, 2], [5, 3], [5, 4]])],
     brook,

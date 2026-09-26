@@ -1,5 +1,5 @@
 {
-  "updated": "2026-09-26T13:30:37.577Z",
+  "updated": "2026-09-26T14:26:32.570Z",
   "iteration": 0,
   "passRule": "score>=7 && 0 console/page errors && 0 contract issues && within perf budget",
   "modules": {
@@ -13,7 +13,7 @@
     },
     "environment": {
       "wave": 1,
-      "status": "building",
+      "status": "review",
       "score": null,
       "pass": false,
       "rounds": [],
@@ -29,7 +29,7 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "building",
+      "status": "review",
       "score": null,
       "pass": false,
       "rounds": [],
@@ -45,11 +45,34 @@
     },
     "audio": {
       "wave": 1,
-      "status": "building",
-      "score": null,
+      "status": "failing",
+      "score": 6,
       "pass": false,
-      "rounds": [],
-      "openIssues": []
+      "rounds": [
+        {
+          "round": 1,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/audio-r1.md"
+        }
+      ],
+      "openIssues": [
+        "**Main-thread synthesis per one-shot (perf budget).** `grainBuffer()` (synth.js) is called inside `grains()` on every `play()`:",
+        "footstep-* costs 3.8–14 ms per step, thunder 11 ms and harvest-thresh 58 ms (measured in Chrome).",
+        "One walking character at about 2 steps/s already burns about 10 ms/s. A combine harvesting would stall a frame on every call.",
+        "Fix: pre-bake N (e.g. 4–6) seeded variants per grain recipe with `cachedBuffer()` and pick one per call, varying playbackRate, offset and filter. Do this lazily on first use of each id, or amortised in idle slices after unlock.",
+        "Target: every `play()` under 0.5 ms main-thread time.",
+        "**Loop first-creation hitches.** The first `rain` takes 157 ms, `river` 99 ms, `crickets` 52 ms and `wind` 47 ms. Together with `resources()` (46 ms) this lands in one frame, either on the first gesture (the director immediately creates wind and birds) or when weather or night first arrives.",
+        "Generate these buffers in time-sliced chunks after unlock (a few ms per frame) and only start a layer once its buffer is ready.",
+        "Or at least generate them before the director needs them, not synchronously inside `director()`.",
+        "**Director must use environment's eased weather, not the discrete `kind`.** `world.environment.weather` publishes smoothly ramped `rain`, `storm`, `snow`, `fog` and `precipitation` (0..1). `readWeather()` instead derives `rain` from `kind==='rain'|'storm'` and `intensity`, with three consequences:",
+        "Rain audio snaps on and off at the kind boundary while the visuals crossfade.",
+        "`intensity || 0.6` turns a legitimate 0 intensity into 0.6.",
+        "`snow` and the storm thunder are boolean, so the muffle jumps from 18 kHz to 2.8 kHz in one step, and thunder is gated on `kind==='storm'` instead of `weather.storm > x`.",
+        "**The ambience boards contradict themselves.** In ambience-day_0700.png the sidebar says \"07:00\" but the big \"What you hear now\" panel says \"director mix at 05:10\". Likewise, the ambience-night 07:00 and 12:30 shots still show the 23:30 owl/cricket mix. The board is rendered once at stage time and never follows the clock.",
+        "Either re-render the mix when the clock or weather changes by more than a threshold, or label it explicitly as the preset snapshot.",
+        "The offline mix also omits the fog/snow muffle: amb-night-snow.png shows full energy up to 10 kHz in snow, which misrepresents what the game plays. Route the offline mix through `muffleCutoff(W)`."
+      ]
     },
     "effects": {
       "wave": 1,
@@ -137,5 +160,10 @@
     "rounds": [],
     "openIssues": []
   },
-  "log": []
+  "log": [
+    {
+      "t": "2026-09-26T16:07",
+      "event": "wave1 builders interrupted by API session rate limit; resumed with context. Checkpoint: ui failed in game mode, roads showcase stage error, others load with 0 errors."
+    }
+  ]
 }

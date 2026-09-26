@@ -194,7 +194,9 @@ export function createData(ctx) {
       const out = [];
       let bal = m, k = 0;
       const today = ctx.clock.day;
-      for (let d = 0; d < days; d++) {
+      const first = led.length ? Math.floor(num(led[led.length - 1].t) / DAY_SECONDS) - 1 : today - 1;
+      const span = Math.max(2, Math.min(days, today - first + 1));
+      for (let d = 0; d < span; d++) {
         const dayStart = (today - d) * DAY_SECONDS;
         out.push({ day: today - d, balance: bal });
         while (k < led.length && num(led[k].t) >= dayStart) { bal -= led[k].amount; k++; }
@@ -224,7 +226,7 @@ export function createData(ctx) {
         const pr = (ctx.world.economy && ctx.world.economy.prices) || {};
         ids = Object.keys(pr).filter((k) => k !== 'diesel');
         priceOf = (id) => { const v = fn(s, 'price') ? s.price(id) : undefined; return typeof v === 'number' ? v : num(pr[id], null); };
-        histOf = (id) => arr(fn(s, 'priceHistory') ? s.priceHistory(id) : []).map((h) => (typeof h === 'number' ? h : h && num(h.price != null ? h.price : h.value, NaN))).filter(Number.isFinite);
+        histOf = (id) => arr(fn(s, 'priceHistory') ? s.priceHistory(id) : []).map((h) => (typeof h === 'number' ? h : Array.isArray(h) ? num(h[1], NaN) : h && num(h.price != null ? h.price : h.value, NaN))).filter(Number.isFinite);
       } else {
         const x = S();
         if (!x) return [];

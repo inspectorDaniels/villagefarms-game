@@ -140,7 +140,7 @@ export async function init(ctx) {
 
   // ---------------------------------------------------------------- clock / weather / speed
   const clockEl = el('div', 'hv-clock', `
-    <div class="sec"><svg class="dial" viewBox="0 0 50 34"></svg><div><div class="time">07:00</div><div class="date"></div></div></div>
+    <div class="sec"><svg class="dial" viewBox="0 0 50 34"></svg><div><div class="time">07:00</div><div class="cdate"></div></div></div>
     <div class="sec wx"><span class="wi"></span><div><div class="temp hv-serif"></div><div class="wlabel"></div></div></div>
     <div class="sec"><div class="hv-speed">
       <button data-sp="0" title="Pause (Space)">${iconSvg('pause')}</button>
@@ -148,7 +148,7 @@ export async function init(ctx) {
       <button data-sp="3" title="Fast (+)">${iconSvg('fast')}3×</button>
       <button data-sp="10" title="Very fast (+)">${iconSvg('fastest')}10×</button></div></div>`);
   registerHud('ui:clock', { slot: 'top-center', order: -100, render: (n) => { n.style.padding = '0'; n.appendChild(clockEl); } });
-  const C = { dial: clockEl.querySelector('.dial'), time: clockEl.querySelector('.time'), date: clockEl.querySelector('.date'),
+  const C = { dial: clockEl.querySelector('.dial'), time: clockEl.querySelector('.time'), date: clockEl.querySelector(".cdate"),
     wi: clockEl.querySelector('.wi'), temp: clockEl.querySelector('.temp'), wl: clockEl.querySelector('.wlabel'), sig: '', spSig: '', dialSig: '' };
   clockEl.querySelectorAll('[data-sp]').forEach((b) => { b.onclick = safe('speed click', () => setSpeed(Number(b.dataset.sp))); });
 
@@ -224,16 +224,16 @@ export async function init(ctx) {
   // ---------------------------------------------------------------- minimap
   const mini = new Minimap(ctx, data, 184);
   const miniEl = el('div', 'hv-mini');
-  const frame = el('div', 'frame');
-  frame.appendChild(mini.canvas);
-  frame.appendChild(el('div', 'north', `${iconSvg('compass')}<span>N</span>`));
-  miniEl.appendChild(frame);
+  const mframe = el('div', 'frame');
+  mframe.appendChild(mini.canvas);
+  mframe.appendChild(el('div', 'north', `${iconSvg('compass')}<span>N</span>`));
+  miniEl.appendChild(mframe);
   const scaleM = 200, scalePx = Math.round((scaleM / W.bounds.w) * 184);
   miniEl.appendChild(el('div', 'cap', `<b>Harvest Valley</b><span style="display:flex;align-items:center;gap:5px;font-style:normal;font-size:10.5px">
     <i style="display:inline-block;width:${scalePx}px;height:5px;border:1.3px solid var(--ink2);border-top:0"></i>${scaleM} m</span>`));
   registerHud('ui:minimap', { slot: 'top-right', order: -100, render: (n) => { n.style.padding = '0'; n.appendChild(miniEl); } });
-  frame.onclick = safe('minimap click', (e) => {
-    const r = frame.getBoundingClientRect();
+  mframe.onclick = safe('minimap click', (e) => {
+    const r = mframe.getBoundingClientRect();
     const x = ((e.clientX - r.left) / r.width) * W.bounds.w, y = ((e.clientY - r.top) / r.height) * W.bounds.h;
     ctx.camera.follow(null);
     ctx.camera.set(x, y);
@@ -322,7 +322,7 @@ export async function init(ctx) {
     const cid = current.id;
     current = null;
     W.ui.openPanel = null;
-    if (!switching) { panelWrap.classList.remove('on'); panelWrap.innerHTML = ''; }
+    if (!switching) { panelWrap.classList.remove('on'); panelWrap.innerHTML = ''; ctx.input.uiCapturing = false; }
     if (spec.onClose) foreign(`panel ${cid} onClose`, spec.onClose);
     renderLauncher();
     emit('ui:panel-closed', { id: cid });
@@ -506,6 +506,7 @@ export async function init(ctx) {
         finish(v) {
           if (modal !== m) return;
           modal = null;
+          ctx.input.uiCapturing = false;
           back.classList.remove('on');
           setTimeout(() => back.remove(), 200);
           resolve(!!v);
@@ -644,6 +645,8 @@ export async function init(ctx) {
     invalidateMinimap: () => { mini.invalidate(); miniT = 1; },
     demoMoneyDelta: (d) => { const v = data.money(); if (v != null) { M.shown = v - d; M.target = v - d; } },
   };
+  renderTools();
+  renderChars();
   INSTANCE = { api, data, hooks, ctx };
   frame(0);
 
@@ -664,7 +667,7 @@ export async function init(ctx) {
 }
 
 export const showcase = {
-  deps: SOLO ? [] : ['simulation', 'environment', 'terrain', 'roads'],
+  deps: SOLO ? [] : ['simulation', 'environment', 'terrain'],
   presets: PRESETS,
   async stage(ctx, preset) {
     if (!INSTANCE) throw new Error('ui not initialised');

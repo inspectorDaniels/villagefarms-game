@@ -14,6 +14,31 @@ export function hash2(x, y, seed) {
   return (h >>> 0) / 4294967296;
 }
 
+/** signed distance (m, positive inside) to a paint op's shape */
+export function opSD(op, x, y) {
+  if (op.r) return op.r - Math.hypot(x - op.cx, y - op.cy);
+  const P = op.poly, n = P.length;
+  let best = 1e9, inside = false;
+  for (let i = 0, j = n - 2; i < n; j = i, i += 2) {
+    const ax = P[j], ay = P[j + 1], bx = P[i], by = P[i + 1];
+    if ((by > y) !== (ay > y) && x < ((ax - bx) * (y - by)) / (ay - by) + bx) inside = !inside;
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9;
+    let t = ((x - ax) * dx + (y - ay) * dy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const ex = ax + dx * t - x, ey = ay + dy * t - y, d = ex * ex + ey * ey;
+    if (d < best) best = d;
+  }
+  const d = Math.sqrt(best);
+  return inside ? d : -d;
+}
+/** surface code at an exact point (respects painted-shape edges) */
+export function codeAt(T, x, y) {
+  const W = T.w, ix = Math.max(0, Math.min(W - 1, Math.round(x))), iy = Math.max(0, Math.min(T.h - 1, Math.round(y)));
+  const o = iy * W + ix, pe = T.pedge[o];
+  if (!pe) return T.surface[o];
+  const op = T.ops[pe - 1];
+  return opSD(op, x, y) >= 0 ? op.code : T.prev[o];
+}
+
 // ---------------------------------------------------------------- looks (seasonal LUTs)
 function lum(c) { return c[0] * 0.3 + c[1] * 0.55 + c[2] * 0.15; }
 
@@ -45,9 +70,10 @@ export function makeLook(art, P, season, snow, wet) {
   sets[S.sand] = [shade(P.sand[1], -0.08), P.sand[1], P.sand[0], P.sand[2]];
   sets[S.gravel] = P.gravel;
   sets[S.rock] = P.rock;
-  sets[S.water] = [mix(P.sand[1], soil.moist, 0.55), mix(P.sand[1], P.mud, 0.35), mix(P.sand[0], P.mud, 0.2)];
-  sets[S.shallow] = [mix(P.sand[1], soil.moist, 0.35), mix(P.sand[1], P.mud, 0.2), P.sand[1]];
-  sets[S.mud] = [shade(P.mud, -0.2), P.mud, soil.wet, mix(P.mud, soil.moist, 0.5)];
+  // river/pond bed: wet sand (only visible through shallow water or where a bed cell sits at the waterline)
+  sets[S.water] = [mix(P.sand[1], soil.moist, 0.3), mix(P.sand[1], P.mud, 0.2), P.sand[1]];
+  sets[S.shallow] = [mix(P.sand[1], soil.moist, 0.25), mix(P.sand[1], P.mud, 0.15), P.sand[1], P.sand[0]];
+  sets[S.mud] = [mix(P.mud, P.sand[1], 0.2), mix(soil.moist, P.sand[1], 0.3), mix(P.mud, P.sand[1], 0.45), mix(soil.wet, P.sand[0], 0.5)];
   sets[S.farmyard] = [mix(soil.dry, P.gravel[3], 0.45), mix(soil.dry, P.sand[1], 0.45), mix(soil.clay, P.gravel[2], 0.5), mix(soil.dry, P.gravel[0], 0.3)];
   sets[S.forestFloor] = season === 'autumn'
     ? [shade(soil.moist, -0.15), mix(fol[2], soil.moist, 0.45), mix(fol[0], soil.dry, 0.35), mix(fol[3], soil.moist, 0.3)]
@@ -59,6 +85,8 @@ export function makeLook(art, P, season, snow, wet) {
   const snowC = grad(P.snow);
   const moistC = rgb(shade(mix(gr[2], P.conifer[0], 0.25), -0.12));
   const dryC = rgb(season === 'winter' ? gr[3] : mix(meadowBase[3], P.sand[1], 0.35));
+  const warmC = rgb(mix(gr[3], meadowBase[3], 0.6));
+  const coolC = rgb(mix(gr[2], P.conifer[3], 0.45));
   const flowers = { spring: 1, summer: 0.75, autumn: 0.12, winter: 0 }[season];
   const flowerCols = (season === 'autumn' ? [P.flowers[0], P.flowers[3], P.flowers[2]] : P.flowers).map(rgb);
   const veg = new Float32Array(NSURF);
@@ -67,7 +95,7 @@ export function makeLook(art, P, season, snow, wet) {
   for (const k of ['soil', 'ploughed', 'mud', 'farmyard', 'sand', 'gravel']) soilLike[S[k]] = 1;
   soilLike[S.rock] = 0.5; soilLike[S.forestFloor] = 0.6;
   return {
-    sig: `${season}|${snow}|${wet}`, season, snow, wet, lut, water, snowC, moistC, dryC, flowers, flowerCols, veg, soilLike,
+    sig: `${season}|${snow}|${wet}`, season, snow, wet, lut, water, snowC, moistC, dryC, warmC, coolC, flowers, flowerCols, veg, soilLike,
     foam: rgb(W.foam), sets,
   };
 }
@@ -78,23 +106,23 @@ export function makeLook(art, P, season, snow, wet) {
  * (ox + (i+0.5)/ppm, oy + (j+0.5)/ppm).
  */
 export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
-  const W = T.w, H = T.h, height = T.height, wlA = T.waterLevel, shA = T.shade, moA = T.moisture, surf = T.surface, aux = T.aux;
+  const uniA = T.uni, pedge = T.pedge, prevA = T.prev, ops = T.ops, W = T.w, H = T.h, height = T.height, wlA = T.waterLevel, shA = T.shade, moA = T.moisture, surf = T.surface, aux = T.aux;
   const lut = look.lut, wlut = look.water, snowC = look.snowC, veg = look.veg, soilLike = look.soilLike;
-  const moist = look.moistC, dry = look.dryC, foam = look.foam;
+  const moist = look.moistC, dry = look.dryC, foam = look.foam, warmC = look.warmC, coolC = look.coolC;
   const snow = look.snow, wet = look.wet;
   const nWarp = NZ.warp, nV = NZ.v, nMid = NZ.mid, nStreak = NZ.streak, nCrack = NZ.crack;
   const inv = 1 / ppm;
-  const warpAmp = Math.min(0.8, 0.35 + 2.4 / ppm);
+  const warpAmp = 0.8;
   const flowerD = look.flowers * (specks ? 1 : 0);
   const fc = look.flowerCols, nfc = fc.length;
   const LS = LUTN * 3;
   const wA = [0, 0, 0, 0], cA = [0, 0, 0, 0];
   // low-frequency noise on a coarse lattice (0.5 m), bilinear per pixel → ~4x cheaper shading
-  const gs = Math.max(inv, 0.5), ginv = 1 / gs;
+  const gs = Math.max(inv, Math.min(1, Math.max(0.5, 4 * inv))), ginv = 1 / gs;
   const gx0 = ox, gy0 = oy + (r0 + 0.5) * inv - gs;
   const gw = Math.ceil((pw * inv) / gs) + 3, gh = Math.ceil(((r1 - r0) * inv) / gs) + 3;
   const gn = gw * gh;
-  const GW1 = new Float32Array(gn), GW2 = new Float32Array(gn), GV = new Float32Array(gn), GM = new Float32Array(gn), GS = new Float32Array(gn);
+  const GW1 = new Float32Array(gn), GW2 = new Float32Array(gn), GV = new Float32Array(gn), GM = new Float32Array(gn), GS = new Float32Array(gn), GT = new Float32Array(gn);
   for (let gj = 0; gj < gh; gj++) {
     const yy = gy0 + gj * gs;
     for (let gi = 0; gi < gw; gi++) {
@@ -102,6 +130,7 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
       GW1[k] = nWarp.at(xx * 0.33, yy * 0.33); GW2[k] = nWarp.at(xx * 0.33 + 31.7, yy * 0.33 - 12.3);
       GV[k] = nV.fbm(xx * 0.085, yy * 0.085, 2); GM[k] = nMid.at(xx * 0.6, yy * 0.6);
       GS[k] = snow > 0 ? nWarp.at(xx * 0.21 + 50, yy * 0.21) : 0;
+      GT[k] = nV.fbm(xx * 0.0075 + 13.1, yy * 0.0075 - 7.7, 2);
     }
   }
   for (let j = r0; j < r1; j++) {
@@ -123,20 +152,8 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
       const mo = moA[o] * a00 + moA[o + 1] * a10 + moA[o + W] * a01 + moA[o + W + 1] * a11;
       const gxi = Math.floor(wx * ppm);
       const hr = hash2(gxi, gyi, 7331);
-      // warped, jittered surface lookup → soft organic boundaries
       const gfx = (wx - gx0) * ginv, gxI = gfx | 0, gtx = gfx - gxI, gk = gyI * gw + gxI;
       const b00 = (1 - gtx) * (1 - gty), b10 = gtx * (1 - gty), b01 = (1 - gtx) * gty, b11 = gtx * gty;
-      const wn1 = GW1[gk] * b00 + GW1[gk + 1] * b10 + GW1[gk + gw] * b01 + GW1[gk + gw + 1] * b11;
-      const wn2 = GW2[gk] * b00 + GW2[gk + 1] * b10 + GW2[gk + gw] * b01 + GW2[gk + gw + 1] * b11;
-      const sx = clamp(wx + wn1 * warpAmp + (hr - 0.5) * 0.3, 0, W - 1.001);
-      const sy = clamp(wy + wn2 * warpAmp + (hash2(gyi, gxi, 911) - 0.5) * 0.3, 0, H - 1.001);
-      const jx = sx | 0, jy = sy | 0;
-      let ux = sx - jx, uy = sy - jy;
-      ux = clamp((ux - 0.5) * 2.2 + 0.5, 0, 1); uy = clamp((uy - 0.5) * 2.2 + 0.5, 0, 1);
-      const q = jy * W + jx;
-      cA[0] = surf[q]; cA[1] = surf[q + 1]; cA[2] = surf[q + W]; cA[3] = surf[q + W + 1];
-      wA[0] = (1 - ux) * (1 - uy); wA[1] = ux * (1 - uy); wA[2] = (1 - ux) * uy; wA[3] = ux * uy;
-      // painterly value field: broad patches + mottling, softly posterised
       let v = 0.5 + 0.5 * (GV[gk] * b00 + GV[gk + 1] * b10 + GV[gk + gw] * b01 + GV[gk + gw + 1] * b11);
       const mid = GM[gk] * b00 + GM[gk + 1] * b10 + GM[gk + gw] * b01 + GM[gk + gw + 1] * b11;
       v += mid * 0.17;
@@ -144,7 +161,41 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
       let fr = qv - fl; fr = clamp((fr - 0.5) * 2.6 + 0.5, 0, 1);
       v = (fl + fr) / 5;
       const vi = clamp(v * 63, 0, 63) | 0;
-      let r = 0, g = 0, b = 0, vg = 0, sl = 0, dom = cA[0], dw = 0;
+      let r = 0, g = 0, b = 0, vg = 0, sl = 0, dom = 0, auxv = aux[o];
+      const wn1 = GW1[gk] * b00 + GW1[gk + 1] * b10 + GW1[gk + gw] * b01 + GW1[gk + gw + 1] * b11;
+      const pe = pedge[o];
+      if (pe) {
+        // painted shape edge: crisp, slightly hand-wobbled anti-aliased boundary
+        const op = ops[pe - 1];
+        const wn2 = GW2[gk] * b00 + GW2[gk + 1] * b10 + GW2[gk + gw] * b01 + GW2[gk + gw + 1] * b11;
+        const sd = opSD(op, wx + wn1 * 0.16, wy + wn2 * 0.16) + (hr - 0.5) * 0.05;
+        const t = smooth(-0.06, 0.06, sd);
+        const qn = Math.round(fy) * W + Math.round(fx);
+        const cIn = op.code, cOut = prevA[qn];
+        const bi = cIn * LS + vi * 3, bo = cOut * LS + vi * 3;
+        r = lut[bo] + (lut[bi] - lut[bo]) * t; g = lut[bo + 1] + (lut[bi + 1] - lut[bo + 1]) * t; b = lut[bo + 2] + (lut[bi + 2] - lut[bo + 2]) * t;
+        vg = veg[cOut] + (veg[cIn] - veg[cOut]) * t; sl = soilLike[cOut] + (soilLike[cIn] - soilLike[cOut]) * t;
+        dom = t > 0.5 ? cIn : cOut; auxv = t > 0.5 ? op.aux : aux[qn];
+        // raised soil lip along cultivated edges
+        if (sl > 0.5 && t > 0.3 && t < 1) { const e = 1 - Math.abs(sd) / 0.35; if (e > 0) { r *= 1 - e * 0.12; g *= 1 - e * 0.12; b *= 1 - e * 0.1; } }
+      } else if (uniA[o]) {
+        // fast path: one surface in the neighbourhood
+        dom = surf[o];
+        const base = dom * LS + vi * 3;
+        r = lut[base]; g = lut[base + 1]; b = lut[base + 2]; vg = veg[dom]; sl = soilLike[dom];
+      } else {
+      // warped, jittered surface lookup → soft organic boundaries
+      const wn2 = GW2[gk] * b00 + GW2[gk + 1] * b10 + GW2[gk + gw] * b01 + GW2[gk + gw + 1] * b11;
+      const sx = clamp(wx + wn1 * warpAmp + (hr - 0.5) * 0.24, 0, W - 1.001);
+      const sy = clamp(wy + wn2 * warpAmp + ((hr * 7.31) % 1 - 0.5) * 0.24, 0, H - 1.001);
+      const jx = sx | 0, jy = sy | 0;
+      let ux = sx - jx, uy = sy - jy;
+      ux = clamp((ux - 0.5) * 1.7 + 0.5, 0, 1); uy = clamp((uy - 0.5) * 1.7 + 0.5, 0, 1);
+      const q = jy * W + jx;
+      auxv = aux[q];
+      cA[0] = surf[q]; cA[1] = surf[q + 1]; cA[2] = surf[q + W]; cA[3] = surf[q + W + 1];
+      wA[0] = (1 - ux) * (1 - uy); wA[1] = ux * (1 - uy); wA[2] = (1 - ux) * uy; wA[3] = ux * uy;
+      dom = cA[0]; let dw = 0;
       for (let k = 0; k < 4; k++) {
         const wk = wA[k];
         if (wk <= 0) continue;
@@ -153,23 +204,26 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
         vg += veg[c] * wk; sl += soilLike[c] * wk;
         if (wk > dw) { dw = wk; dom = c; }
       }
-      // moisture / dryness tint for vegetation
+      }
+      // moisture / dryness tint for vegetation, plus a slow macro hue drift across the valley
       if (vg > 0) {
+        const mt = (GT[gk] * b00 + GT[gk + 1] * b10 + GT[gk + gw] * b01 + GT[gk + gw + 1] * b11) * 0.55 * vg;
+        if (mt > 0) { r += (warmC[0] - r) * mt; g += (warmC[1] - g) * mt; b += (warmC[2] - b) * mt; }
+        else { r += (coolC[0] - r) * -mt; g += (coolC[1] - g) * -mt; b += (coolC[2] - b) * -mt; }
         const km = clamp((mo - 0.45) * 0.7, 0, 0.35) * vg, kd = clamp((0.38 - mo) * 0.6 + sh * 0.5, 0, 0.22) * vg;
         r += (moist[0] - r) * km + (dry[0] - r) * kd; g += (moist[1] - g) * km + (dry[1] - g) * kd; b += (moist[2] - b) * km + (dry[2] - b) * kd;
       }
       // surface-specific texture
       let m = 1;
       if (dom === S.ploughed) {
-        const a = aux[q] * (Math.PI / 255);
+        const a = auxv * (Math.PI / 255);
         const pr = wx * Math.cos(a) + wy * Math.sin(a) + mid * 0.08;
         const st = Math.sin(pr * 7.85);
         m = 0.8 + 0.24 * (0.5 + 0.5 * st) + (hr - 0.5) * 0.1;
       } else if (dom === S.soil || dom === S.farmyard) {
         m = 1 + nStreak.at(wx * 2.6, wy * 2.6) * 0.07 + (hr - 0.5) * 0.08;
       } else if (dom === S.gravel) {
-        const pb = hash2(Math.floor(wx * 9), Math.floor(wy * 9), 51);
-        m = 0.82 + 0.34 * pb;
+        m = 0.94 + nStreak.at(wx * 3.1, wy * 3.1) * 0.12 + nCrack.at(wx * 1.3, wy * 1.3) * 0.06 + (hr - 0.5) * 0.08;
       } else if (dom === S.rock) {
         const cr = Math.abs(nCrack.at(wx * 0.8, wy * 0.8)) + Math.abs(nCrack.at(wx * 2.1 + 9, wy * 2.1)) * 0.35;
         m = cr < 0.05 ? 0.7 : cr < 0.09 ? 0.86 : 1.02 + mid * 0.05;
@@ -260,23 +314,25 @@ export function makeDecals(art, P) {
     tuft(season, v, tall) {
       return sp(`tuft:${season}:${tall ? 't' : 's'}:${v}`, tall ? 1.15 : 0.8, (g, w, h, rng) => {
         const cols = sorted(P.grass[season]);
-        const cx = w / 2, cy = h / 2;
-        ao(g, cx, cy, w * 0.26, 0.22);
-        const n = tall ? 16 : 11;
-        const L = w * 0.45;
-        const dark = shade(cols[0], -0.25);
+        const cx = w / 2, cy = h * 0.62;
+        ao(g, cx, cy, w * 0.2, 0.13);
+        const n = tall ? 12 : 8;
+        const L = h * (tall ? 0.5 : 0.42);
+        const dark = shade(cols[0], -0.12);
+        g.globalAlpha = 0.85;
         for (let k = 0; k < n; k++) {
-          const ang = rng.float() * Math.PI * 2, len = L * rng.range(0.55, 1);
-          blade(g, cx + rng.range(-1, 1), cy + rng.range(-1, 1), ang, len, rng.range(-3, 3), rng.range(1.2, 2.1), mix(dark, cols[rng.int(0, 1)], rng.float()));
+          const ang = -Math.PI / 2 + rng.range(-0.75, 0.75), len = L * rng.range(0.5, 1);
+          blade(g, cx + rng.range(-w * 0.14, w * 0.14), cy + rng.range(-1, 2), ang, len, rng.range(-2.5, 2.5), rng.range(1.1, 1.8), mix(dark, cols[rng.int(0, 2)], rng.float()));
         }
-        for (let k = 0; k < n * 0.7; k++) {
-          const ang = rng.float() * Math.PI * 2, len = L * rng.range(0.35, 0.8);
-          blade(g, cx, cy, ang, len, rng.range(-2.5, 2.5), rng.range(0.9, 1.6), cols[rng.int(2, 3)]);
+        for (let k = 0; k < n * 0.6; k++) {
+          const ang = -Math.PI / 2 + rng.range(-0.6, 0.6), len = L * rng.range(0.35, 0.75);
+          blade(g, cx + rng.range(-w * 0.1, w * 0.1), cy, ang, len, rng.range(-2, 2), rng.range(0.8, 1.3), cols[rng.int(2, 3)]);
         }
+        g.globalAlpha = 1;
         if (tall && season !== 'winter') {
           const seedC = season === 'spring' ? mix(cols[3], P.flowers[2], 0.3) : mix(P.sand[0], cols[3], 0.3);
           for (let k = 0; k < 3; k++) {
-            const ang = rng.float() * Math.PI * 2, len = L * rng.range(0.8, 1);
+            const ang = -Math.PI / 2 + rng.range(-0.7, 0.7), len = L * rng.range(0.85, 1.05);
             g.fillStyle = seedC; g.globalAlpha = 0.85;
             g.beginPath(); g.ellipse(cx + Math.cos(ang) * len, cy + Math.sin(ang) * len, 2.4, 1.2, ang, 0, Math.PI * 2); g.fill();
             g.globalAlpha = 1;
@@ -332,10 +388,10 @@ export function makeDecals(art, P) {
         ao(g, 0, 0, rx * 1.35, 0.25);
         g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, 6.28);
         g.fillStyle = col; g.fill();
-        const gr = g.createRadialGradient(0, -ry * 0.1, 0, 0, 0, rx);
-        gr.addColorStop(0, 'rgba(255,250,235,0.3)'); gr.addColorStop(1, 'rgba(255,250,235,0)');
+        const gr = g.createRadialGradient(0, -ry * 0.15, 0, 0, 0, rx);
+        gr.addColorStop(0, rgba(shade(col, 0.35), 0.7)); gr.addColorStop(0.7, rgba(col, 0)); gr.addColorStop(1, rgba(shade(col, -0.3), 0.5));
         g.fillStyle = gr; g.fill();
-        g.strokeStyle = rgba(outline(col), 0.55); g.lineWidth = 0.8; g.stroke();
+        g.strokeStyle = rgba(outline(col), 0.3); g.lineWidth = 0.6; g.stroke();
         g.restore();
       });
     },
@@ -404,15 +460,15 @@ export function makeDecals(art, P) {
           : season === 'autumn' ? [mix(P.water.reed, P.roof.thatch[0], 0.45), P.water.reed, mix(P.water.reed, P.foliage.autumn[3], 0.3)]
             : [shade(P.water.reed, -0.2), P.water.reed, mix(P.water.reed, P.foliage[season][1], 0.5)];
         const cx = w / 2, cy = h / 2;
-        ao(g, cx, cy, w * 0.22, 0.3);
-        const n = 22;
+        ao(g, cx, cy, w * 0.25, 0.28);
+        const n = 34;
         for (let k = 0; k < n; k++) {
-          const a = rng.float() * 6.28, L = w * rng.range(0.22, 0.48);
-          blade(g, cx + rng.range(-2, 2), cy + rng.range(-2, 2), a, L, rng.range(-5, 5), rng.range(1.3, 2.2), base[rng.int(0, 2)]);
+          const a = rng.float() * 6.28, L = w * rng.range(0.25, 0.48);
+          blade(g, cx + rng.range(-3, 3), cy + rng.range(-3, 3), a, L, rng.range(-6, 6), rng.range(1.8, 3), base[rng.int(0, 2)]);
         }
-        for (let k = 0; k < 10; k++) {
-          const a = rng.float() * 6.28, L = w * rng.range(0.12, 0.3);
-          blade(g, cx, cy, a, L, rng.range(-3, 3), 1.2, shade(base[2], 0.15));
+        for (let k = 0; k < 16; k++) {
+          const a = rng.float() * 6.28, L = w * rng.range(0.15, 0.34);
+          blade(g, cx + rng.range(-2, 2), cy + rng.range(-2, 2), a, L, rng.range(-3, 3), rng.range(1.2, 2), shade(base[2], 0.22));
         }
         const heads = rng.int(1, 3);
         for (let k = 0; k < heads; k++) {
@@ -453,4 +509,35 @@ export function makeDecals(art, P) {
     },
   };
   return D;
+}
+
+/**
+ * JIT warm-up: run the shader over a tiny synthetic terrain that exercises every surface /
+ * water / snow / speck branch, so V8 optimises shadeRows once with complete type feedback
+ * (otherwise each newly-seen branch in a real tile causes a soft deopt + ~50 ms recompile).
+ */
+export function warmShader(looks, NZ) {
+  const W = 24, H = 24, N = W * H;
+  const T = { w: W, h: H, height: new Float32Array(N), waterLevel: new Float32Array(N), shade: new Float32Array(N), moisture: new Float32Array(N), surface: new Uint8Array(N), aux: new Uint8Array(N), uni: new Uint8Array(N), pedge: new Uint16Array(N), prev: new Uint8Array(N), ops: [{ code: 3, aux: 40, poly: [2, 2, 12, 3, 11, 12, 3, 10] }, { code: 10, aux: 0, cx: 16, cy: 16, r: 4 }] };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const o = y * W + x;
+    T.height[o] = 5 + ((x * 7 + y * 3) % 5) * 0.3;
+    T.waterLevel[o] = x < 8 ? 6 + (y % 4) * 0.4 : x < 10 ? 5.2 : NO_WATER;
+    T.shade[o] = ((x + y) % 7 - 3) * 0.04;
+    T.moisture[o] = (y % 10) / 10;
+    T.surface[o] = (x + y * 3) % NSURF;
+    T.aux[o] = (x * 37 + y * 11) & 255;
+    T.uni[o] = (x + y) % 3 === 0 ? 1 : 0;
+    T.pedge[o] = (x * 5 + y) % 4 === 0 ? 1 + ((x + y) & 1) : 0;
+    T.prev[o] = (x + y) % NSURF;
+  }
+  const data = new Uint8ClampedArray(64 * 64 * 4);
+  for (let rep = 0; rep < 3; rep++) {
+    for (const look of looks) {
+      for (const ppm of [1, 2, 8, 16]) {
+        const pw = Math.min(64, Math.floor(20 * ppm));
+        shadeRows(T, look, NZ, data, pw, 1, 1, ppm, 0, Math.min(64, pw), ppm < 16);
+      }
+    }
+  }
 }

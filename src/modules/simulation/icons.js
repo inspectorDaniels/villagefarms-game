@@ -43,6 +43,19 @@ export function drawIcon(P, g, art, type, x, y, s, rng) {
       }
       break;
     }
+    case 'lift': { // root crop: beet / potatoes with leaves, soil clods
+      wash(() => { g.beginPath(); g.ellipse(32, 54, 26, 7, 0, 0, 7); }, '#6e5238', 0.55);
+      for (const [bx, by, r] of [[22, 38, 10], [42, 42, 8]]) {
+        for (let k = -1; k <= 1; k++) {
+          wash(() => { g.beginPath(); g.ellipse(bx + k * 5, by - r - 9, 4, 9, k * 0.5, 0, 7); }, '#5f8f38', 0.85);
+          stroke(() => { g.beginPath(); g.moveTo(bx, by - r + 2); g.lineTo(bx + k * 7, by - r - 15); }, 1, '#3f6b27', 0.8);
+        }
+        wash(() => { g.beginPath(); g.moveTo(bx - r, by - r * 0.4); g.quadraticCurveTo(bx, by - r * 1.3, bx + r, by - r * 0.4); g.quadraticCurveTo(bx + r * 0.6, by + r * 0.9, bx, by + r * 1.5); g.quadraticCurveTo(bx - r * 0.6, by + r * 0.9, bx - r, by - r * 0.4); }, '#efe3cf', 0.95);
+        stroke(() => { g.beginPath(); g.moveTo(bx - r, by - r * 0.4); g.quadraticCurveTo(bx, by - r * 1.3, bx + r, by - r * 0.4); g.quadraticCurveTo(bx + r * 0.6, by + r * 0.9, bx, by + r * 1.5); g.quadraticCurveTo(bx - r * 0.6, by + r * 0.9, bx - r, by - r * 0.4); }, 1.5);
+        stroke(() => { g.beginPath(); g.moveTo(bx - r * 0.4, by); g.lineTo(bx - r * 0.1, by + 1); g.moveTo(bx + r * 0.2, by + r * 0.5); g.lineTo(bx + r * 0.45, by + r * 0.45); }, 0.9, '#8a6440', 0.6);
+      }
+      break;
+    }
     case 'mow': {
       for (let i = 0; i < 9; i++) stroke(() => { g.beginPath(); g.moveTo(6 + i * 6, 58); g.quadraticCurveTo(4 + i * 6 + (i % 2 ? 4 : -3), 46, 7 + i * 6, 34 + (i % 3) * 4); }, 1.8, '#5f8f38', 0.9);
       stroke(() => { g.beginPath(); g.moveTo(14, 6); g.lineTo(34, 50); }, 2.6, '#8a6440');

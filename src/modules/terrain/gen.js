@@ -144,7 +144,7 @@ export function generateData(ctx, opts = {}) {
       } else { d = 1e6; s = 0; }
       riverD[o] = d;
       // wobble the channel so banks are not parallel to the centreline (no "canal" look)
-      if (d < 40) d += 1.7 * nRiv.at(x / 11 + 3.3, y / 11 - 8.1) + 0.7 * nRiv.at(x / 3.7, y / 3.7 + 20);
+      if (d < 40) d += 1.9 * nRiv.at(x / 13 + 3.3, y / 13 - 8.1) + 0.45 * nRiv.at(x / 6, y / 6 + 20);
       const hills = 0.5 + 0.5 * bl(hillsC, x, y);
       const detail = nDet.fbm(x / 95, y / 95, 3);
       const above = 3 + 24 * Math.pow(hills, 1.25) + 7 * (1 - y / H) + 3.2 * detail;
@@ -212,10 +212,16 @@ export function generateData(ctx, opts = {}) {
     const R = 26 + rng.float() * 12;
     const ph = rng.float() * 10;
     const radAt = (ang) => R * (1 + 0.22 * nMisc.at(Math.cos(ang) * 1.3 + ph, Math.sin(ang) * 1.3) + 0.08 * nMisc.at(Math.cos(ang) * 3 + ph, Math.sin(ang) * 3 + 5));
-    const level = best.hmin - 0.6;
     const ring = 26;
     const x0 = Math.max(0, Math.floor(best.x - R * 1.6 - ring)), x1 = Math.min(W - 1, Math.ceil(best.x + R * 1.6 + ring));
     const y0 = Math.max(0, Math.floor(best.y - R * 1.6 - ring)), y1 = Math.min(H - 1, Math.ceil(best.y + R * 1.6 + ring));
+    // level below the lowest ground on the whole shore annulus → the basin always holds its water, no dams/creases
+    let annMin = 1e9;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const dx = x - best.x, dy = y - best.y, edge = Math.hypot(dx, dy) - radAt(Math.atan2(dy, dx));
+      if (edge >= 0 && edge < ring) annMin = Math.min(annMin, height[y * W + x]);
+    }
+    const level = annMin - 0.7;
     const depth = 2.4 + rng.float() * 0.8;
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
       const o = y * W + x;
@@ -228,8 +234,8 @@ export function generateData(ctx, opts = {}) {
         waterLevel[o] = level; flags[o] |= F_LAKE;
       } else if (edge < ring) {
         const k = smooth(0, ring, edge);
-        const shore = level - 0.25 + Math.min(1, edge / 2.2) * 0.65;
-        height[o] = Math.max(lerp(shore, height[o], k), level - 0.25 + Math.min(edge, 6) * 0.12);
+        const shore = level - 0.25 + Math.min(1, edge / 3) * 0.75 + Math.max(0, edge - 3) * 0.04;
+        height[o] = lerp(shore, height[o], k);
         if (edge < 8) { waterLevel[o] = level; flags[o] |= F_LAKE; }
       }
     }
@@ -250,10 +256,12 @@ export function generateData(ctx, opts = {}) {
     riverInfo.push({ id: 'terrain:river0', points: out, pts: rPts, cum: rCum, length: rLen, levelTop: RIVER_TOP, levelBottom: RIVER_TOP - RIVER_DROP });
   }
 
-  const T = { w: W, h: H, height, surface, moisture, waterLevel, flags, aux, rockW, riverD, shade: new Float32Array(N), painted: new Uint8Array(N), rivers, riverInfo, lakes, reeds: [] };
+  const T = { w: W, h: H, height, surface, moisture, waterLevel, flags, aux, rockW, riverD, shade: new Float32Array(N), painted: new Uint8Array(N), pedge: new Uint16Array(N), prev: new Uint8Array(N), ops: [], rivers, riverInfo, lakes, reeds: [] };
   Object.defineProperty(T, '_cls', { value: { nMask, nMisc, forestC, meadowC, bl }, enumerable: false });
   classify(T, ctx, 0, 0, W - 1, H - 1, nMask, nMisc, forestC, meadowC, bl);
   computeShade(T, 0, 0, W - 1, H - 1);
+  T.uni = new Uint8Array(N);
+  computeUniform(T, 0, 0, W - 1, H - 1);
   placeReeds(T, ctx);
   return T;
 }
@@ -338,7 +346,7 @@ export function computeShade(T, x0, y0, x1, y1) {
     const c12 = (at(x - 12, y) + at(x + 12, y) + at(x, y - 12) + at(x, y + 12)) * 0.25 - h;
     const gx = at(x + 1, y) - at(x - 1, y), gy = at(x, y + 1) - at(x, y - 1);
     const slope = Math.sqrt(gx * gx + gy * gy) * 0.5;
-    shade[y * W + x] = clamp(-c4 * 0.09 - c12 * 0.035 - slope * 0.18, -0.2, 0.16);
+    shade[y * W + x] = clamp(-c4 * 0.12 - c12 * 0.055 - slope * 0.3, -0.24, 0.18);
   }
 }
 
@@ -365,3 +373,14 @@ function placeReeds(T, ctx) {
 }
 
 export function rebuildReeds(T, ctx) { placeReeds(T, ctx); }
+
+/** uni[o] = 1 when the 4x4 node block (ix-1..ix+2, iy-1..iy+2) has one surface code → shader fast path */
+export function computeUniform(T, x0, y0, x1, y1) {
+  const { w: W, h: H, surface, uni } = T;
+  for (let y = Math.max(0, y0); y <= Math.min(H - 1, y1); y++) for (let x = Math.max(0, x0); x <= Math.min(W - 1, x1); x++) {
+    const c = surface[y * W + x];
+    let u = 1;
+    for (let yy = Math.max(0, y - 1); yy <= Math.min(H - 1, y + 2) && u; yy++) for (let xx = Math.max(0, x - 1); xx <= Math.min(W - 1, x + 2); xx++) if (surface[yy * W + xx] !== c) { u = 0; break; }
+    uni[y * W + x] = u;
+  }
+}

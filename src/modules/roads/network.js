@@ -312,12 +312,15 @@ export function cornerCurve(J, ci, k) {
 
 export function junctionPoly(J, k) {
   const out = [];
-  for (let ci = 0; ci < J.corners.length; ci++) {
+  const n = J.corners.length;
+  const K = (ci) => (typeof k === 'function' ? k(J.corners[(ci + n) % n], J) : k);
+  for (let ci = 0; ci < n; ci++) {
     const c = J.corners[ci];
     const A = J.arms[c.i];
     const mA = [A.d[1], -A.d[0]];
-    out.push([J.x + A.d[0] * A.s + mA[0] * (A.hw + k), J.y + A.d[1] * A.s + mA[1] * (A.hw + k)]);
-    for (const p of cornerCurve(J, ci, k)) out.push(p);
+    const kp = K(ci - 1);
+    out.push([J.x + A.d[0] * A.s + mA[0] * (A.hw + kp), J.y + A.d[1] * A.s + mA[1] * (A.hw + kp)]);
+    for (const p of cornerCurve(J, ci, K(ci))) out.push(p);
   }
   return out;
 }

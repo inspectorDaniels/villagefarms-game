@@ -81,8 +81,8 @@ export function createSprites(art, palette) {
       const len = rng.range(10, 14);
       const c = cols[variant % cols.length];
       g.lineCap = 'round';
-      g.strokeStyle = art.rgba(art.outline(c), 0.55);
-      g.lineWidth = 3.4;
+      g.strokeStyle = art.rgba(art.outline(c), 0.8);
+      g.lineWidth = 3.8;
       g.beginPath(); g.moveTo(-len, rng.range(-2, 2)); g.quadraticCurveTo(0, rng.range(-4, 4), len, rng.range(-2, 2)); g.stroke();
       g.strokeStyle = c;
       g.lineWidth = 2.2;
@@ -333,28 +333,36 @@ export function createSprites(art, palette) {
     });
   }
   function puddle(variant) {
-    return reg(`d:puddle:${variant}`, 96, 96, (g, w, h, rng) => {
-      const cx = w / 2, cy = h / 2, r = w * 0.4;
-      // wet dark rim
-      art.blobPath(g, cx, cy, r * 1.08, rng.fork('rim'), 0.2, 7);
-      g.fillStyle = 'rgba(46,36,26,0.42)'; g.fill();
-      art.blobPath(g, cx, cy, r, rng.fork('w'), 0.2, 7);
-      const gr = g.createRadialGradient(cx - r * 0.2, cy - r * 0.25, r * 0.1, cx, cy, r);
-      gr.addColorStop(0, '#d2e0e2');
-      gr.addColorStop(0.45, '#a3bcc4');
-      gr.addColorStop(0.85, '#6f8c98');
-      gr.addColorStop(1, '#55707c');
+    return reg(`d:puddle:${variant}`, 128, 96, (g, w, h, rng) => {
+      const cx = w / 2, cy = h / 2;
+      g.save(); g.translate(cx, cy); g.scale(1, h / w); g.translate(-cx, -cy);
+      const r = w * 0.4;
+      // darkened wet soil halo
+      const halo = g.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 1.25);
+      halo.addColorStop(0, 'rgba(40,30,22,0.55)'); halo.addColorStop(1, 'rgba(40,30,22,0)');
+      g.fillStyle = halo; g.fillRect(0, 0, w, w);
+      const shape = rng.fork('w');
+      const path = () => art.blobPath(g, cx, cy, r, shape.fork('p'), 0.26, 4);
+      path();
+      const gr = g.createRadialGradient(cx - r * 0.15, cy - r * 0.1, r * 0.1, cx, cy, r * 1.05);
+      gr.addColorStop(0, '#b4c6ce');
+      gr.addColorStop(0.55, '#8ea6b2');
+      gr.addColorStop(1, '#4f6674');
       g.fillStyle = gr; g.fill();
       g.save(); g.clip();
-      // sky reflection streaks
-      g.strokeStyle = 'rgba(248,252,250,0.6)'; g.lineWidth = 2.6; g.lineCap = 'round';
-      for (let i = 0; i < 3; i++) {
-        const y = cy - r * 0.5 + i * r * 0.28 + rng.range(-3, 3);
-        g.beginPath(); g.moveTo(cx - r * 0.5 + rng.range(-6, 6), y); g.lineTo(cx + r * 0.2 + rng.range(-6, 6), y - 3); g.stroke();
+      // soft cloud reflections + a couple of sky glints
+      art.dabs(g, rng, 14, cx - r, cy - r, r * 2, r * 2, ['#dfe9ec', '#9fb4be', '#c7d6dc'], r * 0.12, r * 0.28, 0.3);
+      g.strokeStyle = 'rgba(250,252,250,0.45)'; g.lineCap = 'round';
+      for (let i = 0; i < 2; i++) {
+        g.lineWidth = rng.range(1.5, 2.5);
+        const y = cy - r * 0.25 + i * r * 0.35 + rng.range(-3, 3);
+        g.beginPath(); g.moveTo(cx - r * 0.4 + rng.range(-6, 6), y); g.lineTo(cx + r * 0.1 + rng.range(-6, 6), y - 2); g.stroke();
       }
+      // water meets mud: soft darker inner edge, no hard outline
+      g.lineWidth = 9; g.strokeStyle = 'rgba(48,40,32,0.28)'; path(); g.stroke();
+      g.lineWidth = 3; g.strokeStyle = 'rgba(40,32,24,0.35)'; path(); g.stroke();
       g.restore();
-      art.blobPath(g, cx, cy, r, rng.fork('w'), 0.2, 7);
-      g.strokeStyle = 'rgba(58,48,36,0.55)'; g.lineWidth = 2; g.stroke();
+      g.restore();
     });
   }
   function scorch(variant) {

@@ -57,7 +57,7 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
       case 'tyre': img = sprites.tyreStamp(v % 2); w = o.width || 0.5; h = o.length || w * 2; break;
       case 'footprint': img = sprites.footprint(v % 3); w = (o.size || 1) * 0.55; h = w * 1.5; break;
       case 'hoofprint': img = sprites.hoofprint(v % 3); w = (o.size || 1) * 0.22; h = w; break;
-      case 'puddle': img = sprites.puddle(v % 3); w = o.size || 2; h = w * 0.62; break;
+      case 'puddle': img = sprites.puddle(v % 3); w = o.size || 2; h = w * 0.75; break;
       case 'scorch': img = sprites.scorch(v % 2); w = h = o.size || 2.5; break;
       case 'spill': img = sprites.spill(o.color || '#c9a24a', v % 3); w = h = o.size || 1.2; break;
       default: return null;
@@ -71,8 +71,8 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
     }
     const life = (o.life != null ? o.life : DECAL_LIFE[type]) * (si ? si.lifeMul : 1);
     const d = { type, x, y, rot: rot || 0, w, h, t0: clockT(), life, alpha: (o.alpha != null ? o.alpha : 1) * (si ? Math.min(1, 0.55 + 0.45 * si.str) : 1), img, r: Math.max(w, h) };
-    if (decals.length < MAX_DECALS) decals.push(d);
-    else { decals[dHead] = d; dHead = (dHead + 1) % MAX_DECALS; }
+    if (decals.length < MAX_DECALS) { decals.push(d); onDecalAdded(d); }
+    else { decals[dHead] = d; dHead = (dHead + 1) % MAX_DECALS; invalidateTiles(); }
     return d;
   }
 
@@ -157,7 +157,7 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
     }
     g.lineCap = 'round';
     g.lineJoin = 'round';
-    const detail = view.zoom > 9;
+    const detail = view.zoom > 28;
     for (const bk of buckets.values()) {
       if (!bk.list.length) continue;
       g.beginPath();
@@ -173,15 +173,15 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
         g.strokeStyle = col(0.7, 0.4 * a);
         g.lineWidth = W * 0.5; g.stroke();
       } else if (bk.type === 'tyre') {
-        g.strokeStyle = col(1, 0.13 * a);
-        g.lineWidth = W * 1.2; g.stroke();
-        g.strokeStyle = col(1, 0.15 * a);
-        g.lineWidth = W * 0.8; g.stroke();
+        g.strokeStyle = col(1, 0.12 * a);
+        g.lineWidth = W * 1.25; g.stroke();
+        g.strokeStyle = col(0.9, 0.12 * a);
+        g.lineWidth = W * 0.7; g.stroke();
         if (detail) {
           // tread lugs: dashes along a wide stroke render as soft cross-bars
-          g.setLineDash([0.06, 0.12]);
+          g.setLineDash([0.05, 0.14]);
           g.lineCap = 'butt';
-          g.strokeStyle = col(0.8, 0.16 * a);
+          g.strokeStyle = col(0.8, 0.07 * a);
           g.lineWidth = W * 0.72; g.stroke();
           g.setLineDash([]);
           g.lineCap = 'round';
@@ -199,33 +199,124 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
     return n;
   }
 
-  function drawDecals(g, view) {
-    const now = clockT();
-    const m = g.getTransform();
-    const Z = m.a, E = m.e, Fy = m.f;
+  // ---- decals are baked into world-anchored tile canvases (one blit per visible tile).
+  // New decals are painted incrementally; tiles are re-baked (max one per frame) when the
+  // quantised fade step (10 game minutes) or the wetness level changes.
+  const DT_M = 32, DT_PPM = 20, MAX_TILES = 24;
+  const tiles = new Map();
+  let frameNo = 0;
+  function decalAlpha(d, now, wet) {
+    const u = (now - d.t0) / d.life;
+    if (u >= 1 || u < -0.001) return 0;
+    let a = d.alpha * (u > 0.6 ? (1 - u) / 0.4 : 1);
+    if (d.type === 'puddle' && wet != null) a *= Math.min(1, 0.7 + wet);
+    return a;
+  }
+  function curWet() { const w = weather(); return w && Number.isFinite(w.wetness) ? Math.round(w.wetness * 10) / 10 : null; }
+  function stampNow(now) { return Math.floor(now / 600) + ':' + curWet(); }
+  function paintDecal(t, d, a) {
+    const tg = t.g, S = DT_PPM;
+    const c = Math.cos(d.rot), sn = Math.sin(d.rot);
+    tg.globalAlpha = a > 1 ? 1 : a;
+    tg.setTransform(S * c * d.w, S * sn * d.w, -S * sn * d.h, S * c * d.h, (d.x - t.tx * DT_M) * S, (d.y - t.ty * DT_M) * S);
+    tg.drawImage(d.img, -0.5, -0.5, 1, 1);
+  }
+  function overlaps(d, t) {
+    const x0 = t.tx * DT_M, y0 = t.ty * DT_M;
+    return d.x + d.r > x0 && d.x - d.r < x0 + DT_M && d.y + d.r > y0 && d.y - d.r < y0 + DT_M;
+  }
+  function buildTile(t, now) {
+    const wet = curWet();
     let n = 0;
     for (const d of decals) {
-      if (d.x + d.r < view.x0 || d.x - d.r > view.x1 || d.y + d.r < view.y0 || d.y - d.r > view.y1) continue;
-      const u = (now - d.t0) / d.life;
-      if (u >= 1) continue;
-      let a = d.alpha * (u > 0.6 ? (1 - u) / 0.4 : 1);
-      if (d.type === 'puddle') {
-        const wet = (weather() || {}).wetness;
-        if (wet != null) a *= Math.min(1, 0.35 + wet);
-      }
+      if (!overlaps(d, t)) continue;
+      const a = decalAlpha(d, now, wet);
       if (a <= 0.01) continue;
-      const c = Math.cos(d.rot), s = Math.sin(d.rot);
-      g.globalAlpha = a;
-      g.setTransform(Z * c * d.w, Z * s * d.w, -Z * s * d.h, Z * c * d.h, E + Z * d.x, Fy + Z * d.y);
-      g.drawImage(d.img, -0.5, -0.5, 1, 1);
+      if (!t.canvas) {
+        t.canvas = document.createElement('canvas');
+        t.canvas.width = t.canvas.height = DT_M * DT_PPM;
+        t.g = t.canvas.getContext('2d');
+      }
+      if (n === 0) { t.g.setTransform(1, 0, 0, 1, 0, 0); t.g.clearRect(0, 0, t.canvas.width, t.canvas.height); }
+      paintDecal(t, d, a);
       n++;
     }
-    g.setTransform(m);
-    g.globalAlpha = 1;
+    if (n === 0 && t.canvas) { t.g.setTransform(1, 0, 0, 1, 0, 0); t.g.clearRect(0, 0, t.canvas.width, t.canvas.height); }
+    t.count = n;
+    t.stamp = stampNow(now);
+    t.built = true;
+  }
+  function onDecalAdded(d) {
+    const now = clockT();
+    const tx0 = Math.floor((d.x - d.r) / DT_M), tx1 = Math.floor((d.x + d.r) / DT_M);
+    const ty0 = Math.floor((d.y - d.r) / DT_M), ty1 = Math.floor((d.y + d.r) / DT_M);
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+      const t = tiles.get(tx + ',' + ty);
+      if (!t || !t.built) continue;
+      if (!t.canvas) { t.built = false; continue; } // was empty: rebuild on next draw
+      paintDecal(t, d, decalAlpha(d, now, curWet()));
+      t.count++;
+    }
+  }
+  function invalidateTiles() { for (const t of tiles.values()) t.built = false; }
+
+  function drawDecals(g, view) {
+    if (!decals.length) return 0;
+    const now = clockT();
+    frameNo++;
+    const stamp = stampNow(now);
+    let rebakeBudget = 1;
+    let n = 0;
+    const tx0 = Math.floor(view.x0 / DT_M), tx1 = Math.floor(view.x1 / DT_M);
+    const ty0 = Math.floor(view.y0 / DT_M), ty1 = Math.floor(view.y1 / DT_M);
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+      const key = tx + ',' + ty;
+      let t = tiles.get(key);
+      if (!t) { t = { tx, ty, canvas: null, g: null, count: 0, stamp: '', built: false, used: 0 }; tiles.set(key, t); }
+      t.used = frameNo;
+      if (!t.built) buildTile(t, now);
+      else if (t.stamp !== stamp && rebakeBudget > 0) { buildTile(t, now); rebakeBudget--; }
+      if (t.count > 0 && t.canvas) { g.drawImage(t.canvas, tx * DT_M, ty * DT_M, DT_M, DT_M); n++; }
+    }
+    if (tiles.size > MAX_TILES) {
+      const old = [...tiles.entries()].filter(([, t]) => t.used !== frameNo).sort((p, q) => p[1].used - q[1].used);
+      for (let i = 0; i < old.length && tiles.size > MAX_TILES; i++) tiles.delete(old[i][0]);
+    }
     return n;
   }
 
+  /** true if (x,y) lies inside a live puddle decal (rain on puddles makes ripples) */
+  function puddleAt(x, y) {
+    const now = clockT();
+    for (const d of decals) {
+      if (d.type !== 'puddle' || now - d.t0 > d.life) continue;
+      const dx = (x - d.x) / (d.w * 0.4), dy = (y - d.y) / (d.h * 0.4);
+      if (dx * dx + dy * dy < 1) return true;
+    }
+    return false;
+  }
+
+  /** call fn(x,y) for rain drops landing in visible puddles: expected k drops per m² */
+  function rainOnPuddles(view, k, rng, fn) {
+    const now = clockT();
+    for (const d of decals) {
+      if (d.type !== 'puddle' || now - d.t0 > d.life) continue;
+      if (d.x + d.r < view.x0 || d.x - d.r > view.x1 || d.y + d.r < view.y0 || d.y - d.r > view.y1) continue;
+      let n = k * d.w * d.h * 0.5;
+      while (n > 0) {
+        if (n >= 1 || rng.chance(n)) {
+          const a = rng.float() * Math.PI * 2, r = Math.sqrt(rng.float()) * 0.36;
+          const lx = Math.cos(a) * r * d.w, ly = Math.sin(a) * r * d.h;
+          const c = Math.cos(d.rot), s = Math.sin(d.rot);
+          fn(d.x + lx * c - ly * s, d.y + lx * s + ly * c);
+        }
+        n -= 1;
+      }
+    }
+  }
+
   function clear(type) {
+    invalidateTiles();
     if (!type) { decals.length = 0; dHead = 0; for (const c of chunks) c.dead = true; chunks.length = 0; trails.clear(); return; }
     if (type === 'trails') { for (const c of chunks) c.dead = true; chunks.length = 0; trails.clear(); return; }
     for (let i = decals.length - 1; i >= 0; i--) if (decals[i].type === type) decals.splice(i, 1);
@@ -233,7 +324,7 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
   }
 
   return {
-    decal, trail, endTrail, expire, drawTrails, drawDecals, clear,
+    decal, trail, endTrail, expire, puddleAt, rainOnPuddles, drawTrails, drawDecals, clear,
     count: () => ({ decals: decals.length, trailChunks: chunks.length, trails: trails.size }),
   };
 }

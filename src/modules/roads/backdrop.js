@@ -8,9 +8,9 @@ export function makeBackdrop({ art, palette, tex, getSeason, river, fields }) {
   const noise = art.noise('roads-backdrop');
   const rv = smoothPolyline(river.pts, 2).pts;
   const fr = frames(rv);
-  const hwAt = (i) => river.width / 2 + 1.6 * noise.at(i * 0.04, 1.3);
-  const bankL = (k) => offsetPts(rv, fr.tx, fr.ty, (i) => -(hwAt(i) + k));
-  const bankR = (k) => offsetPts(rv, fr.tx, fr.ty, (i) => hwAt(i) + k);
+  const hwAt = (i, k = 0) => river.width / 2 + 1.6 * noise.at(i * 0.04, 1.3) + 0.9 * noise.at(i * 0.11, k * 3.7 + 20);
+  const bankL = (k) => offsetPts(rv, fr.tx, fr.ty, (i) => -(hwAt(i, k + 0.5) + k));
+  const bankR = (k) => offsetPts(rv, fr.tx, fr.ty, (i) => hwAt(i, k) + k);
   const band = (k0, k1) => { const a = bankR(k0), b = bankR(k1).reverse(), c = bankL(k0), d = bankL(k1).reverse(); return [a.concat(b), c.concat(d)]; };
   const waterPoly = (k) => bankR(k).concat(bankL(k).reverse());
   const prng = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
@@ -28,10 +28,10 @@ export function makeBackdrop({ art, palette, tex, getSeason, river, fields }) {
         const v = noise.fbm(x * 0.008, y * 0.008, 3);
         const w = noise.at(x * 0.05 + 40, y * 0.05);
         const jx = noise.at(x * 0.3, y * 0.3 + 9) * 3, jy = noise.at(x * 0.3 + 5, y * 0.3) * 3;
-        if (v > 0.12) { g.fillStyle = palette.meadow[(Math.abs(w * 10) | 0) % 4]; g.globalAlpha = Math.min(0.28, (v - 0.12) * 0.9); }
-        else if (v < -0.2) { g.fillStyle = S(grass[2], -0.2); g.globalAlpha = Math.min(0.2, (-0.2 - v) * 0.8); }
+        if (v > 0.12) { g.fillStyle = palette.meadow[(Math.abs(w * 10) | 0) % 4]; g.globalAlpha = Math.min(0.13, (v - 0.12) * 0.5); }
+        else if (v < -0.2) { g.fillStyle = S(grass[2], -0.2); g.globalAlpha = Math.min(0.1, (-0.2 - v) * 0.4); }
         else continue;
-        g.beginPath(); g.ellipse(x + jx, y + jy, step * 0.95, step * 0.75, w * 3, 0, 6.283); g.fill();
+        g.beginPath(); g.ellipse(x + jx, y + jy, step * 1.3, step * 0.9, w * 3, 0, 6.283); g.fill();
       }
     }
     g.globalAlpha = 1;
@@ -74,10 +74,12 @@ export function makeBackdrop({ art, palette, tex, getSeason, river, fields }) {
       [-3.2, palette.water.mid, 1],
       [-5.5, M(palette.water.mid, palette.water.deep, 0.6), 1],
     ];
+    g.filter = `blur(${Math.max(1, res * 0.45).toFixed(1)}px)`;
     for (const [k, col, a] of layers) {
       g.beginPath(); pathFrom(g, waterPoly(k), true);
       g.fillStyle = col; g.globalAlpha = a; g.fill();
     }
+    g.filter = 'none';
     g.globalAlpha = 1;
     // painterly current streaks + foam line
     const rnd = prng(77);

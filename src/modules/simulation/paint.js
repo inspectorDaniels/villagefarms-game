@@ -193,6 +193,7 @@ export function createPainter(art, pal) {
     g.fillStyle = o.color || INK;
     g.globalAlpha = o.alpha == null ? 0.92 : o.alpha;
     if (o.maxW) s = fit(g, s, o.maxW);
+    if (o.halo) { g.save(); g.globalAlpha = 0.75; g.strokeStyle = o.halo; g.lineWidth = 3.5; g.lineJoin = 'round'; g.strokeText(s, x, y); g.restore(); }
     g.fillText(s, x, y);
     g.globalAlpha = 1;
     return g.measureText(s).width;

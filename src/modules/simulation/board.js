@@ -100,7 +100,7 @@ export function createBoard(P, art) {
       const doy = mod(d, YEAR_DAYS);
       if (doy === 0) {
         P.line(g, X(d), y - 4, X(d), y + h, rng, { w: 0.9, color: PENCIL, alpha: 0.55, passes: 1 });
-        if (o.axes) P.text(g, 'Jan · year ' + (Math.floor(d / YEAR_DAYS) + 1), X(d) + 4, y + 8, { size: 11, italic: true, color: PENCIL });
+        if (o.axes) P.text(g, 'year ' + (Math.floor(d / YEAR_DAYS) + 1) + ' →', X(d) + 3, y + h + 30, { size: 11, italic: true, bold: true, color: INK_SOFT });
       }
       if (doy % 3 === 0 && o.axes) {
         g.strokeStyle = art.rgba(PENCIL, 0.6); g.lineWidth = 1;
@@ -234,6 +234,19 @@ export function createBoard(P, art) {
         }
         y += 16;
       }
+      const inv = Object.entries(D.inventory).filter(([k, q]) => q > 0.05 && ITEMS[k]);
+      if (inv.length) {
+        y = Math.max(y, h - 150);
+        P.line(g, 20, y - 18, w - 20, y - 18, rng, { w: 0.9, alpha: 0.5 });
+        P.text(g, 'In our store', 22, y + 2, { size: 16, italic: true, bold: true });
+        y += 24;
+        for (const [k, q] of inv.slice(0, 3)) {
+          const best = Math.max(...D.sellPoints.filter((sp) => sp.quotes.some((x) => x.item === k)).map((sp) => sp.quotes.find((x) => x.item === k).price), D.prices[k] * 0.97);
+          P.text(g, `${q.toFixed(1).replace('.', ',')} ${ITEMS[k].unit} ${ITEMS[k].name.toLowerCase()}`, 26, y, { size: 13.5, italic: true });
+          P.text(g, '≈ ' + euro(q * best), w - 22, y, { size: 14, bold: true, align: 'right', color: INK_GREEN });
+          y += 21;
+        }
+      }
       P.text(g, 'sell on a quiet day — big loads flood a buyer', 22, h - 20, { size: 11.5, italic: true, color: PENCIL, font: HAND, maxW: w - 30 });
     }, 0.8);
   }
@@ -244,8 +257,8 @@ export function createBoard(P, art) {
     P.sheet(g, img, cx, cy, rot, (g) => {
       g.strokeStyle = 'rgba(176,60,50,0.45)'; g.lineWidth = 1.4;
       g.beginPath(); g.moveTo(0, 40); g.lineTo(w, 40); g.stroke();
-      drawIcon(P, g, art, j.type, 12, 46, 58, rng);
-      P.text(g, JOB_TYPES[j.type].title.toUpperCase(), 14, 28, { size: 12, color: PENCIL, font: SERIF });
+      drawIcon(P, g, art, j.type === 'harvest' && (j.crop === 'potatoes' || j.crop === 'sugarBeet') ? 'lift' : j.type, 12, 46, 58, rng);
+      P.text(g, (j.type === 'harvest' && (j.crop === 'potatoes' || j.crop === 'sugarBeet') ? 'Lift' : JOB_TYPES[j.type].title).toUpperCase(), 14, 28, { size: 12, color: PENCIL, font: SERIF });
       P.text(g, euro(j.status === 'completed' && j.paid ? j.paid : j.pay), w - 16, 32, { size: 24, bold: true, align: 'right', color: INK_GREEN });
       P.text(g, j.title, 82, 66, { size: 16, bold: true, maxW: w - 96 });
       P.text(g, `for ${j.client}, ${j.clientFarm}`, 82, 88, { size: 13, italic: true, color: INK_SOFT, maxW: w - 96 });
@@ -256,16 +269,16 @@ export function createBoard(P, art) {
       if (where) P.text(g, where, 82, 110, { size: 12.5, italic: true, color: INK_BLUE, maxW: w - 96 });
       const left = j.deadlineDay - D.today;
       const due = j.status === 'offered' ? `offer ends ${dayLabel(j.expiresDay)} · due ${dayLabel(j.deadlineDay)}` : `due ${dayLabel(j.deadlineDay)}${j.status === 'accepted' ? (left <= 0 ? ' — today!' : ` — ${left} day${left > 1 ? 's' : ''} left`) : ''}`;
-      P.text(g, due, 14, h - 16, { size: 12, italic: true, color: j.status === 'accepted' && left <= 0 ? INK_RED : INK_SOFT, maxW: w - 28 });
+      P.text(g, due, 14, h - 16, { size: 12, italic: true, color: j.status === 'accepted' && left <= 0 ? INK_RED : INK_SOFT, maxW: j.status === 'accepted' ? w - 200 : w - 28 });
       if (j.status === 'accepted') {
-        const bx = 82, by = 122, bw = w - 110, bh = 12;
+        const bw = 110, bh = 11, bx = w - bw - 52, by = h - 26;
         P.ink(g, [[bx, by], [bx + bw, by], [bx + bw, by + bh], [bx, by + bh]], rng, { close: true, w: 1.1, jitter: 0.4 });
         if (j.progress > 0) P.wash(g, (gg) => { gg.beginPath(); gg.rect(bx + 1, by + 1, (bw - 2) * j.progress, bh - 2); }, '#6f9a3f', rng, { alpha: 0.6, edge: 0.5 });
-        P.text(g, `${Math.round(j.progress * 100)} %`, bx + bw + 4, by + 11, { size: 11, italic: true, color: INK_SOFT });
-        P.stamp(g, 'ACCEPTED', w - 70, 76, INK_BLUE, -0.12, rng, { size: 13 });
-      } else if (j.status === 'completed') P.stamp(g, 'PAID', w - 58, 80, INK_GREEN, -0.18, rng, { size: 20 });
-      else if (j.status === 'failed') P.stamp(g, 'MISSED', w - 64, 80, INK_RED, 0.14, rng, { size: 17 });
-      else if (j.status === 'expired') P.stamp(g, 'TAKEN', w - 58, 80, PENCIL, 0.1, rng, { size: 15 });
+        P.text(g, `${Math.round(j.progress * 100)} %`, bx + bw + 6, by + 10, { size: 11, italic: true, color: INK_SOFT });
+        P.stamp(g, 'ACCEPTED', 44, h - 58, INK_BLUE, -0.2, rng, { size: 11 });
+      } else if (j.status === 'completed') P.stamp(g, 'PAID', 44, h - 58, INK_GREEN, -0.22, rng, { size: 16 });
+      else if (j.status === 'failed') P.stamp(g, 'MISSED', 44, h - 58, INK_RED, 0.16, rng, { size: 13 });
+      else if (j.status === 'expired') P.stamp(g, 'TAKEN', 44, h - 58, PENCIL, 0.1, rng, { size: 13 });
     }, 0.9);
   }
 
@@ -288,24 +301,51 @@ export function createBoard(P, art) {
       for (const p of parcels) { x0 = Math.min(x0, p.bbox[0]); y0 = Math.min(y0, p.bbox[1]); x1 = Math.max(x1, p.bbox[2]); y1 = Math.max(y1, p.bbox[3]); }
       for (const s of D.sellPoints) { x0 = Math.min(x0, s.x); y0 = Math.min(y0, s.y); x1 = Math.max(x1, s.x); y1 = Math.max(y1, s.y); }
       const top = big ? 96 : 52, bottom = big ? 70 : 40, side = big ? 40 : 22;
-      const s = Math.min((w - side * 2) / (x1 - x0 + 60), (h - top - bottom) / (y1 - y0 + 60));
+      const s = Math.min((w - side * 2) / (x1 - x0 + 20), (h - top - bottom) / (y1 - y0 + 20));
       const ox = side + ((w - side * 2) - (x1 - x0) * s) / 2 - x0 * s;
       const oy = top + ((h - top - bottom) - (y1 - y0) * s) / 2 - y0 * s;
       const M = ([x, y]) => [ox + x * s, oy + y * s];
-      // decor: brook and lanes
-      if (D.decor) {
-        const brook = [[40, 450], [150, 470], [250, 545], [410, 640], [610, 690], [900, 680]].map(M);
-        P.ink(g, brook, rng, { w: 5 * Math.max(0.6, s * 1.6), color: '#6fa3a8', alpha: 0.5, jitter: 0.8, passes: 1 });
-        P.ink(g, brook, rng, { w: 1.2, color: INK_BLUE, alpha: 0.7, jitter: 0.8 });
-        const sp = Object.fromEntries(D.sellPoints.map((q) => [q.id, [q.x, q.y]]));
-        const lanes = [[sp.trader, [300, 250], [345, 335], sp.shop], [[345, 335], [560, 380], sp.dairy, sp.coop], [sp.dairy, [700, 470], sp.sugar], [[560, 380], [470, 440], sp.potato]];
-        for (const lane of lanes) {
-          if (lane.some((q) => !q)) continue;
-          const pts = lane.map(M);
-          P.ink(g, pts, rng, { w: 4.2, color: '#b7b0a3', alpha: 0.7, jitter: 0.3, passes: 1 });
-          P.ink(g, pts, rng, { w: 0.8, color: PENCIL, alpha: 0.8, jitter: 0.6 });
+      // decor: woods, village, brook, lanes
+      const DC = D.decor;
+      const polyPath = (pts) => (gg) => { gg.beginPath(); pts.forEach(([x, y], i) => (i ? gg.lineTo(x, y) : gg.moveTo(x, y))); gg.closePath(); };
+      const bboxOf = (pts) => { let a = Infinity, b2 = Infinity, c = -Infinity, d = -Infinity; for (const [x, y] of pts) { a = Math.min(a, x); b2 = Math.min(b2, y); c = Math.max(c, x); d = Math.max(d, y); } return [a, b2, c - a, d - b2]; };
+      const woodLabels = [];
+      if (DC) {
+        for (const wpoly of DC.woods || []) {
+          const pts = wpoly.map(M), bb = bboxOf(pts);
+          P.wash(g, polyPath(pts), '#4f7f2f', rng, { alpha: 0.18, bounds: bb });
+          g.save(); polyPath(pts)(g); g.clip();
+          const tr = Math.max(5, 11 * s * 1.6);
+          for (let ty = bb[1] + tr * 0.6; ty < bb[1] + bb[3]; ty += tr * 1.25) for (let tx = bb[0] + tr * 0.6 + ((ty / tr) % 2) * tr * 0.5; tx < bb[0] + bb[2]; tx += tr * 1.3) {
+            const jx = tx + rng.range(-3, 3), jy = ty + rng.range(-3, 3), rr = tr * rng.range(0.55, 0.8);
+            P.wash(g, (gg) => { gg.beginPath(); gg.arc(jx, jy, rr, 0, 7); }, rng.pick(['#4f7f2f', '#3f6b27', '#5f8f38']), rng, { alpha: 0.5, edge: 1 });
+            P.ink(g, [[jx - rr * 0.8, jy + rr * 0.1], [jx - rr * 0.3, jy - rr * 0.8], [jx + rr * 0.5, jy - rr * 0.7], [jx + rr * 0.85, jy + 0.2 * rr]], rng, { w: 0.8, alpha: 0.5, jitter: 0.4, passes: 1 });
+          }
+          g.restore();
+          const cc = [bb[0] + bb[2] / 2, bb[1] + bb[3] / 2];
+          woodLabels.push(() => P.text(g, 'Lindebos', cc[0], cc[1] + 4, { size: big ? 14 : 10.5, italic: true, bold: true, align: 'center', color: '#2f4a22', halo: '#f1e6cc' }));
+        }
+        for (const vpoly of DC.village || []) {
+          const pts = vpoly.map(M), bb = bboxOf(pts);
+          P.wash(g, polyPath(pts), '#c9b184', rng, { alpha: 0.2, bounds: bb });
+          const hs = Math.max(12, 16 * s * 1.8);
+          const spots = [[0.28, 0.3], [0.62, 0.24], [0.45, 0.55], [0.75, 0.6], [0.25, 0.72], [0.55, 0.82]];
+          for (const [fx, fy] of spots) drawIcon(P, g, art, 'house', bb[0] + bb[2] * fx - hs / 2, bb[1] + bb[3] * fy - hs / 2, hs, rng);
+          woodLabels.push(() => P.text(g, 'Ter Beek', bb[0] + bb[2] / 2, bb[1] + (big ? 22 : 14), { size: big ? 15 : 11, italic: true, bold: true, align: 'center', halo: '#f1e6cc' }));
         }
       }
+      const drawLanesAndBrook = () => {
+        if (!DC) return;
+        const brook = DC.brook.map(M);
+        P.ink(g, brook, rng, { w: Math.max(3, 9 * s), color: '#6fa3a8', alpha: 0.55, jitter: 0.6, passes: 1 });
+        P.ink(g, brook, rng, { w: 1.1, color: INK_BLUE, alpha: 0.75, jitter: 0.6 });
+        for (const ln of DC.lanes) {
+          const pts = ln.map(M);
+          P.ink(g, pts, rng, { w: Math.max(4, 10 * s), color: '#d8cdb4', alpha: 0.95, jitter: 0.2, passes: 1 });
+          P.ink(g, pts, rng, { w: 0.9, color: PENCIL, alpha: 0.85, jitter: 0.5 });
+        }
+      };
+      const labels = [];
       for (const p of parcels) {
         const st = STATE_STYLE[p.state] || STATE_STYLE.npc;
         const pts = p.poly.map(M);
@@ -315,22 +355,27 @@ export function createBoard(P, art) {
         P.wash(g, path, st.color, rng, { alpha: p.state === 'npc' ? 0.22 : 0.36, bounds: [bx0, by0, bx1 - bx0, by1 - by0] });
         if (p.state === 'forRent' || p.state === 'forSale') P.hatch(g, path, [bx0, by0, bx1 - bx0, by1 - by0], art.shade(st.color, -0.3), rng, 9, p.state === 'forSale' ? 0.8 : -0.8);
         P.ink(g, pts, rng, { close: true, w: 1.3, jitter: 0.7, alpha: 0.8 });
+        labels.push(() => {
         const [mx, my] = M(p.center);
         const ha = (p.area / 1e4).toFixed(1).replace('.', ',') + ' ha';
         const small = (bx1 - bx0) < 110;
-        P.text(g, p.name.replace(/ \(.*\)/, ''), mx, my - 4, { size: big ? (small ? 13 : 16) : (small ? 10 : 12), italic: true, bold: p.state === 'owned' || p.state === 'rented', align: 'center', maxW: bx1 - bx0 - 6 });
+        P.text(g, p.name.replace(/ \(.*\)/, ''), mx, my - 4, { size: big ? (small ? 13 : 16) : (small ? 10 : 12), italic: true, bold: p.state === 'owned' || p.state === 'rented', align: 'center', maxW: bx1 - bx0 - 6, halo: '#f1e6cc' });
         let sub = ha;
         if (p.state === 'forSale') sub += ' · ' + euro(p.price);
         else if (p.state === 'forRent') sub += ` · ${euro(p.rentPerHaYear)}/ha/yr`;
         else if (p.state === 'npc' && p.owner && big) sub += ' · ' + p.owner.split(' ').slice(-1)[0];
         else if (p.state === 'rented' && big) sub += ` · ${euro(p.rentPerHaYear)}/ha/yr`;
-        P.text(g, sub, mx, my + (big ? 14 : 10), { size: big ? 11.5 : 9.5, align: 'center', color: INK_SOFT, maxW: bx1 - bx0 - 4 });
+        P.text(g, sub, mx, my + (big ? 14 : 10), { size: big ? 11.5 : 9.5, align: 'center', color: INK_SOFT, maxW: bx1 - bx0 - 4, halo: '#f1e6cc' });
+        });
       }
+      drawLanesAndBrook();
+      for (const l of labels) l();
+      for (const l of woodLabels) l();
       for (const sp of D.sellPoints) {
         const [px, py] = M([sp.x, sp.y]);
         const sz = big ? 30 : 20;
         drawIcon(P, g, art, sp.id === 'shop' ? 'house' : 'silo', px - sz / 2, py - sz / 2, sz, rng);
-        if (big) P.text(g, sp.name, px, py + sz / 2 + 12, { size: 11, italic: true, align: 'center', color: INK });
+        if (big) P.text(g, sp.name, px, py + sz / 2 + 12, { size: 11.5, italic: true, bold: true, align: 'center', color: INK, halo: '#f1e6cc' });
       }
       // compass + scale bar
       const cxp = w - (big ? 60 : 36), cyp = big ? 60 : 40, r = big ? 22 : 14;
@@ -363,7 +408,7 @@ export function createBoard(P, art) {
       P.text(g, 'This season', 20, 38, { size: 22, italic: true });
       P.text(g, 'last 12 months, operating', 20, 58, { size: 12, italic: true, color: INK_SOFT });
       P.text(g, (S.operatingNet >= 0 ? '+ ' : '') + euro(S.operatingNet), w - 20, 42, { size: 24, bold: true, align: 'right', color: S.operatingNet >= 0 ? INK_GREEN : INK_RED });
-      const cats = Object.entries(S.byCategory).filter(([k]) => !['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'assetSale'].includes(k)).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 9);
+      const cats = Object.entries(S.byCategory).filter(([k]) => !['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'assetSale'].includes(k)).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 8);
       const maxV = Math.max(1, ...cats.map((c) => Math.abs(c[1])));
       let y = 84;
       const bx = 150, bw = w - bx - 90;
@@ -407,12 +452,23 @@ export function createBoard(P, art) {
       const st = D.jobStats;
       P.text(g, `${st.completed} done · ${st.failed} missed · ${euro(st.earned)} earned`, 20, 62, { size: 12.5, italic: true, color: INK_SOFT });
       let y = 96;
-      const best = Object.entries(D.clients).sort((a, b) => b[1].rep - a[1].rep).slice(0, 7);
+      const best = Object.entries(D.clients).sort((a, b) => b[1].rep - a[1].rep).slice(0, 6);
       for (const [name, c] of best) {
         P.text(g, name, 20, y, { size: 13.5, italic: true, maxW: w - 130 });
         const stars = Math.round(c.rep * 5);
         P.text(g, '★'.repeat(stars) + '☆'.repeat(5 - stars), w - 20, y, { size: 13, align: 'right', color: '#8a5a10' });
         y += 24;
+      }
+      if (D.monthlyJobs && D.monthlyJobs.length) {
+        const cy0 = y + 18, chH = h - cy0 - 60, n = D.monthlyJobs.length, bw2 = (w - 50) / n;
+        P.text(g, 'contract income per month', 20, cy0 + 4, { size: 12.5, italic: true, color: INK_SOFT });
+        const mx = Math.max(1, ...D.monthlyJobs.map((m) => m.v));
+        D.monthlyJobs.forEach((m, i) => {
+          const bh2 = (m.v / mx) * (chH - 30), bx2 = 26 + i * bw2, by2 = cy0 + chH - 8;
+          if (bh2 > 1) P.wash(g, (gg) => { gg.beginPath(); gg.rect(bx2 + 2, by2 - bh2, bw2 - 5, bh2); }, '#6f9a3f', rng, { alpha: 0.55, edge: 1 });
+          P.text(g, MONTHS[m.month][0], bx2 + bw2 / 2, by2 + 14, { size: 10.5, align: 'center', color: PENCIL });
+        });
+        P.line(g, 22, cy0 + chH - 8, w - 22, cy0 + chH - 8, rng, { w: 1, alpha: 0.6 });
       }
       P.text(g, 'good work brings better-paid offers', 20, h - 18, { size: 11.5, font: HAND, color: PENCIL, maxW: w - 30 });
     });

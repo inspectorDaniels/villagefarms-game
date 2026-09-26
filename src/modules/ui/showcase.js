@@ -19,6 +19,7 @@ export const PRESETS = {
   land: { camera: { x: 512, y: 505, zoom: 9 }, time: '10:00', day: 7 },
   confirm: { camera: { x: 512, y: 505, zoom: 9 }, time: '16:30', day: 7 },
   help: { camera: { x: 512, y: 505, zoom: 9 }, time: '10:00', day: 7 },
+  empty: { camera: { x: 512, y: 505, zoom: 9 }, time: '08:15', day: 7 },
   night: { camera: { x: 512, y: 505, zoom: 9 }, time: '23:00', day: 7 },
 };
 
@@ -129,7 +130,7 @@ function fallbackAmbient(daylight, tod) {
 export async function stageShowcase(ctx, api, data, preset, hooks) {
   const sim = ctx.modules.get('simulation');
   const live = sim && typeof sim.money === 'function';
-  if (!live) data.enableSample();
+  if (!live && preset !== 'empty') data.enableSample();
   else {
     // real simulation present: give it a little land and a couple of buyers to show, via its public API
     try {
@@ -200,10 +201,11 @@ export async function stageShowcase(ctx, api, data, preset, hooks) {
     api.toast('<b>Rent due at dawn</b><br>Hoogveld · €11.46', { kind: 'warn', icon: 'land', html: true, ...long });
   }
   if (['finances', 'market', 'jobs', 'land', 'help'].includes(preset)) api.openPanel(preset);
+  if (preset === 'empty') api.openPanel('finances');
   if (preset === 'confirm') {
     api.openPanel('land');
     const ps = data.parcels();
     const p = ps.find((q) => q.state === 'forSale') || ps[0];
-    if (p) api.confirm({ title: `Rent ${p.name}?`, text: `${((p.area || 0) / 10000).toFixed(2)} ha for €${(p.rentPerDay || 0).toFixed(2)} per day, charged each morning. You can end the lease at any time.`, okLabel: 'Sign lease', cancelLabel: 'Not now' });
+    if (p) api.confirm({ title: `Rent ${p.name}?`, text: `${((p.area || 0) / 10000).toFixed(2)} ha for €${(p.rentPerDay || 0).toFixed(2)} per day, charged each morning. You can end the lease at any time.`, okLabel: 'Sign lease', cancelLabel: 'Not now', icon: 'land' });
   }
 }

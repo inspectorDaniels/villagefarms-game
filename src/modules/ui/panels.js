@@ -57,7 +57,7 @@ function niceStep(range, target) {
 }
 
 function balanceChart(hist, uid) {
-  const W = 640, H = 150, L = 46, R = 58, T = 12, B = 22;
+  const W = 640, H = 150, L = 54, R = 58, T = 12, B = 22;
   const vals = hist.map((h) => h.balance);
   let lo = Math.min(...vals), hi = Math.max(...vals);
   if (hi - lo < 1) { hi += 500; lo -= 500; }
@@ -68,7 +68,7 @@ function balanceChart(hist, uid) {
   let grid = '';
   for (let v = lo; v <= hi + 1e-6; v += step) {
     grid += `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="rgba(116,96,63,.28)" stroke-dasharray="2 3"/>`;
-    grid += `<text x="${L - 7}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${money(v, { compact: true, dec: 0 })}</text>`;
+    grid += `<text x="${L - 7}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${step >= 1000 ? money(v, { compact: true, dec: 0 }) : money(v, { dec: 0 })}</text>`;
   }
   // gently wobbled ink line (hand-drawn), deterministic
   const pts = hist.map((h, i) => [x(i), y(h.balance) + Math.sin(i * 2.3) * 0.35]);
@@ -99,7 +99,7 @@ function balanceChart(hist, uid) {
 }
 
 function sparkline(h, rising) {
-  if (!h || h.length < 2) return '<svg class="spark" viewBox="0 0 92 26"></svg>';
+  if (!h || h.length < 2) return '<svg class="spark" viewBox="0 0 92 26"><path d="M2 16H90" stroke="#8a7e6c" stroke-opacity=".5" stroke-dasharray="2 3"/><text x="46" y="11" text-anchor="middle" style="font:italic 9.5px Georgia,serif;fill:#8a7e6c">new listing</text></svg>';
   const lo = Math.min(...h), hi = Math.max(...h), r = hi - lo || 1;
   const pts = h.map((v, i) => [(i / (h.length - 1)) * 90 + 1, 23 - ((v - lo) / r) * 20]);
   const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('');
@@ -183,7 +183,7 @@ export function builtinPanels(K) {
     render(el) {
       const rows = data.market();
       if (!rows.length) { el.innerHTML = empty('market', 'No prices posted', 'The merchants have not chalked up today’s prices yet. Check back after the morning market opens.'); return; }
-      let h = `<h3>Today’s prices <span class="faint" style="text-transform:none;letter-spacing:0;font:italic 12px Georgia,serif">trend over the last 36 days</span></h3><div class="hv-rows">`;
+      let h = `<h3>Today’s prices <span class="faint" style="text-transform:none;letter-spacing:0;font:italic 12px Georgia,serif">recent trend</span></h3><div class="hv-rows">`;
       for (const r of rows) {
         const pct = (r.change * 100);
         const dir = Math.abs(pct) < 0.5 ? 'flat' : pct > 0 ? 'up' : 'down';
@@ -336,7 +336,7 @@ export function builtinPanels(K) {
           const p = ps.find((q) => q.id === b.dataset.buy);
           if (!p) return;
           if (!data.canAfford(p.price || 0)) { K.toast(`You need ${money((p.price || 0) - (m || 0), { dec: 0 })} more to buy ${esc(p.name)}.`, { kind: 'warn', icon: 'coin' }); return; }
-          const ok = await K.confirm({ title: `Buy ${p.name}?`, text: `${((p.area || 0) / 10000).toFixed(2)} ha for ${money(p.price || 0, { dec: 0 })}. The land is yours to farm, with no more rent to pay.`, okLabel: 'Buy parcel', cancelLabel: 'Not now' });
+          const ok = await K.confirm({ title: `Buy ${p.name}?`, text: `${((p.area || 0) / 10000).toFixed(2)} ha for ${money(p.price || 0, { dec: 0 })}. The land is yours to farm, with no more rent to pay.`, okLabel: 'Buy parcel', cancelLabel: 'Not now', icon: 'coin' });
           if (!ok) return;
           if (data.buyParcel(p.id)) { K.toast(`<b>${esc(p.name)} is yours</b><br>${money(-(p.price || 0), { dec: 0 })}`, { kind: 'money', icon: 'land', html: true }); K.emit('ui:action', { id: 'parcel-bought', parcelId: p.id }); }
           else K.toast('The notary could not complete the sale.', { kind: 'error' });
@@ -347,7 +347,7 @@ export function builtinPanels(K) {
         b.onclick = K.safe('rent parcel', async () => {
           const p = ps.find((q) => q.id === b.dataset.rent);
           if (!p) return;
-          const ok = await K.confirm({ title: `Rent ${p.name}?`, text: `${((p.area || 0) / 10000).toFixed(2)} ha for ${money(p.rentPerDay || 0)} per day, charged each morning. You can end the lease at any time.`, okLabel: 'Sign lease', cancelLabel: 'Not now' });
+          const ok = await K.confirm({ title: `Rent ${p.name}?`, text: `${((p.area || 0) / 10000).toFixed(2)} ha for ${money(p.rentPerDay || 0)} per day, charged each morning. You can end the lease at any time.`, okLabel: 'Sign lease', cancelLabel: 'Not now', icon: 'land' });
           if (!ok) return;
           if (data.rentParcel(p.id)) { K.toast(`<b>Lease signed</b><br>${esc(p.name)} · ${money(p.rentPerDay || 0)}/day`, { kind: 'success', icon: 'land', html: true }); K.emit('ui:action', { id: 'parcel-rented', parcelId: p.id }); }
           else K.toast('The owner turned the lease down.', { kind: 'warn' });

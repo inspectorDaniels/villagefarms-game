@@ -5,6 +5,7 @@ import { createBoard, euro, dayLabel } from './board.js';
 import { createFarmer, defineShowcaseValley } from './farmer.js';
 import { YEAR_DAYS, DAY_SECONDS, ITEMS } from './data.js';
 
+const mod36 = (d) => ((d % YEAR_DAYS) + YEAR_DAYS) % YEAR_DAYS;
 const BASE_W = 1600, BASE_H = 900;
 const CHART_ITEMS = ['wheat', 'barley', 'rapeseed', 'maize', 'potatoes', 'milk'];
 
@@ -23,7 +24,8 @@ export function fastForwardShowcase(ctx, sim) {
   const start = today - years * YEAR_DAYS;
   sim.reset(start, { historyDays: YEAR_DAYS });
   sim.virtualT = start * DAY_SECONDS + 6 * 3600;
-  const ids = defineShowcaseValley(sim.api);
+  const { ids, decor } = defineShowcaseValley(sim.api);
+  sim.showcaseDecor = decor;
   const farmer = createFarmer(sim, { parcelId: ids.linde, ha: 5, crop: 'wheat', jobs: true, loan: 26000, rng: ctx.rng('showcase-farmer') });
   farmer.setup();
   sim.fastForward(start, today, (d) => farmer.day(d));
@@ -49,10 +51,16 @@ function snapshot(sim) {
   const history = {};
   for (const id of CHART_ITEMS) history[id] = api.priceHistory(id).filter((q) => q[0] > today - 3 * YEAR_DAYS);
   const rep = api.reputation() || { overall: 0.5, clients: {} };
+  const monthlyJobs = [];
+  for (let m = 11; m >= 0; m--) {
+    const d0 = (Math.floor(today / 3) - m) * 3;
+    const v = E.days.filter((b) => b.day >= d0 && b.day < d0 + 3).reduce((a, b) => a + (b.by.jobs || 0), 0);
+    monthlyJobs.push({ month: Math.floor(mod36(d0) / 3), v });
+  }
   return {
-    today, money: api.money(), ledger: E.ledger.slice(-80).reverse(), loans: api.loans(), summary: api.summary(YEAR_DAYS),
+    monthlyJobs, prices: { ...E.prices }, today, money: api.money(), ledger: E.ledger.slice(-80).reverse(), loans: api.loans(), summary: api.summary(YEAR_DAYS),
     chartItems: CHART_ITEMS, history, sellPoints: sps, parcels: api.parcels(), jobs: api.jobs(), inventory: api.inventory(),
-    assets: api.assets(), workers: api.workers(), rep: rep.overall, clients: rep.clients, jobStats: { ...sim.world.jobs.stats }, decor: true,
+    assets: api.assets(), workers: api.workers(), rep: rep.overall, clients: rep.clients, jobStats: { ...sim.world.jobs.stats }, decor: sim.showcaseDecor || null,
   };
 }
 
@@ -93,9 +101,8 @@ export function createShowcaseView(ctx, sim) {
         B.jobCard(g, cx, cy, rot, 380, 150, j, D, rng);
         pinAt(g, cx, cy, rot, 150, ['#e0b12e', '#b8352b', '#3f6b3a'][i]);
       });
-      B.pnlCard(g, 1334, 748, -0.014, 380, 270, D, rng);
-      pinAt(g, 1334, 748, -0.014, 270, '#e0b12e');
-      P.coffeeRing(g, 548, 820, 34, rng);
+      B.pnlCard(g, 1334, 736, -0.014, 380, 262, D, rng);
+      pinAt(g, 1334, 736, -0.014, 262, '#e0b12e');
     } else if (preset === 'market') {
       B.priceSheet(g, 612, 462, -0.006, 1130, 800, D, rng, true);
       tapeAt(g, 612, 462, -0.006, 1130, 800, rng);
@@ -189,14 +196,16 @@ export function createShowcaseView(ctx, sim) {
     if (night > 0.03) {
       // room darkens to cool blue; a desk lamp keeps the ledger corner warm
       g.globalCompositeOperation = 'multiply';
-      const k = Math.min(1, night) * 0.78;
+      const k = Math.pow(Math.min(1, night), 1.3) * 0.86;
       g.fillStyle = `rgb(${Math.round(255 - 185 * k)},${Math.round(255 - 170 * k)},${Math.round(255 - 110 * k)})`;
       g.fillRect(0, 0, W, H);
       g.globalCompositeOperation = 'lighter';
-      const lx = ox + 520 * s, ly = oy + 180 * s, r = 760 * s;
+      const lx = ox + 330 * s, ly = oy + 330 * s, r = 820 * s;
       const gr = g.createRadialGradient(lx, ly, 0, lx, ly, r);
-      gr.addColorStop(0, `rgba(255,190,110,${0.42 * night})`);
-      gr.addColorStop(0.45, `rgba(230,150,80,${0.2 * night})`);
+      const nk = Math.pow(Math.min(1, night), 1.3);
+      gr.addColorStop(0, `rgba(255,196,120,${0.62 * nk})`);
+      gr.addColorStop(0.35, `rgba(240,160,90,${0.34 * nk})`);
+      gr.addColorStop(0.7, `rgba(200,120,60,${0.08 * nk})`);
       gr.addColorStop(1, 'rgba(200,120,60,0)');
       g.fillStyle = gr; g.fillRect(0, 0, W, H);
     }

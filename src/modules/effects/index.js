@@ -142,14 +142,15 @@ export async function init(ctx) {
       dir.rainAcc -= n;
       while (n-- > 0) {
         const x = view.x0 + rng.float() * (view.x1 - view.x0), y = view.y0 + rng.float() * (view.y1 - view.y0);
-        if (isWater(x, y)) particles.emit('ripple', x, y, { count: 1, ambient: true });
+        if (isWater(x, y) || decals.puddleAt(x, y)) particles.emit('ripple', x, y, { count: 1, ambient: true });
         else particles.emit('splash', x, y, { count: 1, ambient: true });
       }
+      decals.rainOnPuddles(view, dt * (1 + inten * 3), rng, (x, y) => particles.emit('ripple', x, y, { count: 1, ambient: true, size: 0.12 }));
     }
 
     // fireflies: summer (and late spring) nights, near water / meadows
     if ((season === 'summer' || (season === 'spring' && clock.month === 4)) && night > 0.55 && !wet && view.zoom >= 6) {
-      const target = Math.min(70, Math.round(area * 0.022));
+      const target = Math.min(90, Math.round(area * 0.034));
       let tries = 6;
       while (have(TID.fireflies) < target && tries-- > 0) {
         const [x, y] = pickIn(view, 2);
@@ -190,7 +191,7 @@ export async function init(ctx) {
         while (n-- > 0) {
           let x, y, z;
           const src = hooks.leafSources;
-          if (src && src.length) {
+          if (src && src.length && rng.chance(0.7)) {
             const s = src[rng.int(0, src.length - 1)];
             const a = rng.float() * Math.PI * 2, r = Math.sqrt(rng.float()) * s.r;
             x = s.x + Math.cos(a) * r; y = s.y + Math.sin(a) * r; z = rng.range(2.5, s.h || 6);

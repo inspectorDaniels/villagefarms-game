@@ -1,6 +1,6 @@
 // roads — road graph, painted road rendering (chunk cached), bridges, street lights, pathfinding.
 import { CLASSES, buildDerived, nearestOnNetwork, outerHalf } from './network.js';
-import { buildDecals, makePainter } from './paint.js';
+import { buildDecals, makePainter, wingWalls } from './paint.js';
 import { makeTextures } from './textures.js';
 import { ChunkCache } from './chunks.js';
 import { defaultPlan } from './generate.js';
@@ -34,7 +34,7 @@ export async function init(ctx) {
     const env = world.environment || {};
     const w = env.weather || {};
     const season = ctx.clock.season;
-    const snow = typeof w.snowCover === 'number' ? w.snowCover : (season === 'winter' ? 0.55 : 0);
+    const snow = Math.max(typeof w.snowCover === 'number' ? w.snowCover : 0, season === 'winter' ? 0.4 : 0);
     return { season, snow: Math.round(snow * 4) / 4, wet: typeof w.wetness === 'number' ? w.wetness : 0 };
   };
   let lastEnvKey = '';
@@ -326,8 +326,8 @@ export async function init(ctx) {
     for (const q of D.puddles) {
       if (q.x < view.x0 - 2 || q.x > view.x1 + 2 || q.y < view.y0 - 2 || q.y > view.y1 + 2) continue;
       g.save(); g.translate(q.x, q.y); g.rotate(q.rot);
-      g.fillStyle = `rgba(150,172,196,${0.75 * wet})`;
-      g.beginPath(); g.ellipse(0, 0, q.rx * 0.95, q.ry * 0.9, 0, 0, 6.283); g.fill();
+      g.fillStyle = `rgba(120,140,160,${0.5 * wet})`;
+      g.beginPath(); g.ellipse(0, 0, q.rx * 0.8, q.ry * 0.75, 0, 0, 6.283); g.fill();
       g.strokeStyle = `rgba(235,242,248,${0.45 * wet})`; g.lineWidth = 0.05;
       g.beginPath(); g.ellipse(-q.rx * 0.2, -q.ry * 0.25, q.rx * 0.5, q.ry * 0.35, 0, 3.4, 5.4); g.stroke();
       g.restore();
@@ -358,6 +358,11 @@ export async function init(ctx) {
     g.fillStyle = 'rgba(255,250,235,0.35)'; g.beginPath(); g.arc(w / 2 - 2, h / 2 - 2, w * 0.07, 0, 6.283); g.fill();
   });
 
+  const lensSprite = art.sprite('roads:lens', 64, 64, (g, w) => {
+    const gr = g.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+    gr.addColorStop(0, 'rgba(255,236,190,0.9)'); gr.addColorStop(0.35, 'rgba(255,190,110,0.35)'); gr.addColorStop(1, 'rgba(255,170,90,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, w, w);
+  });
   const lampsOn = (i) => {
     const env = world.environment || {};
     const thr = 0.42 - ((i * 7919) % 97) / 97 * 0.08;
@@ -384,6 +389,7 @@ export async function init(ctx) {
       const on = lampsOn(i);
       if (on) F.light({ x: l.hx, y: l.hy, radius: 15, color: LAMP_COLOR, intensity: 0.95, glow: 1, glowRadius: 2.6 });
       const hx = l.hx + (l.hx - l.x) * 0.1, hy = l.hy + (l.hy - l.y) * 0.1;
+      if (view.zoom < 6) continue;
       F.object({
         y: l.y,
         draw(g) {
@@ -400,7 +406,7 @@ export async function init(ctx) {
     }
     // bridges: railings (objects) + one custom shadow per bridge (deck + railings)
     for (const ch of D.chains) {
-      if (!ch.bridges.length || !bboxHit(ch.bbox, view.x0 - 10, view.y0 - 10, view.x1 + 10, view.y1 + 10)) continue;
+      if (!ch.bridges.length) continue;
       for (const [a, b] of ch.bridges) bridgeObjects(ch, a, b, view, F);
     }
   });
@@ -415,40 +421,57 @@ export async function init(ctx) {
     }
     return out;
   }
-  function bridgeObjects(ch, a, b, view, F) {
+  const bridgeGeo = new Map();
+  function bridgeGeometry(ch, a, b) {
+    const key = ch.key + ':' + a.toFixed(1);
+    let G = D && D.bridgeGeo && D.bridgeGeo.get(key);
+    if (G) return G;
+    if (!D.bridgeGeo) D.bridgeGeo = new Map();
     const rails = [railLine(ch, a, b, 1), railLine(ch, a, b, -1)];
+    const o1 = [], o2 = [], f1 = [], f2 = [];
+    for (let s = a - 2.5; s <= b + 2.5 + 0.01; s += 1) {
+      const p = sampleAt(ch.pts, ch.cum, Math.max(0, Math.min(ch.L, s)));
+      const w = ch.hw + 1.1;
+      f1.push([p.x - p.ty * w, p.y + p.tx * w]); f2.push([p.x + p.ty * w, p.y - p.tx * w]);
+      if (s >= a && s <= b) { const w2 = ch.hw + 1.15; o1.push([p.x - p.ty * w2, p.y + p.tx * w2]); o2.push([p.x + p.ty * w2, p.y - p.tx * w2]); }
+    }
+    const all = rails[0].concat(rails[1]);
+    G = { rails, wings: wingWalls(ch, a, b), deck: o1.concat(o2.reverse()), deckFull: f1.concat(f2.reverse()), bbox: {
+      x0: Math.min(...all.map((p) => p[0])) - 3, y0: Math.min(...all.map((p) => p[1])) - 3,
+      x1: Math.max(...all.map((p) => p[0])) + 3, y1: Math.max(...all.map((p) => p[1])) + 3 } };
+    D.bridgeGeo.set(key, G);
+    return G;
+  }
+  function bridgeObjects(ch, a, b, view, F) {
+    const G = bridgeGeometry(ch, a, b);
+    const pad = 20;
+    if (!bboxHit(G.bbox, view.x0 - pad, view.y0 - pad, view.x1 + pad, view.y1 + pad)) return;
+    const rails = G.rails;
     if (!suppressShadows) {
-      const deckOuter = (side) => { const o = []; for (let s = a; s <= b + 0.01; s += 1) { const p = sampleAt(ch.pts, ch.cum, s); const w = side * (ch.hw + 1.15); o.push([p.x - p.ty * w, p.y + p.tx * w]); } return o; };
-      const deck = deckOuter(1).concat(deckOuter(-1).reverse());
-      const deckFull = (() => { const o1 = [], o2 = []; for (let s = a - 2.5; s <= b + 2.5 + 0.01; s += 1) { const p = sampleAt(ch.pts, ch.cum, Math.max(0, Math.min(ch.L, s))); const w = ch.hw + 1.1; o1.push([p.x - p.ty * w, p.y + p.tx * w]); o2.push([p.x + p.ty * w, p.y - p.tx * w]); } return o1.concat(o2.reverse()); })();
       F.shadow.custom((sg, sun) => {
         const L = Math.min(8, Math.max(0, sun.shadowLen || 0));
         const dx = sun.dirX * L, dy = sun.dirY * L;
-        sg.fillStyle = palette.shadow;
+        sg.fillStyle = palette.shadow; sg.strokeStyle = palette.shadow;
+        // deck slab (z 1.3..2.1) swept along the sun
         sg.beginPath();
-        prism(sg, deck, 1.3 * dx, 1.3 * dy, 2.1 * dx, 2.1 * dy);
+        for (const z of [1.3, 1.55, 1.8, 2.1]) addPoly(sg, G.deck.map(([x, y]) => [x + dx * z, y + dy * z]));
         sg.fill('nonzero');
         sg.globalCompositeOperation = 'destination-out';
-        sg.beginPath(); addPoly(sg, deckFull); sg.fill();
+        sg.beginPath(); addPoly(sg, G.deckFull); sg.fill();
         sg.globalCompositeOperation = 'source-over';
-        sg.beginPath();
+        // railings: top rail (z≈1.05), mid rail (z≈0.53), upstand (0..0.22), posts
+        sg.lineJoin = 'round'; sg.lineCap = 'butt';
+        const line = (r, z, w) => { sg.beginPath(); for (let i = 0; i < r.length; i++) { const x = r[i][0] + dx * z, y = r[i][1] + dy * z; if (i) sg.lineTo(x, y); else sg.moveTo(x, y); } sg.lineWidth = w; sg.stroke(); };
+        const sw = Math.hypot(dx, dy);
+        for (const w of G.wings) { sg.beginPath(); sg.moveTo(w.p0[0] + dx * 0.5, w.p0[1] + dy * 0.5); sg.lineTo(w.p1[0] + dx * 0.5, w.p1[1] + dy * 0.5); sg.lineWidth = 0.6 + sw * 1.0; sg.stroke(); }
         for (const r of rails) {
-          for (let i = 0; i < r.length - 1; i++) {
-            const p = r[i], q = r[i + 1];
-            const nx = -(q[1] - p[1]), ny = q[0] - p[0]; const nl = Math.hypot(nx, ny) || 1;
-            const t = 0.035 / nl;
-            const quad = [[p[0] + nx * t, p[1] + ny * t], [q[0] + nx * t, q[1] + ny * t], [q[0] - nx * t, q[1] - ny * t], [p[0] - nx * t, p[1] - ny * t]];
-            prism(sg, quad, dx * 1.0, dy * 1.0, dx * 1.1, dy * 1.1);
-            prism(sg, quad, dx * 0.5, dy * 0.5, dx * 0.56, dy * 0.56);
-            const kq = [[p[0] + nx * t * 3, p[1] + ny * t * 3], [q[0] + nx * t * 3, q[1] + ny * t * 3], [q[0] - nx * t * 3, q[1] - ny * t * 3], [p[0] - nx * t * 3, p[1] - ny * t * 3]];
-            prism(sg, kq, 0, 0, dx * 0.22, dy * 0.22);
-            if (i % 3 === 0) {
-              const w = 0.05;
-              prism(sg, [[p[0] - w, p[1] - w], [p[0] + w, p[1] - w], [p[0] + w, p[1] + w], [p[0] - w, p[1] + w]], 0, 0, dx * 1.1, dy * 1.1);
-            }
-          }
+          line(r, 1.05, 0.09 + sw * 0.1);
+          line(r, 0.53, 0.06 + sw * 0.06);
+          line(r, 0.11, 0.24 + sw * 0.22);
+          sg.beginPath();
+          for (let i = 0; i < r.length; i += 3) { sg.moveTo(r[i][0], r[i][1]); sg.lineTo(r[i][0] + dx * 1.1, r[i][1] + dy * 1.1); }
+          sg.lineWidth = 0.1; sg.stroke();
         }
-        sg.fill('nonzero');
       });
     }
     for (const r of rails) {
@@ -457,6 +480,7 @@ export async function init(ctx) {
         const ys = seg.map((p) => p[1]);
         const minX = Math.min(...seg.map((p) => p[0])), maxX = Math.max(...seg.map((p) => p[0]));
         if (maxX < view.x0 - 2 || minX > view.x1 + 2 || Math.max(...ys) < view.y0 - 2 || Math.min(...ys) > view.y1 + 2) continue;
+        if (view.zoom < 5) continue;
         F.object({
           y: Math.max(...ys),
           draw(g) {
@@ -466,11 +490,11 @@ export async function init(ctx) {
             g.strokeStyle = 'rgba(40,44,40,0.35)'; g.lineWidth = 0.24; g.globalCompositeOperation = 'destination-over'; g.stroke(); g.globalCompositeOperation = 'source-over';
             // posts
             g.fillStyle = art.outline(RAIL);
-            for (let k = 0; k < seg.length; k += 3) { const p = seg[k]; g.fillRect(p[0] - 0.07, p[1] - 0.07, 0.14, 0.14); }
+            for (let k = 0; k < seg.length; k += 3) { const p = seg[k]; g.fillRect(p[0] - 0.09, p[1] - 0.09, 0.18, 0.18); }
             // rail
             g.beginPath(); pathFrom(g, seg);
-            g.strokeStyle = art.outline(RAIL); g.lineWidth = 0.11; g.stroke();
-            g.strokeStyle = RAIL; g.lineWidth = 0.07; g.stroke();
+            g.strokeStyle = art.outline(RAIL); g.lineWidth = 0.15; g.stroke();
+            g.strokeStyle = RAIL; g.lineWidth = 0.1; g.stroke();
             g.strokeStyle = 'rgba(230,240,220,0.35)'; g.lineWidth = 0.02; g.stroke();
           },
         });
@@ -487,16 +511,12 @@ export async function init(ctx) {
     for (let i = 0; i < lights.length; i++) {
       const l = lights[i];
       if (l.hx < view.x0 - 3 || l.hx > view.x1 + 3 || l.hy < view.y0 - 3 || l.hy > view.y1 + 3) continue;
-      if (!lampsOn(i)) continue;
+      if (!lampsOn(i) || view.zoom < 5) continue;
       const hx = l.hx + (l.hx - l.x) * 0.1, hy = l.hy + (l.hy - l.y) * 0.1;
-      const gr = g.createRadialGradient(hx, hy, 0, hx, hy, 0.9);
-      gr.addColorStop(0, 'rgba(255,236,190,0.9)'); gr.addColorStop(0.35, 'rgba(255,190,110,0.35)'); gr.addColorStop(1, 'rgba(255,170,90,0)');
-      g.fillStyle = gr; g.beginPath(); g.arc(hx, hy, 0.9, 0, 6.283); g.fill();
+      g.drawImage(lensSprite, hx - 0.9, hy - 0.9, 1.8, 1.8);
       if (wet > 0.1) {
         g.globalAlpha = Math.min(0.5, wet * 0.5);
-        const rg = g.createRadialGradient(hx, hy + 1.2, 0, hx, hy + 1.2, 2.5);
-        rg.addColorStop(0, 'rgba(255,200,130,0.6)'); rg.addColorStop(1, 'rgba(255,200,130,0)');
-        g.fillStyle = rg; g.beginPath(); g.ellipse(hx, hy + 1.2, 0.6, 2.5, 0, 0, 6.283); g.fill();
+        g.drawImage(lensSprite, hx - 0.6, hy - 1.3, 1.2, 5);
         g.globalAlpha = 1;
       }
     }
@@ -532,8 +552,9 @@ export async function init(ctx) {
     dispose() { cache.clear(); },
   };
   // internals for the showcase
-  inst._internal = { cache, tex, ensure, setSuppressShadows: (v) => { suppressShadows = v; }, lampsOn, envState };
+  inst._internal = { cache, tex, ensure, generate: generateNetwork, setSuppressShadows: (v) => { suppressShadows = v; }, lampsOn, envState };
   internals.set(ctx.id, inst._internal);
+  if (ctx.params.roadsdebug) window.__ROADS = { cache, getD: () => D };
   return inst;
 }
 
@@ -606,12 +627,10 @@ export const showcase = {
     bridge: { camera: { x: 167, y: 300, zoom: 24 }, time: '15:00' },
     night: { camera: { x: 322, y: 262, zoom: 13 }, time: '22:30' },
     farm: { camera: { x: 440, y: 348, zoom: 24 }, time: '09:30' },
-    winter: { camera: { x: 332, y: 262, zoom: 9 }, time: '12:00', day: 32 },
+    winter: { camera: { x: 332, y: 262, zoom: 9 }, time: '12:00', day: 34 },
   },
   async stage(ctx, presetName) {
     const self = internals.get(ctx.id);
-    const api = { generateNetwork: null };
-    void api;
     const envApi = ctx.modules.get('environment');
     const envOK = !!(envApi && typeof envApi.getSun === 'function');
     // own backdrop (terrain optional → always paint a small valley so the showcase is self-contained)
@@ -623,8 +642,6 @@ export const showcase = {
       bdCache.draw(g, view, bdCache.map.size ? 1 : 4);
     }, -5);
     // network
-    const mod = await import('./index.js');
-    void mod;
     self.generate(SHOWCASE_PLAN);
     // prewarm chunks for the preset view (so screenshots aren't waiting on budgeted builds)
     const dpr = Math.min(2, window.devicePixelRatio || 1);

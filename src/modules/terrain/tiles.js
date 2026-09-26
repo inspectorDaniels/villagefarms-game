@@ -2,12 +2,14 @@
 // advanced a few slices per frame (budgeted), with stale / coarser tiles or the
 // whole-map overview shown as fallback meanwhile.
 import { S, NO_WATER, F_LILY, F_LAKE } from './gen.js';
-import { shadeRows, hash2, snowMaskAt } from './paint.js';
+import { shadeRows, hash2, snowMaskAt, codeAt } from './paint.js';
 
 const LEVELS = [2, 4, 8, 16, 32];
+const WET_W = new Float32Array(12);
+[[S.grass, 0.28], [S.meadow, 0.28], [S.forestFloor, 0.4], [S.soil, 0.75], [S.ploughed, 0.8], [S.mud, 0.6], [S.farmyard, 0.7], [S.sand, 0.6], [S.gravel, 0.5], [S.rock, 0.45]].forEach(([k, v]) => { WET_W[k] = v; });
 const CELL = 32;               // version-cell size (m) for dirty tracking
 const CACHE_CAP = 150 * 1048576;
-const PREFETCH_BUDGET = 16000; // work units per frame for the 1-tile ring around the view
+const PREFETCH_BUDGET = 4000;  // work units per frame for the 1-tile ring around the view
 
 function cellRng(x, y, salt) {
   let a = (hash2(x, y, salt) * 4294967296) >>> 0;
@@ -37,7 +39,7 @@ export class TileManager {
     this.overview = null; this.overviewSig = null; this.overviewJob = null;
   }
   levelFor(zoom) {
-    const want = zoom * Math.min(2, window.devicePixelRatio || 1) * 0.92;
+    const want = zoom * Math.min(2, window.devicePixelRatio || 1) / 1.3;
     for (const L of LEVELS) if (L >= want) return L;
     return 32;
   }
@@ -96,30 +98,30 @@ export class TileManager {
   *tileJob(tile, look, ver) {
     const T = this.T, art = this.art, L = tile.level, M = tile.size;
     const sres = Math.min(L, 16);
-    const margin = L > sres ? 2 : 0;
+    const margin = 2; // shaded margin (px at sres) → tiles sample real neighbours at their edges: no seams
     const pw = M * sres + margin * 2;
     const base = art.canvas(pw, pw);
     const bg = base.getContext('2d');
     const img = bg.createImageData(pw, pw);
     const ox = tile.x - margin / sres, oy = tile.y - margin / sres;
-    const rows = Math.max(8, Math.floor(40000 / pw));
+    const rows = Math.max(4, Math.floor(8000 / pw));
     for (let r = 0; r < pw; r += rows) {
       shadeRows(T, look, this.NZ, img.data, pw, ox, oy, sres, r, Math.min(pw, r + rows), L < 32);
       yield rows * pw;
     }
     bg.putImageData(img, 0, 0);
     let out = base;
+    const k = L / sres, mo = margin * k;
     if (L > sres) {
-      out = art.canvas(M * L, M * L);
+      out = art.canvas(pw * k, pw * k);
       const og = out.getContext('2d');
       og.imageSmoothingEnabled = true;
       og.imageSmoothingQuality = 'high';
-      const k = L / sres;
-      og.drawImage(base, -margin * k, -margin * k, pw * k, pw * k);
+      og.drawImage(base, 0, 0, pw * k, pw * k);
       yield 20000;
     }
     const g = out.getContext('2d');
-    g.setTransform(L, 0, 0, L, -tile.x * L, -tile.y * L);
+    g.setTransform(L, 0, 0, L, -tile.x * L + mo, -tile.y * L + mo);
     if (L >= 16) yield* this.decalPass(g, tile, look, L);
     if (L >= 8) yield* this.waterDecals(g, tile, look, L);
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -127,7 +129,7 @@ export class TileManager {
     if (L >= 4 && tile.wet) shimmer = yield* this.shimmerJob(tile, look);
     // commit
     if (tile.canvas) this.bytes -= tile.bytes;
-    tile.canvas = out; tile.shimmer = shimmer; tile.sig = look.sig; tile.ver = ver;
+    tile.canvas = out; tile.m = mo; tile.shimmer = shimmer; tile.sig = look.sig; tile.ver = ver;
     tile.bytes = out.width * out.height * 4 + (shimmer ? shimmer.bytes : 0);
     this.bytes += tile.bytes;
   }
@@ -140,12 +142,17 @@ export class TileManager {
     const x0 = Math.max(0, tile.x - 1), y0 = Math.max(0, tile.y - 1);
     const x1 = Math.min(W - 2, tile.x + tile.size + 1), y1 = Math.min(H - 2, tile.y + tile.size + 1);
     const NZ = this.NZ;
-    const draw = (img, x, y) => { const s = img.width / 32; g.drawImage(img, x - s / 2, y - s / 2, s, s); };
+    let band = false, code = 0;
+    const draw = (img, x, y) => {
+      if (band && codeAt(T, x, y) !== code) return; // keep decals on their side of painted edges
+      const s = img.width / 32; g.drawImage(img, x - s / 2, y - s / 2, s, s);
+    };
     let n = 0;
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
         const o = y * W + x;
-        const code = T.surface[o];
+        code = T.surface[o];
+        band = !!(T.pedge[o] | T.pedge[o + 1] | T.pedge[o + W] | T.pedge[o + W + 1]);
         if (T.waterLevel[o] - T.height[o] > -0.08) continue;
         const R = cellRng(x, y, 99);
         if (look.snow > 0 && snowMaskAt(look, NZ, x + 0.5, y + 0.5, T.shade[o]) > 0.4) continue;
@@ -153,18 +160,19 @@ export class TileManager {
         const px = () => x + R(), py = () => y + R();
         switch (code) {
           case S.grass: {
-            const k = Math.floor((1.6 + R() * 2.2) * dens);
+            const k = Math.floor((0.5 + R() * 1.4 + Math.max(0, cl) * 1.5) * dens);
             for (let i = 0; i < k; i++) draw(D.tuft(season, (R() * 6) | 0, false), px(), py());
-            if (R() < fl * 0.12 * dens * Math.max(0.1, cl + 0.5)) draw(D.flower((R() * 6) | 0, (R() * 4) | 0), px(), py());
+            if (R() < fl * 0.035 * dens * Math.max(0, cl + 0.25) * 2) draw(D.flower((R() * 6) | 0, (R() * 4) | 0), px(), py());
             if (R() < 0.07 * dens * (cl < -0.2 ? 3 : 1)) draw(D.clover(season, (R() * 5) | 0), px(), py());
             if (season === 'autumn' && R() < 0.08) draw(D.leaf(season, (R() * 6) | 0), px(), py());
             break;
           }
           case S.meadow: {
-            const k = Math.floor((1.4 + R() * 2) * dens);
+            const k = Math.floor((1 + R() * 1.6) * dens);
             for (let i = 0; i < k; i++) draw(D.tuft(season, (R() * 6) | 0, true), px(), py());
-            const fk = fl * 0.7 * dens * Math.max(0.15, cl + 0.6);
-            for (let i = 0; i < 3; i++) if (R() < fk) draw(D.flower((R() * 6) | 0, (R() * 4) | 0), px(), py());
+            const fk = fl * 0.22 * dens * Math.max(0, cl + 0.15) * 1.6;
+            const ci = (hash2(x >> 3, y >> 3, 17) * 6) | 0; // flowers come in patches of one colour
+            for (let i = 0; i < 2; i++) if (R() < fk) draw(D.flower(R() < 0.7 ? ci : (R() * 6) | 0, (R() * 4) | 0), px(), py());
             if (R() < 0.1 * dens) draw(D.clover(season, (R() * 5) | 0), px(), py());
             break;
           }
@@ -274,8 +282,8 @@ export class TileManager {
         d[(j * pw + i) * 4 + 3] = a;
         if (a) any++;
       }
+      if ((j & 31) === 31) yield pw * 32 * 0.3;
     }
-    yield pw * pw * 0.4;
     if (!any) return null;
     mg.putImageData(img, 0, 0);
     const frames = [];
@@ -290,7 +298,7 @@ export class TileManager {
         const dep = T.waterLevel[o] - T.height[o];
         if (dep < 0.15) continue;
         const R = cellRng(x, y, 700 + f * 31);
-        if (R() > 0.42) continue;
+        if (R() > 0.22) continue;
         let ang;
         if (T.flags[o] & F_LAKE) ang = 0.12 + (R() - 0.5) * 0.5;
         else {
@@ -298,15 +306,15 @@ export class TileManager {
           ang = Math.atan2(gx, -gy) + (R() - 0.5) * 0.3;
         }
         const cx = x + R(), cy = y + R();
-        const len = 0.4 + R() * 1.3;
+        const len = 0.3 + R() * 0.9;
         const ca = Math.cos(ang) * len / 2, sa = Math.sin(ang) * len / 2;
         const bend = (R() - 0.5) * 0.3;
-        if (R() < 0.62) {
-          g.strokeStyle = art.rgba(P.water.foam, 0.22 + R() * 0.35);
-          g.lineWidth = 0.05 + R() * 0.08;
+        if (R() < 0.45) {
+          g.strokeStyle = art.rgba(P.water.foam, 0.12 + R() * 0.22);
+          g.lineWidth = 0.04 + R() * 0.05;
         } else {
-          g.strokeStyle = art.rgba(P.water.deep, 0.18 + R() * 0.2);
-          g.lineWidth = 0.08 + R() * 0.1;
+          g.strokeStyle = art.rgba(P.water.deep, 0.12 + R() * 0.16);
+          g.lineWidth = 0.08 + R() * 0.12;
         }
         g.beginPath();
         g.moveTo(cx - ca, cy - sa);
@@ -321,6 +329,24 @@ export class TileManager {
       yield M * M * 8;
     }
     return { frames, bytes: pw * pw * 8, phase: hash2(tile.tx, tile.ty, 5) * 6.28 };
+  }
+
+  /** 2 px/m multiply mask: soils darken most when wet, vegetation a little, water not at all */
+  wetMask(tile) {
+    if (tile.wetMask && tile.wetMaskVer === tile.ver) return tile.wetMask;
+    const T = this.T, W = T.w, res = 2, pw = tile.size * res;
+    const c = this.art.canvas(pw, pw), g = c.getContext('2d');
+    const img = g.createImageData(pw, pw), d = img.data;
+    for (let j = 0; j < pw; j++) for (let i = 0; i < pw; i++) {
+      const x = Math.min(W - 1, Math.round(tile.x + (i + 0.5) / res)), y = Math.min(T.h - 1, Math.round(tile.y + (j + 0.5) / res));
+      const o = y * W + x, code = T.surface[o];
+      const wet = T.waterLevel[o] - T.height[o] > 0.05 ? 0 : WET_W[code];
+      const p = (j * pw + i) * 4;
+      d[p] = 132; d[p + 1] = 124; d[p + 2] = 122; d[p + 3] = wet * 255;
+    }
+    g.putImageData(img, 0, 0);
+    tile.wetMask = c; tile.wetMaskVer = tile.ver;
+    return c;
   }
 
   // ------------------------------------------------------------ per-frame
@@ -369,10 +395,15 @@ export class TileManager {
       if (!this.fresh(t, look)) { queue.push(t); if (!t.canvas) missing++; }
     }
     // catch-up mode: visible tiles with no content at all (showing blurry fallback) get a larger budget
-    if (budget !== Infinity && missing) budget *= 2.5;
-    let preLeft = budget === Infinity ? 0 : PREFETCH_BUDGET;
-    if (!queue.length && preLeft) {
-      for (const t of pre) { wanted.add(t.key); if (!this.fresh(t, look)) queue.push(t); }
+    if (budget !== Infinity && missing) budget *= 3;
+    // prefetch the ring around the view: every frame while the camera moves, every 4th frame when idle
+    const vk = view.x0.toFixed(2) + ',' + view.y0.toFixed(2) + ',' + view.zoom.toFixed(3);
+    if (vk !== this.lastViewKey) { this.lastViewKey = vk; this.movedAt = this.frame; }
+    const moving = this.frame - (this.movedAt || 0) < 30;
+    let preLeft = budget === Infinity || (!moving && this.frame % 4) ? 0 : PREFETCH_BUDGET;
+    if (budget !== Infinity) for (const t of pre) wanted.add(t.key); // keep partially painted ring jobs alive
+    if (!queue.length) {
+      if (preLeft) for (const t of pre) if (!this.fresh(t, look)) queue.push(t);
       budget = Math.min(budget, preLeft);
     }
     for (const k of [...this.jobs.keys()]) if (!wanted.has(k)) this.jobs.delete(k);
@@ -412,9 +443,11 @@ export class TileManager {
     this.frame++;
     const pad = 1.2 / view.zoom;
     const drawn = [];
-    for (const t of need) {
+    // row-major order: each tile's anti-aliased leading edge lands on an already drawn neighbour (no seams)
+    const order = need.slice().sort((a, b) => a.ty - b.ty || a.tx - b.tx);
+    for (const t of order) {
       t.used = this.frame;
-      if (t.canvas) { g.drawImage(t.canvas, t.x, t.y, t.size + pad, t.size + pad); drawn.push(t); continue; }
+      if (t.canvas) { g.drawImage(t.canvas, t.m, t.m, t.size * t.level, t.size * t.level, t.x, t.y, t.size + pad, t.size + pad); drawn.push(t); continue; }
       // fallback: coarser cached tile
       let done = false;
       for (let li = LEVELS.indexOf(t.level) - 1; li >= 0 && !done; li--) {
@@ -422,8 +455,8 @@ export class TileManager {
         const p = this.tiles.get(L2 + ':' + Math.floor(t.x / s2) + ':' + Math.floor(t.y / s2));
         if (p && p.canvas) {
           p.used = this.frame;
-          const k = p.canvas.width / s2;
-          g.drawImage(p.canvas, (t.x - p.x) * k, (t.y - p.y) * k, t.size * k, t.size * k, t.x, t.y, t.size + pad, t.size + pad);
+          const k = p.level;
+          g.drawImage(p.canvas, p.m + (t.x - p.x) * k, p.m + (t.y - p.y) * k, t.size * k, t.size * k, t.x, t.y, t.size + pad, t.size + pad);
           done = true;
         }
       }
