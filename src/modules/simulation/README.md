@@ -92,12 +92,14 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 
 **Field work & CAP (r4: the worked share)**
 - **The module listens to `crops:worked {fieldId, parcelId, tool, areaM2}`** and credits the worked m² to the parcel. This only counts when the player owns or rents the parcel.
+  - **r4c:** events with `contractor: true` are ignored. The booking already credited its area when `economy:contractor-done` fired, so each area counts once.
 - `recordFieldWork(parcelId, op, {areaM2, workerId?, hours?})` → bool. It is for land that is not a crops field. It returns false when:
   - the parcel is not owned/rented by the player;
   - `op` is not one of `plough cultivate sow seed spray fertilise spread mow harvest lift bale rake ted roll hoe weed mulch plant graze`;
-  - `areaM2` is invalid.
+  - `areaM2` is invalid;
+  - **(r4c)** the parcel has crops fields (crops reports those through `crops:worked`, or `crops.fields()` lists one).
 
-  With `workerId` + `hours` it also calls `logWork(…, 'field')`.
+  The area credited per call is capped at the parcel. With `workerId` + `hours` it also calls `logWork(…, 'field')`. It is meant for trusted callers and only for land without crops fields.
 - **CAP** is €450/ha-year, paid on 1 October. For each parcel it pays: days held / 36 × ha × **min(1, best-covered operation's worked m² / parcel m²)**.
   - Several ops don't add up: one full ploughing = 100 %.
   - The share resets on rent, buy, lease end or sale, and every CAP day.
@@ -111,6 +113,12 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 - Settlement happens at the start of the next day:
   - **any day with ≥ 1 h logged, or a delegated job worked → the full day rate;**
   - otherwise → the retainer.
+- **(r4c)** In any hour in which `logWork(…, 'possessed')` was logged for a hand, he does not work his delegated jobs.
+  - characters also returns `isAvailable(workerId) === false` while the hand is possessed or driving.
+  - Any `false` counts as unavailable.
+- **(r4c)** `workerDayCost(workerId)` → `{dayRate, retainer, hoursToday, onTheClock, costToday, extraIfUsed}`.
+  - It is meant for the UI: "Dries is on the clock today".
+  - Possessing a hand for even 1 game hour puts him on the clock; `extraIfUsed` is what that costs on an idle day.
 - `fireWorker(id)` releases the hand's delegated jobs back to the player.
 - `workers()` → each also carries `hoursToday`, `daysWorked`, `kinds` (hours by kind today) and `assignedJobs`.
 
@@ -148,8 +156,17 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 - Stages while over the limit:
   - **30 days:** purchases, land deals, hires and contractor bookings are blocked.
   - **60 days:** the bank sells the least valuable asset at 85 % every 3 days, repaying its secured loan (`economy:asset-seized`).
-  - **Nothing left to seize:** after 30 more days the hands are laid off (`economy:hands-laid-off {names}`). The bank then restructures the overdraft **once** into a 10-year loan at 6 % (`bankrupt-warning {stage:'restructured'}`).
-  - **Over the limit again with nothing left:** `stage:'bankrupt'` (a final state).
+  - **What the bank sells, in order:** machines, then **stored produce** at 85 % of the quote (r4c), then land.
+  - **Nothing left to seize:** after 30 more days the hands are laid off (`economy:hands-laid-off {names}`).
+  - **Restructuring (once, r4c, sized to the farm):**
+    - Instalments are at most ⅓ of last year's operating result, with a minimum of €150 a month.
+    - The loan runs up to 20 years at 6 %, with 6 months' grace.
+    - Whatever that annuity cannot carry is **written off**.
+    - `bankrupt-warning {stage:'restructured', loan, months, writeOff}`.
+  - **Over the limit again with nothing left:** `stage:'bankrupt'`.
+    - All leases are handed back without the exit fee, so rent stops.
+    - The farm stays blocked while cash is negative, and is unblocked once cash is positive again.
+    - The UI should show this as the farm has gone bankrupt, with an offer to start again or to carry on with odd jobs.
 - Selling a mortgaged parcel or a financed machine repays its loan from the proceeds first.
 
 **Land**
