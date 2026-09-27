@@ -115,7 +115,7 @@ export async function init(ctx) {
   const tiles = createTiles(ctx.art, ctx.palette);
   renderer = createRenderer(ctx, model, tiles);
   for (const f of W.fields) renderer.onField(f, 'add');
-  let budget = 2200;
+  let budget = 900; // cells painted per frame (chunk builds + dirty repaints): ~1 ms headless
   ctx.renderer.addLayer('ground', (g, view) => renderer.drawGround(g, view, budget), 5);
   ctx.renderer.addLayer('ground-detail', (g, view) => renderer.drawSway(g, view), 2);
   ctx.renderer.addCollector((view, F) => renderer.collect(view, F));

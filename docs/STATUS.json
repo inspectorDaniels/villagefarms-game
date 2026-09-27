@@ -210,7 +210,7 @@
     },
     "vehicles": {
       "wave": 2,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -227,7 +227,7 @@
         "exit() ejects driver when blocked",
         "E uncouples trailer (should be H only)"
       ],
-      "note": "built 2026-09-27: 24/24 drive mechanics + 13/13 characters-integration checks (tests/*.test.cjs), deterministic replay, save/load, economy via simulation, widths/speeds from simulation.workRates(). Registered. Gaps: no AI driving, no tipping, no slopes, combine harvests root crops. Should set spatial item polys (core now supports it)."
+      "note": "r2: pause, exit speed/blocked, E vs H, polys colliders, nearest free, harvest by crop kind, engine auto-off, fuel points (addFuelPoint), exact save/load replay; 34/34 + 13/13 tests"
     },
     "characters": {
       "wave": 2,

@@ -210,7 +210,7 @@ export function createManager(sim, opts) {
 
   function harvestField(f, p, factor) {
     const C = CROPS[f.crop], ha = p.area / 1e4;
-    const soilF = 0.82 + 0.36 * p.soil;
+    const soilF = 0.9 + 0.25 * p.soil; // same soil factor as the crops module
     const y = C.yield * ha * soilF * f.factor * factor * rng.range(0.86, 1.12);
     const stored = api.addInventory(C.product, y);
     sales.harvested(C.product);

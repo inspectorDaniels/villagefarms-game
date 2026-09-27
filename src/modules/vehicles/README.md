@@ -43,16 +43,22 @@ Upkeep and leases are charged daily by simulation (asset records); this module c
 
 ## API (`ctx.modules.get('vehicles')`) — metres, radians (0 = north, clockwise), m/s
 - `spawn(type, x, y, rot, { owner, assetId, fuel, wear, paint, seed, name })` → id · `despawn(id)`
-- `list(filter?)` (object match or predicate) · `get(id)` → **live** record · `nearest(x, y, r=3, {any, free, kind})`
-  → nearest drivable vehicle by distance to its body box (implements only with `any`)
+- `list(filter?)` (object match or predicate) → **copies** · `get(id)` → **live** record (treat as read-only) · `nearest(x, y, r=3, {any, free, kind})`
+  → nearest drivable vehicle by distance to its body box (implements only with `any`; `free:true` skips occupied/hitched)
 - `enter(id, characterId)` → bool (lights auto-on after dark) · `exit(id)` → `{x, y}` exit spot: dry, free
-  of solids and outside the rig's bounding box (the driver's door first) · `driverOf(id)` · `exitPosition(id)`
+  of solids and outside the rig's bounding box (the driver's door first). Returns **`null` and keeps the driver**
+  (no event) when moving faster than 1 m/s ("Stop to get out") or when there is no free spot ·
+  `driverOf(id)` · `exitPosition(id)` → spot or null
 - `control(id, { throttle 0..1, brake 0..1, steer -1..1, implementDown: bool|'toggle', lights: bool|'toggle', hitch, horn })`
-  Must be called every step by the driver (the characters module does); controls go stale after 3 steps and
-  the vehicle brakes. Brake at a standstill = reverse. `implementDown:'toggle'` with nothing to lower couples the nearest implement.
-- `attach(id, implId)` (snaps behind; one rear + one front) · `detach(id, implId?)` · `hitchNearest(id)` (couple within 2.6 m of the hitch, else uncouple)
+  Must be called every step by the driver (the characters module does). Only throttle/brake/steer keep the controls
+  fresh; after 3 stale steps the parking brake holds (never reverses), and after 5 s the engine switches off (no fuel burn).
+  Brake at a standstill = reverse. `implementDown:'toggle'` with nothing attached couples the nearest implement;
+  it **never uncouples** (that is H / `hitchNearest`).
+- `attach(id, implId)` (snaps behind; one rear + one front) · `detach(id, implId?)` · `hitchNearest(id)` (couple a free implement within 2.6 m of a free hitch, else uncouple the rear one)
 - `setImplement(id, down|'toggle')` · `setLights(id, on|'toggle')` · `setSeed(id, crop)`
-- `refuel(id, litres?)` → litres: from the farm's diesel stock first, then `simulation.buy('diesel')` (as much as money allows)
+- `refuel(id, litres?, {anywhere})` → litres. **Where:** within 12 m of a fuel point (`addFuelPoint(x, y, r?)`, saved):
+  the farm's diesel stock first, then `simulation.buy('diesel')` as money allows. On the **farmyard** surface: only from
+  the farm's diesel stock (buy diesel into the farm tank first). Anywhere else: 0 (G shows why). `anywhere:true` for scripts.
 - `repair(id)` → € (12 % of list price × wear, category `repairs`) or false · `upgrade(id, 'engine'|'tyres'|'gps')` → € or false
 - `purchase(itemOrType, x, y, rot, { finance, lease, grant })` → [ids] via `simulation.purchase/lease/grantAsset`
 - `sell(id)` → € (releases the asset; despawns the whole kit) · `catalog()` · `types()` · `workRate(...)`
@@ -72,10 +78,11 @@ Player keys handled here while the active character drives: **H** hitch/unhitch,
 - Lowered implements cap speed at their working speed, scaled by `hp / needHp`.
 - Collisions: each rig's oriented boxes (body, combine header, implements) tested by SAT against every
   `solid` spatial item (AABB, circle or `data.poly(s)`). Blocked moves stop the rig (`v.blocked = 'solid'|'water'|'bounds'`);
-  hits above 1.5 m/s add wear. Deep water: the leading edge may not enter water deeper than the type's wading depth
+  hits above 1.5 m/s add wear. Deep water: both corners and the centre of the leading edge (the rear of the whole rig when reversing) may not enter water deeper than the type's wading depth
   (0.6 m tractors/combines, 0.35 m pickup); roads (bridges) always pass.
 - Trailed implements: the axle follows the hitch at a fixed tongue length (articulation clamped to ±78°).
-- Every vehicle/implement is a solid spatial item (`kind:'vehicle'`, AABB + `data.polys`), so walkers collide with them.
+- Every vehicle/implement is a solid spatial item (`kind:'vehicle'`, AABB + oriented `polys` on the item), so walkers collide with the true shape.
+- **Pause:** while `world.time.paused` nothing drives, burns fuel or works.
 
 ## Fuel, wear, work
 - Fuel (L) burns only while a driver is in: `(idle + (max − idle) × load) × (1 + 0.25 wear)` L per machine-hour,
@@ -83,7 +90,7 @@ Player keys handled here while the active character drives: **H** hitch/unhitch,
   Measured (t2 + 3 m plough): 24 L/h working vs 5 L/h idling. Out of fuel → the engine stops.
 - Wear grows with engine time × load (0.05 per real hour at full load), implement wear while working, and impacts.
 - Work: every 0.5 m travelled a lowered implement calls `crops.work(tool, x, y, width + 0.2, rot, len)` on the strip it
-  swept. Harvest yield (`yieldKg`) fills the combine tank / root harvester bunker. `vehicles:worked` is emitted per ~40 m².
+  swept. Harvest checks the crop under the machine (`crops.cellAt` + crop `kind`): combines take cereal/oilseed/maize only, the root harvester only root crops (beet, potatoes); grass needs the mower. Yield (`yieldKg`) fills the combine tank / bunker. Without crops, the terrain fallback paints a strip every 9 m (batched: each paint repaints terrain chunks). `vehicles:worked` is emitted per ~40 m².
 
 ## Events
 `vehicles:entered {vehicleId, characterId, type}` · `vehicles:exited {vehicleId, characterId, x, y}` ·
@@ -109,7 +116,7 @@ headlights/beacons · `closeup` plough at 56 px/m. The scene is placed on a dry,
 
 ## Tests
 ```
-node src/modules/vehicles/tests/drive.test.cjs        # 24 physics/economy checks, deterministic (engine.step by hand)
+node src/modules/vehicles/tests/drive.test.cjs        # 34 physics/economy/r2 checks, deterministic (engine.step by hand)
 node src/modules/vehicles/tests/characters.test.cjs   # F/W/A/D/E/S/L through the characters module
 ```
 `SIM_FROM_GIT=1` serves simulation from git HEAD when its builder is mid-edit.
@@ -117,7 +124,6 @@ node src/modules/vehicles/tests/characters.test.cjs   # F/W/A/D/E/S/L through th
 ## Known limitations
 - No AI driving yet (hired hands work abstractly in simulation; `workRate()` gives them the same numbers).
 - Front loader has no bucket mechanics; trailers do not tip (use `unload`); bales are crops' objects.
-- A combine will call `harvest` on root crops too (crops does not distinguish the machine).
 - Trailers cannot be chained; no slopes; collision response is a stop (no sliding along walls).
 - Walkers collide with the axis-aligned box of a diagonal vehicle (see core request 2).
 - Tier-3 tractors have no 6 m plough implement although simulation's kit lists one (widths are per implement here).
