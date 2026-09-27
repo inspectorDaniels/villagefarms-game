@@ -190,7 +190,7 @@
       "pass": false,
       "rounds": [],
       "openIssues": [],
-      "note": "built 2026-09-27: 8 crops, full cell state machine, growth from rain/fertiliser/weeds, yields from simulation.yieldTable (8.33 t/ha managed wheat vs 8.5 table), jobs complete via reportProgress (\u20ac137 paid in live test), save/load + determinism digests. Registered. Gaps: panning redraw 10-40 ms headless, no recordFieldWork call yet (CAP r3)."
+      "note": "built 2026-09-27: 8 crops, full cell state machine, growth from rain/fertiliser/weeds, yields from simulation.yieldTable (8.33 t/ha managed wheat vs 8.5 table), jobs complete via reportProgress (\u20ac137 paid in live test), save/load + determinism digests. Registered. Gaps: panning redraw 10-40 ms headless, no recordFieldWork call yet (CAP r3). | follow-ups: crops:worked carries parcelId/areaM2 (contractor:true flag), applies economy:contractor-done (840/840 cells live), pan 2-3 ms/frame headless (over 1.5 budget, needs real-GPU check)"
     },
     "buildings": {
       "wave": 2,
