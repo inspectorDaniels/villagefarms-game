@@ -245,12 +245,31 @@ export function installEconomy(sim) {
       return { ...w };
     },
     /** a hand worked `hours` game hours today (field work, jobs …); settles into wages the next morning */
-    logWork(workerId, hours) {
+    /** r4: logWork(workerId, gameHours, kind?) — a hand was active for `gameHours` today (kind: 'possessed' |
+     *  'task' | 'job' | 'field' | …). ≥ 1 h on a day → that day is paid at the day rate, else the retainer.
+     *  Returns the hours logged today (0 for an unknown worker). */
+    logWork(workerId, hours, kind) {
       const w = E.workers.find((x) => x.id === workerId);
-      if (!w || !(hours > 0)) return w ? w.hoursToday : 0;
-      w.hoursToday = Math.min(24, (w.hoursToday || 0) + hours);
+      if (!w || !(hours > 0) || !Number.isFinite(+hours)) return w ? w.hoursToday : 0;
+      w.hoursToday = Math.min(24, (w.hoursToday || 0) + +hours);
+      w.kinds = w.kinds || {};
+      const k = String(kind || 'work');
+      w.kinds[k] = +(((w.kinds[k] || 0) + +hours).toFixed(2));
       return w.hoursToday;
     },
+    /** r4: machines are reserved per day by category (tractor, combine, harvester, trailer, tillage, …).
+     *  Returns true if one more unit of `category` was free today and is now held by `holderId`. */
+    reserveMachine(category, holderId) {
+      const R = machineDay();
+      const key = category + '|' + holderId;
+      if (R.by[key]) return true; // the same holder keeps its machine all day
+      if ((R.used[category] || 0) >= ownedCount(category)) return false;
+      R.used[category] = (R.used[category] || 0) + 1;
+      R.by[key] = 1;
+      return true;
+    },
+    /** units of a category owned and not yet reserved today */
+    machinesFree(category) { const R = machineDay(); return Math.max(0, ownedCount(category) - (R.used[category] || 0)); },
     fireWorker(id) {
       const i = E.workers.findIndex((w) => w.id === id);
       if (i < 0) return false;
@@ -267,7 +286,7 @@ export function installEconomy(sim) {
     },
     /** insolvency state: an overdraft beyond the credit headroom counts days; 30 → blocked, 60 → the bank sells assets */
     solvency() {
-      return { overLimit: overLimit(), daysOverLimit: E.overLimitDays || 0, blocked: sim.blocked(), overdraft: Math.max(0, -E.money), creditLimit: api.creditLimit() };
+      return { overLimit: overLimit(), daysOverLimit: E.overLimitDays || 0, blocked: sim.blocked(), overdraft: Math.max(0, -E.money), creditLimit: api.creditLimit(), restructured: !!E.restructured, bankrupt: !!E.bankrupt };
     },
   });
 
@@ -305,11 +324,34 @@ export function installEconomy(sim) {
       const n = E.overLimitDays;
       const stage = n >= CONST.overLimitSeizeDays ? 'seizure' : n >= CONST.overLimitBlockDays ? 'blocked' : 'warning';
       sim.emit('economy:bankrupt-warning', { money: E.money, daysNegative: E.negativeDays, daysOverLimit: n, stage, creditLimit: api.creditLimit() });
-      if (n >= CONST.overLimitSeizeDays && (n - CONST.overLimitSeizeDays) % 3 === 0) seizeOne();
+      if (n >= CONST.overLimitSeizeDays && (n - CONST.overLimitSeizeDays) % 3 === 0 && !seizeOne()) {
+        // r4 end state: nothing left to seize → hands are laid off after 30 more days, then the bank
+        // restructures the overdraft once; a second time it is bankruptcy (E.bankrupt, stays blocked)
+        E.nothingLeftDays = (E.nothingLeftDays || 0) + 3;
+        if (E.nothingLeftDays >= 30 && E.workers.length) {
+          const names = E.workers.map((w) => w.name);
+          for (const w of E.workers.slice()) api.fireWorker(w.id);
+          sim.emit('economy:hands-laid-off', { names, reason: 'insolvency' });
+        }
+        if (E.nothingLeftDays >= 33) restructure();
+      }
     } else {
       E.overLimitDays = 0;
       if (E.money < 0) sim.emit('economy:bankrupt-warning', { money: E.money, daysNegative: E.negativeDays, daysOverLimit: 0, stage: 'overdraft', creditLimit: api.creditLimit() });
     }
+  }
+
+  function restructure() {
+    if (E.restructured) {
+      if (!E.bankrupt) { E.bankrupt = true; sim.emit('economy:bankrupt-warning', { money: E.money, stage: 'bankrupt', daysOverLimit: E.overLimitDays, creditLimit: 0 }); }
+      return;
+    }
+    E.restructured = true;
+    const amount = Math.ceil(-E.money / 100) * 100 + 2000;
+    securedLoan(amount, 120, 'Bank restructuring of the overdraft', { restructuring: true });
+    const l = E.loans[E.loans.length - 1]; l.rate = 0.06;
+    E.overLimitDays = 0; E.nothingLeftDays = 0;
+    sim.emit('economy:bankrupt-warning', { money: E.money, stage: 'restructured', daysOverLimit: 0, creditLimit: api.creditLimit(), loan: amount });
   }
 
   function overLimit() {
@@ -322,7 +364,7 @@ export function installEconomy(sim) {
     const head = CONST.creditLimitBase + CONST.creditIncomeMult * income + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt;
     return -E.money > head;
   }
-  sim.blocked = () => (E.overLimitDays || 0) >= CONST.overLimitBlockDays;
+  sim.blocked = () => !!E.bankrupt || (E.overLimitDays || 0) >= CONST.overLimitBlockDays;
 
   /** the bank sells the least valuable owned asset (machines first, then land) at 85 % of value */
   function seizeOne() {
@@ -354,14 +396,20 @@ export function installEconomy(sim) {
     return paid;
   }
 
+  function machineDay(day = sim.today()) {
+    if (!E.machineDay || E.machineDay.day !== day) E.machineDay = { day, used: {}, by: {} };
+    return E.machineDay;
+  }
+  function ownedCount(cat) { return E.assets.filter((a) => a.mode === 'owned' && a.category === cat).length; }
+  sim.machineDay = machineDay;
+
   function settleWorker(w) {
     const h = w.hoursToday || 0;
-    const half = CONST.hoursPerDayHand / 2;
-    const pay = h >= half ? w.dayRate : h > 0 ? w.dayRate / 2 : w.retainer;
+    const pay = h >= 1 || w.delegatedToday ? w.dayRate : w.retainer; // r4: any day with ≥ 1 h (or a delegated job) is a paid day
     api.charge(pay, 'wages', h > 0 ? `Wages — ${w.name}, ${h.toFixed(1)} h` : `Retainer — ${w.name}`, { force: true });
     w.paid += pay;
-    if (h > 0) w.daysWorked = (w.daysWorked || 0) + 1;
-    w.hoursToday = 0;
+    if (h >= 1 || w.delegatedToday) w.daysWorked = (w.daysWorked || 0) + 1;
+    w.hoursToday = 0; w.delegatedToday = false; w.kinds = {};
   }
 
   /** a loan secured on a specific asset (mortgage); bypasses the unsecured credit limit. Internal. */

@@ -309,6 +309,10 @@
     {
       "t": "2026-09-27",
       "event": "iteration 2 integrator: Linux tooling, F.shadow.cloud, cloud/object shadow max-composite, spatial poly colliders, registry += characters, vehicles"
+    },
+    {
+      "t": "2026-09-27T12:20",
+      "event": "6 parallel agents hit API session limit; dev server died; restarted, game loads 0 errors. Resuming 4 at a time."
     }
   ],
   "resume": [
