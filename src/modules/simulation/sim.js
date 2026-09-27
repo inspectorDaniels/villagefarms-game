@@ -52,7 +52,8 @@ export function createSim(world, env) {
     const prevT = sim.virtualT;
     if (prevT == null && day !== sim.today()) sim.virtualT = day * DAY_SECONDS + 60; // stamp catch-up days correctly
     sim.market.stepMarket(day);
-    if (!sim.hourlyDelegation) sim.jobs.workDelegated({ day: day - 1 }); // hands work delegated jobs with yesterday's unlogged hours …
+    // live game: yesterday was worked hour by hour (clock:hour); fast-forwards (showcase, harness) and catch-ups work it here
+    if (!sim.hourlyDelegation || prevT != null || day !== sim.today()) sim.jobs.workDelegated({ day: day - 1 }); // hands work delegated jobs with yesterday's unlogged hours …
     sim.land.landDay(day);
     sim.contractors.contractorDay(day);
     sim.economy.economyDay(day);       // … before their wages settle

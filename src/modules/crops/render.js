@@ -287,7 +287,7 @@ export function createRenderer(ctx, model, tiles) {
         // chunks repainted, appeared or gone since the last composite
         for (const [k, b] of cur) { const p = prev.chunks.get(k); if (!p || p[6] !== b[6]) rects.push([b[1], b[2], b[3], b[4]]); }
         for (const [k, p] of prev.chunks) if (!cur.has(k)) rects.push([p[1] + dx, p[2] + dy, p[3], p[4]]);
-        if (dx || dy) { // shift: previous composite → back buffer at the pan offset, then swap
+        if (dx || dy) { // shift: previous composite → back buffer at the pan offset, then swap (faster than a self-copy)
           backG.setTransform(1, 0, 0, 1, 0, 0);
           backG.clearRect(0, 0, cw, chh);
           backG.drawImage(comp, dx, dy);
