@@ -409,7 +409,7 @@ export function installEconomy(sim) {
     api.charge(pay, 'wages', h > 0 ? `Wages — ${w.name}, ${h.toFixed(1)} h` : `Retainer — ${w.name}`, { force: true });
     w.paid += pay;
     if (h >= 1 || w.delegatedToday) w.daysWorked = (w.daysWorked || 0) + 1;
-    w.hoursToday = 0; w.delegatedToday = false; w.kinds = {};
+    w.hoursToday = 0; w.delegatedToday = false; w.jobHoursToday = 0; w.kinds = {};
   }
 
   /** a loan secured on a specific asset (mortgage); bypasses the unsecured credit limit. Internal. */

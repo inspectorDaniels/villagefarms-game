@@ -439,7 +439,8 @@ export function createBoard(P, art) {
         ['Land rented', rent.toFixed(1).replace('.', ',') + ' ha'],
         ['In store', Object.entries(D.inventory).filter(([, q]) => q > 0.05).map(([k, q]) => `${q.toFixed(0)} ${ITEMS[k] ? ITEMS[k].unit : ''} ${k}`).join(', ') || 'empty'],
         ['Machines', (() => { const m = D.assets.slice().sort((a, b) => b.price - a.price); return m.length ? m.slice(0, 1).map((a) => a.name.replace(/^Used /, '')).join(', ') + (m.length > 1 ? ` +${m.length - 1} more` : '') : 'none'; })()],
-        ['Farmhands', D.workers.length ? `${D.workers.length}: ${D.workers.map((x) => x.name).join(', ')} · ${euro(Math.min(...D.workers.map((x) => x.dayRate || x.wage)))}–${euro(Math.max(...D.workers.map((x) => x.dayRate || x.wage)))}/day worked` : 'none hired'],
+        ['Farmhands', D.workers.length ? `${D.workers.length} (${D.workers.map((x) => x.name).join(', ')})` : 'none hired'],
+        ['Day rates', D.workers.length ? `${euro(Math.min(...D.workers.map((x) => x.dayRate || x.wage)))}–${euro(Math.max(...D.workers.map((x) => x.dayRate || x.wage)))} a day worked` : '—'],
         ['Reputation', '★'.repeat(Math.round(D.rep * 5)) + '☆'.repeat(5 - Math.round(D.rep * 5))],
       ];
       let y = 66;

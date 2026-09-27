@@ -286,8 +286,9 @@ export function installJobs(sim) {
     const W = E().workers || [];
     for (const w of W) {
       if (sim.isAvailable && sim.isAvailable(w.id) === false) continue;
-      let free = CONST.hoursPerDayHand - (w.hoursToday || 0);
-      if (opts.hours != null) free = Math.min(free, opts.hours);
+      // daily mode: what is left of his day; hourly (live) mode: the hand is on the delegated job this hour
+      // (characters logs its own activity separately — the day is paid once either way)
+      let free = opts.hours != null ? Math.min(opts.hours, CONST.hoursPerDayHand - (w.jobHoursToday || 0)) : CONST.hoursPerDayHand - (w.hoursToday || 0);
       const mine = J.list.filter((j) => j.status === 'accepted' && j.assignee === w.id).sort((a, b) => a.deadlineDay - b.deadlineDay);
       for (const j of mine) {
         if (free <= 0.05) break;
@@ -304,6 +305,7 @@ export function installJobs(sim) {
         free -= h;
         api.logWork(w.id, h, 'job');
         w.delegatedToday = true;
+        w.jobHoursToday = (w.jobHoursToday || 0) + h;
         if (j.unit === 'h') progress(j, h / Math.max(1e-6, j.amount));
         else progress(j, (h / need) * (1 - j.progress) + 1e-9);
       }

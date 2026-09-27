@@ -42,7 +42,7 @@ export async function init(ctx) {
   const cache = new ChunkCache(painter.paint, { bounds: painter.bounds, steps: painter.steps, maxBytes: 96 * 1048576 });
   // debug / A-B switch: ?roadsfx=0 (or world.roads.debug.render = false at runtime) removes all road
   // rendering (chunk layer, wet layer, lamps/bridges collector, glow) while keeping the API alive.
-  const debug = { render: ctx.params && (ctx.params.roadsfx === '0' || ctx.params.roadsfx === 0) ? false : true, stats: () => cache.stats() };
+  const debug = { render: ctx.params && (ctx.params.roadsfx === '0' || ctx.params.roadsfx === 0) ? false : true, stats: () => cache.stats(), chunks: true, objects: true, cache };
   Object.defineProperty(roads, 'debug', { value: debug, enumerable: false, configurable: true, writable: true });
   const warned = new Set();
   const warnOnce = (key, msg) => { if (warned.has(key)) return; warned.add(key); ctx.warn(msg); };
@@ -529,7 +529,7 @@ export async function init(ctx) {
 
   // ------------------------------------------------------------ rendering
   ctx.renderer.addLayer('ground-overlay', (g, view) => {
-    if (!debug.render) return;
+    if (!debug.render || !debug.chunks) return;
     ensure();
     if (!D.chains.length) return;
     const k = envState(); const key = k.season + ':' + k.snow;
@@ -611,7 +611,7 @@ export async function init(ctx) {
   let suppressShadows = false;
 
   ctx.renderer.addCollector((view, F) => {
-    if (!D || !debug.render) return;
+    if (!D || !debug.render || !debug.objects) return;
     const pad = 16;
     const lights = roads.lights;
     for (let i = 0; i < lights.length; i++) {

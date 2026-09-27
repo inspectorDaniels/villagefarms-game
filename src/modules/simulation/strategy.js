@@ -516,7 +516,7 @@ export function createManager(sim, opts) {
     const util = nHands && old[2] === nHands && d > old[0] ? (worked - old[1]) / (nHands * (d - old[0])) : 0;
     // busy hands + more to do (crew jobs we miss, or land we could take on) → another hand pays
     const landWaiting = farming && farmedHa() > 16 + 13 * nHands - 4 && (api.landMarket().forRent.length + api.landMarket().forSale.length) > 0;
-    M.busy = util > 0.6 && (Math.max(0, missedCrew) > 3000 || landWaiting);
+    M.busy = (util > 0.6 && Math.max(0, missedCrew) > 3000) || (landWaiting && api.summary(YEAR_DAYS).operatingNet > 25000);
     if (nHands < maxHands && (year >= 2 || !farming) && (demand > 6000 + 4000 * nHands || M.busy) && sinceHire >= 15 && cash() > 8000) {
       if (owned('tractor').length >= nHands + 1 || buyMachine('tractor_t1')) { api.hireWorker(); M.lastHire = d; }
     }

@@ -3,6 +3,7 @@
 // wind sheen, snow veil and round bales.
 import { S, CROPS, CROP_IDS, stageOf } from './data.js';
 
+const MARGIN = 0;               // composite layer margin (px). Must stay 0: any layer larger than the screen blits on a slow path (≈ 8 ms headless)
 const CPX = 256;               // chunk canvas size in px (≤ 256 px canvases blit far cheaper); metres = CPX / res
 const LEVELS = [4, 8, 16, 32]; // px per metre
 const MAX_BYTES = 160 * 1048576;
@@ -12,7 +13,7 @@ export function createRenderer(ctx, model, tiles) {
   const entries = new Map(); // key → { canvas, res, built, dirty:Set, used, f, ch }
   let bytes = 0, frame = 0;
   // screen composite (double-buffered): shifted by whole pixels while panning, only exposed strips / changed chunks redrawn
-  let comp = null, compG = null, back = null, backG = null, prev = null; // prev = { a, E, F, chunks: Map key → paintV|rect }
+  let comp = null, compG = null, back = null, backG = null, prev = null, compO = null, lastM = null; // prev = { a, E, F, chunks: Map key → paintV|rect }
   const pool = [];
   const stats = { builds: 0, cellPaints: 0, lastCellPaints: 0, composites: 0, partialBlits: 0 };
   const env = () => ctx.world.environment || {};
@@ -198,36 +199,54 @@ export function createRenderer(ctx, model, tiles) {
     lastSeason = sn;
     const m = g.getTransform();
     const res = pickRes(m.a);
-    let budget = budgetCells;
+    // while the camera moves, paint less per frame (the shifted composite hides nothing; new strips fill in)
+    const moving = lastM && (lastM.a !== m.a || lastM.e !== m.e || lastM.f !== m.f);
+    lastM = { a: m.a, e: m.e, f: m.f };
+    let budget = moving ? Math.min(budgetCells, 450) : budgetCells;
     stats.lastCellPaints = stats.cellPaints;
-    // snap the origin to whole device pixels so a pan is an exact integer shift of the previous composite
+    // The chunks are composited into one layer that is larger than the screen by a margin (MARGIN px each
+    // side). While panning the layer is just drawn at an offset; only when the offset exceeds the margin is it
+    // re-centred (an integer shift + the newly exposed strips). Origins are snapped to whole device pixels.
     const E = Math.round(m.e), Fo = Math.round(m.f);
-    const X = (x) => Math.round(m.a * x) + E, Y = (y) => Math.round(m.d * y) + Fo;
+    const cw = g.canvas.width + 2 * MARGIN, chh = g.canvas.height + 2 * MARGIN;
+    if (!compO || compO.a !== m.a || Math.abs(E - compO.E) > MARGIN * 0.7 || Math.abs(Fo - compO.F) > MARGIN * 0.7) compO = { a: m.a, E, F: Fo };
+    const cE = compO.E, cF = compO.F;
+    const X = (x) => Math.round(m.a * x) + cE + MARGIN, Y = (y) => Math.round(m.d * y) + cF + MARGIN;
+    // comp-space rect in metres (what the layer can hold), plus the visible rect for build priority
+    const ext = { x0: (-cE - MARGIN) / m.a, y0: (-cF - MARGIN) / m.d, x1: (cw - cE - MARGIN) / m.a, y1: (chh - cF - MARGIN) / m.d };
     const blits = [];
+    const pending = [];
     for (const f of model.W.fields) {
-      if (!f.rs || !inView(f.bbox, view)) continue;
+      if (!f.rs || !inView(f.bbox, ext)) continue;
       for (const ch of chunksOf(f, res).values()) {
         const CH = ch.size, x0 = ch.cx * CH, y0 = ch.cy * CH;
-        if (x0 > view.x1 || x0 + CH < view.x0 || y0 > view.y1 || y0 + CH < view.y0) continue;
+        if (x0 > ext.x1 || x0 + CH < ext.x0 || y0 > ext.y1 || y0 + CH < ext.y0) continue;
         const e = ensure(f, ch, res);
-        if (!e.built) {
-          if (budget > 0) { paintChunk(e, null); e.built = true; e.dirty.clear(); budget -= ch.cells.length * 1.3; stats.builds++; }
-        } else if (e.dirty.size > ch.cells.length * 0.4 && budget > 0) {
-          paintChunk(e, null); e.dirty.clear(); budget -= ch.cells.length * 1.3; stats.builds++;
-        } else if (e.dirty.size && budget > 0) {
-          const d = [...e.dirty];
-          const take = d.length * 9 > budget ? d.slice(0, Math.max(1, Math.floor(budget / 9))) : d;
-          paintChunk(e, take);
-          for (const k of take) e.dirty.delete(k);
-          budget -= take.length * 9;
-        }
-        const src = e.built ? e : null;
-        if (src) blits.push([src.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0), src.key, src.paintV]);
+        const visible = !(x0 > view.x1 || x0 + CH < view.x0 || y0 > view.y1 || y0 + CH < view.y0);
+        if (!e.built || e.dirty.size) pending.push([visible ? 0 : 1, e, ch]);
+        blits.push([e, x0, y0, CH]);
       }
     }
-    composite(g, blits, m.a, E, Fo);
+    pending.sort((p, q) => p[0] - q[0]);        // visible chunks first, the margin (prefetch) after
+    for (const [, e, ch] of pending) {
+      if (budget <= 0) break;
+      if (!e.built || e.dirty.size > ch.cells.length * 0.4) { paintChunk(e, null); e.built = true; e.dirty.clear(); budget -= ch.cells.length * 1.3; stats.builds++; }
+      else {
+        const d = [...e.dirty];
+        const take = d.length * 9 > budget ? d.slice(0, Math.max(1, Math.floor(budget / 9))) : d;
+        paintChunk(e, take);
+        for (const k of take) e.dirty.delete(k);
+        budget -= take.length * 9;
+      }
+    }
+    const list = [];
+    for (const [e, x0, y0, CH] of blits) if (e.built) list.push([e.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0), e.key, e.paintV]);
+    composite(cw, chh, list, m.a, cE, cF);
     g.setTransform(1, 0, 0, 1, 0, 0);
-    if (blits.length) g.drawImage(comp, 0, 0);
+    if (list.length) { // blit only the on-screen part (a source rect, 1:1): whole-layer blits hit a slow path
+      const sx = cE + MARGIN - E, sy = cF + MARGIN - Fo, w = g.canvas.width, h = g.canvas.height;
+      g.drawImage(comp, sx, sy, w, h, 0, 0, w, h);
+    }
     g.setTransform(m);
     stats.lastCellPaints = stats.cellPaints - stats.lastCellPaints;
     // snow veil (fields have no terrain snow of their own)
@@ -249,8 +268,7 @@ export function createRenderer(ctx, model, tiles) {
     evict();
   }
 
-  function composite(g, blits, a, E, F) {
-    const cw = g.canvas.width, chh = g.canvas.height;
+  function composite(cw, chh, blits, a, E, F) {
     if (!comp || comp.width !== cw || comp.height !== chh) {
       comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d');
       back = document.createElement('canvas'); back.width = cw; back.height = chh; backG = back.getContext('2d');
