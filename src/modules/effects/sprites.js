@@ -412,43 +412,72 @@ export function createSprites(art, palette) {
     });
   }
   function scorch(variant) {
-    // burnt patch: singed orange-brown grass ring, charred mottled centre, grey-white ash
-    return reg(`d:scorch:${variant}`, 96, 96, (g, w, h, rng) => {
-      const cx = w / 2, cy = h / 2;
-      const ring = g.createRadialGradient(cx, cy, w * 0.22, cx, cy, w * 0.48);
-      ring.addColorStop(0, 'rgba(110,70,30,0.55)'); ring.addColorStop(0.6, 'rgba(150,100,40,0.3)'); ring.addColorStop(1, 'rgba(150,100,40,0)');
+    // burnt patch of a bonfire: a broad singed ring of browned grass, a soft charcoal-grey bed
+    // (never flat black) mottled with grey-white ash, a few charred sticks. Smooth, organic outline.
+    return reg(`d:scorch2:${variant}`, 128, 128, (g, w, h, rng) => {
+      const cx = w / 2, cy = h / 2, R = w * 0.3;
+      const hs = [[2, rng.range(0.06, 0.12), rng.float() * TAU], [3, rng.range(0.03, 0.07), rng.float() * TAU], [7, 0.025, rng.float() * TAU]];
+      const path = (k) => {
+        g.beginPath();
+        for (let i = 0; i <= 64; i++) {
+          const a = (i / 64) * TAU;
+          let rr = 1;
+          for (const [f, amp, ph] of hs) rr += amp * Math.sin(a * f + ph);
+          const x = cx + Math.cos(a) * R * rr * k, y = cy + Math.sin(a) * R * rr * k;
+          if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+        }
+        g.closePath();
+      };
+      const ring = g.createRadialGradient(cx, cy, R * 0.6, cx, cy, R * 1.65);
+      ring.addColorStop(0, 'rgba(96,66,34,0.5)'); ring.addColorStop(0.45, 'rgba(150,108,50,0.32)'); ring.addColorStop(1, 'rgba(160,120,60,0)');
       g.fillStyle = ring; g.fillRect(0, 0, w, h);
-      art.blobPath(g, cx, cy, w * 0.3, rng.fork('c'), 0.22, 6);
-      g.fillStyle = 'rgba(44,34,28,0.8)'; g.fill();
-      g.save(); g.clip();
-      art.dabs(g, rng, 26, cx - w * 0.3, cy - h * 0.3, w * 0.6, h * 0.6, ['#2a2320', '#4a3e36', '#5f5048'], 2, 6, 0.6);
-      art.dabs(g, rng, 18, cx - w * 0.2, cy - h * 0.2, w * 0.4, h * 0.4, ['#b9b2a8', '#d8d2c8', '#8f8880'], 1.5, 4, 0.6);
+      // charred bed: feathered passes of warm charcoal
+      for (let k = 0; k < 4; k++) { path(1.08 - k * 0.1); g.fillStyle = 'rgba(58,48,42,0.28)'; g.fill(); }
+      path(1.0); g.save(); g.clip();
+      art.dabs(g, rng, 30, cx - R, cy - R, R * 2, R * 2, ['#3a302a', '#4e4239', '#62554b'], 2.5, 7, 0.45);
+      // ash: pale grey-white drifts, denser in the middle
+      for (let i = 0; i < 70; i++) {
+        const px = cx + rng.gauss(0, R * 0.35), py = cy + rng.gauss(0, R * 0.35);
+        g.fillStyle = `rgba(${rng.pick([196, 212, 226])},${rng.pick([190, 206, 220])},${rng.pick([184, 198, 212])},${rng.range(0.35, 0.75)})`;
+        g.beginPath(); g.ellipse(px, py, rng.range(1.2, 3.5), rng.range(0.8, 2.2), rng.float() * Math.PI, 0, TAU); g.fill();
+      }
       g.restore();
-      art.blobPath(g, cx, cy, w * 0.3, rng.fork('c'), 0.22, 6);
-      g.strokeStyle = 'rgba(70,46,24,0.5)'; g.lineWidth = 2; g.stroke();
-      for (let i = 0; i < 14; i++) { // charred twigs
-        const a = rng.float() * TAU, r = rng.range(2, w * 0.2);
-        g.strokeStyle = 'rgba(30,24,20,0.8)'; g.lineWidth = rng.range(1.5, 2.5); g.lineCap = 'round';
-        g.beginPath(); g.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); g.lineTo(cx + Math.cos(a) * (r + 8), cy + Math.sin(a) * (r + 8) + rng.range(-3, 3)); g.stroke();
+      // charred sticks radiating from the centre (the remains of the pile)
+      g.lineCap = 'round';
+      for (let i = 0; i < 9; i++) {
+        const a = rng.float() * TAU, r0 = rng.range(0, R * 0.25), L = rng.range(R * 0.35, R * 0.75);
+        g.strokeStyle = `rgba(${rng.pick([34, 44, 52])},${rng.pick([28, 36, 42])},24,0.85)`; g.lineWidth = rng.range(2, 3.5);
+        g.beginPath(); g.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0); g.lineTo(cx + Math.cos(a) * (r0 + L), cy + Math.sin(a) * (r0 + L)); g.stroke();
+        g.strokeStyle = 'rgba(150,140,130,0.35)'; g.lineWidth = 0.8; g.stroke();
+      }
+      // a few glowing coal specks in the middle
+      for (let i = 0; i < 6; i++) {
+        g.fillStyle = `rgba(230,${rng.int(90, 140)},40,${rng.range(0.5, 0.85)})`;
+        g.beginPath(); g.arc(cx + rng.gauss(0, R * 0.15), cy + rng.gauss(0, R * 0.15), rng.range(1, 2), 0, TAU); g.fill();
       }
     });
   }
   function spill(color, variant) {
     const col = quant(color);
-    return reg(`d:spill:${col}:${variant}`, 96, 96, (g, w, h, rng) => {
+    return reg(`d:spill2:${col}:${variant}`, 96, 96, (g, w, h, rng) => {
       const cx = w / 2, cy = h / 2;
       const core = g.createRadialGradient(cx, cy, 0, cx, cy, w * 0.42);
-      core.addColorStop(0, art.rgba(art.shade(col, -0.45), 0.3)); core.addColorStop(1, art.rgba(art.shade(col, -0.45), 0));
+      core.addColorStop(0, art.rgba(art.shade(col, -0.35), 0.22)); core.addColorStop(1, art.rgba(art.shade(col, -0.35), 0));
       g.fillStyle = core; g.fillRect(0, 0, w, h);
       const dark = art.shade(col, -0.35), light = art.shade(col, 0.3);
       for (let i = 0; i < 170; i++) {
         // denser in the middle, trailing out: gaussian scatter
-        const px = cx + rng.gauss(0, w * 0.13), py = cy + rng.gauss(0, h * 0.13);
+        const px = cx + rng.gauss(0, w * 0.16), py = cy + rng.gauss(0, h * 0.16);
         if (px < 3 || py < 3 || px > w - 3 || py > h - 3) continue;
         const a = rng.float() * Math.PI;
-        g.fillStyle = rng.chance(0.7) ? col : rng.chance(0.5) ? dark : light;
-        g.beginPath(); g.ellipse(px, py, rng.range(1.3, 2.1), rng.range(0.8, 1.2), a, 0, Math.PI * 2); g.fill();
-        g.strokeStyle = art.rgba(art.outline(col), 0.6); g.lineWidth = 0.5; g.stroke();
+        const kc = rng.chance(0.6) ? col : rng.chance(0.6) ? light : dark;
+        const kx = rng.range(1.5, 2.3), ky = rng.range(0.9, 1.3);
+        g.fillStyle = kc;
+        g.beginPath(); g.ellipse(px, py, kx, ky, a, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = art.rgba(art.outline(col), 0.45); g.lineWidth = 0.5; g.stroke();
+        // kernel crease highlight
+        g.fillStyle = art.rgba(art.shade(kc, 0.4), 0.7);
+        g.beginPath(); g.ellipse(px - Math.cos(a) * 0.3, py - Math.sin(a) * 0.3, kx * 0.5, ky * 0.35, a, 0, Math.PI * 2); g.fill();
       }
     });
   }

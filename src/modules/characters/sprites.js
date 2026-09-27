@@ -199,6 +199,23 @@ export function createSprites(art, palette) {
     });
   }
 
+  /** hips/seat seen past the torso when striding (trousers or overalls) */
+  function hips(a) {
+    const col = a.overalls || a.trousers;
+    const W = M(0.46), H = M(0.3);
+    return art.sprite(`chr:hips:${col}|${a.build}`, W, H, (g, w, h, rng) => {
+      const cx = w / 2, cy = h / 2, A = M(0.165) * a.build, B = M(0.1);
+      const path = () => sePath(g, cx, cy, A, B, 2.4, 1);
+      gouache(g, path, col, rng, [cx - A, cy - B, A * 2, B * 2], { r: A, vol: 0.3,
+        over: (g) => {
+          // back pockets + seam
+          g.strokeStyle = rgba(shade(col, -0.4), 0.45); g.lineWidth = 1;
+          g.beginPath(); g.moveTo(cx, cy - B * 0.2); g.lineTo(cx, cy + B); g.stroke();
+          for (const s of [-1, 1]) { g.strokeRect(cx + s * A * 0.5 - M(0.035), cy + B * 0.05, M(0.07), M(0.06)); }
+        } });
+    });
+  }
+
   // ------------------------------------------------------------------ head
   function head(a) {
     const W = M(0.46);
@@ -772,5 +789,5 @@ export function createSprites(art, palette) {
     });
   }
 
-  return { torso, torsoDims, skirt, head, foot, sleeve, hand, contact, tool, umbrella, ring, bedroll, blanket, crate, bale, TOOL_SPECS };
+  return { torso, torsoDims, skirt, hips, head, foot, sleeve, hand, contact, tool, umbrella, ring, bedroll, blanket, crate, bale, TOOL_SPECS };
 }

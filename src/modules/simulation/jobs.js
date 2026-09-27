@@ -171,7 +171,7 @@ export function installJobs(sim) {
       const early = sim.today() < j.deadlineDay;
       const paid = Math.round(j.pay * Math.min(1, j.progress) * (early ? 1.05 : 1));
       j.status = 'completed'; j.completedDay = sim.today(); j.paid = paid; j.progress = Math.min(1, j.progress);
-      api.credit(paid, 'jobs', `${j.title} for ${j.clientFarm}${early ? ' (early bonus)' : ''}`);
+      api.credit(paid, 'jobs', `${j.title} — ${j.clientFarm}`); // early bonus is in j.paid / the event
       settleRep(j, 0.12);
       J.stats.completed++; J.stats.earned += paid;
       sim.emit('jobs:completed', pub(j));

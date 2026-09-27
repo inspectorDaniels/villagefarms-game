@@ -2,15 +2,15 @@
 // a tool strike (terrain / crops / animals / ui / effects / audio). Everything optional is null-safe.
 
 export const TOOLS = [
-  { id: 'hoe', label: 'Hoe', icon: 'hoe', key: '1', dur: 0.95, impact: 0.47, cooldown: 0.2, stamina: 0.035, reach: 1.0 },
-  { id: 'water', label: 'Watering can', icon: 'water', key: '2', dur: 1.35, impact: 0.3, cooldown: 0.15, stamina: 0.012, reach: 0.95 },
-  { id: 'seed', label: 'Seed bag', icon: 'seed', key: '3', dur: 0.95, impact: 0.5, cooldown: 0.1, stamina: 0.01, reach: 1.25 },
-  { id: 'fork', label: 'Pitchfork', icon: 'hay', key: '4', dur: 1.05, impact: 0.36, cooldown: 0.2, stamina: 0.03, reach: 1.05 },
-  { id: 'hand', label: 'Hands', icon: 'hand', key: '5', dur: 0.7, impact: 0.4, cooldown: 0.1, stamina: 0.004, reach: 0.75 },
+  { id: 'hoe', label: 'Hoe', icon: 'hoe', key: '1', dur: 0.95, impact: 0.47, cooldown: 0.2, stamina: 0.035, reach: 1.3 },
+  { id: 'water', label: 'Watering can', icon: 'water', key: '2', dur: 1.35, impact: 0.3, cooldown: 0.15, stamina: 0.012, reach: 1.2 },
+  { id: 'seed', label: 'Seed bag', icon: 'seed', key: '3', dur: 0.95, impact: 0.5, cooldown: 0.1, stamina: 0.01, reach: 1.45 },
+  { id: 'fork', label: 'Pitchfork', icon: 'hay', key: '4', dur: 1.05, impact: 0.36, cooldown: 0.2, stamina: 0.03, reach: 1.25 },
+  { id: 'hand', label: 'Hands', icon: 'hand', key: '5', dur: 0.7, impact: 0.4, cooldown: 0.1, stamina: 0.004, reach: 0.8 },
 ];
 export const TOOL = Object.fromEntries(TOOLS.map((t) => [t.id, t]));
 
-const TILLABLE = { grass: 'grass', meadow: 'meadow', forestFloor: 'woodland floor', farmyard: null };
+const TILLABLE = { grass: 'grass', meadow: 'meadow', forestFloor: 'woodland floor', farmyard: 'yard' };
 const SEEDABLE = { soil: 1, ploughed: 1 };
 const SEED_CROP = 'wheat';
 

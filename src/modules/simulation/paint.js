@@ -186,8 +186,21 @@ export function createPainter(art, pal) {
     g.restore();
   }
 
+  /** o.maxW truncates with an ellipsis; o.shrink (e.g. 0.8) first scales the font down to fit;
+   *  o.whole: draw nothing (return 0) rather than truncate */
   function text(g, s, x, y, o = {}) {
-    g.font = `${o.italic ? 'italic ' : ''}${o.bold ? 'bold ' : ''}${o.size || 14}px ${o.font || SERIF}`;
+    let size = o.size || 14;
+    const font = () => `${o.italic ? 'italic ' : ''}${o.bold ? 'bold ' : ''}${size}px ${o.font || SERIF}`;
+    g.font = font();
+    if (o.maxW) {
+      const w = g.measureText(s).width;
+      if (w > o.maxW) {
+        const k = Math.max(o.shrink || 0.86, o.maxW / w);
+        size = Math.max(6, Math.floor(size * k * 10) / 10);
+        g.font = font();
+        if (o.whole && g.measureText(s).width > o.maxW) return 0;
+      }
+    }
     g.textAlign = o.align || 'left';
     g.textBaseline = o.base || 'alphabetic';
     g.fillStyle = o.color || INK;

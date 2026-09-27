@@ -651,8 +651,8 @@ export const showcase = {
         pDust.setPosition(cx, cy);
         for (let k = 0; k < 3; k++) api.trail('sc:pl:f' + k, ...local(pl, -0.4 + k * 0.62, 4.6), pl.rot, 0.5, 'furrow');
       });
-      api.decal('spill', 94, 72.5, 0.3, { size: 2.2, color: '#b8862e' });
-      api.decal('spill', 92.4, 73.4, 1.2, { size: 1.3, color: '#a87a2a' });
+      api.decal('spill', 94, 72.5, 0.3, { size: 3.2, color: '#d6ae4c' });
+      api.decal('spill', 92.4, 73.4, 1.2, { size: 2.0, color: '#c9a044' });
     }
     if (preset === 'rain') {
       const tR = trackVehicle('sc:tR', 62, 0, palette.paint.tractorRed);
@@ -665,9 +665,9 @@ export const showcase = {
     // chimney smoke (every preset) + autumn bonfire
     api.emitter('chimney', { x: CHIMNEY.x, y: CHIMNEY.y, rate: 2.1, z: 7.2 });
     if (preset === 'autumn') {
-      api.decal('scorch', 44.5, 56, 0.4, { size: 3 });
+      api.decal('scorch', 44.5, 56, 0.4, { size: 4.2 });
       api.emitter('chimney', { x: 44.5, y: 56, rate: 4, z: 0.4, size: 0.8, color: '#9d9a92' });
-      api.emitter('sparkle', { x: 44.5, y: 56, rate: 5, color: '#ff9a40', size: 0.35, speed: 0.6 });
+      api.emitter('sparkle', { x: 44.5, y: 56, rate: 8, color: '#ff8a30', size: 0.5, speed: 0.7 });
     }
     // petals from the blossom tree in spring
     if (season === 'spring') {

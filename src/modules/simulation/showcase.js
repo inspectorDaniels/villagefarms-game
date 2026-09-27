@@ -1,8 +1,9 @@
-// Showcase: fast-forwards two simulated years with a scripted farmer, then paints the
+// Showcase: fast-forwards 4½ simulated years of the 'builder' strategy (the same farm manager and
+// valley as tests/progression.mjs, so the board shows exactly what the README tables measure), then paints the
 // farm office board (screen layer, cached; only a light/lamp overlay is drawn per frame).
 import { createPainter, INK_SOFT } from './paint.js';
 import { createBoard, euro, dayLabel } from './board.js';
-import { createFarmer, defineShowcaseValley } from './farmer.js';
+import { defineValley, createManager } from './strategy.js';
 import { YEAR_DAYS, DAY_SECONDS, ITEMS } from './data.js';
 
 const mod36 = (d) => ((d % YEAR_DAYS) + YEAR_DAYS) % YEAR_DAYS;
@@ -16,22 +17,22 @@ export const presets = {
   land: { camera: { x: 64, y: 64, zoom: 16 }, time: '12:00', day: 25 },
 };
 
-/** run two simulated years ending today; leaves the live sim in that state */
+/** play the 'builder' strategy from 1 March of year 1 up to today (shown as year 5); leaves the live sim in that state */
 export function fastForwardShowcase(ctx, sim) {
-  const years = 2;
-  sim.tOffset = years * YEAR_DAYS * DAY_SECONDS; // present the history as years 1–3
+  const years = 4;
+  sim.tOffset = years * YEAR_DAYS * DAY_SECONDS; // the clock's year 1 is shown as year 5
   const today = sim.today();
-  const start = today - years * YEAR_DAYS;
+  const start = today - years * YEAR_DAYS - (mod36(today) - 6); // 1 March, four and a bit years ago
   sim.reset(start, { historyDays: YEAR_DAYS });
   sim.virtualT = start * DAY_SECONDS + 6 * 3600;
-  const { ids, decor } = defineShowcaseValley(sim.api);
+  const { ids, decor } = defineValley(sim.api);
   sim.showcaseDecor = decor;
-  const farmer = createFarmer(sim, { parcelId: ids.linde, ha: 5, crop: 'wheat', jobs: true, loan: 26000, rng: ctx.rng('showcase-farmer') });
-  farmer.setup();
-  sim.fastForward(start, today, (d) => farmer.day(d));
+  const mgr = createManager(sim, { strategy: 'builder', rng: ctx.rng('showcase-farmer'), ids });
+  mgr.setup();
+  sim.fastForward(start, today, (d) => mgr.day(d));
   // show some work in progress on today's accepted jobs
   const acc = sim.api.jobs('accepted');
-  acc.forEach((j, i) => sim.api.reportProgress(j.id, [0.45, 0.2, 0.7][i % 3]));
+  acc.forEach((j, i) => sim.api.reportProgress(j.id, [0.45, 0.2, 0.7][i % 3] - j.progress));
   return { start, today, ids };
 }
 

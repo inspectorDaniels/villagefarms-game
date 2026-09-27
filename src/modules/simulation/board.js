@@ -67,7 +67,7 @@ export function createBoard(P, art) {
         if (y > h - 70) break;
         if (e.day !== lastDay) P.text(g, dayLabel(e.day), 12, y, { size: 11.5, italic: true, color: INK_SOFT, maxW: 62 });
         lastDay = e.day;
-        P.text(g, e.memo, 88, y, { size: 13.5, italic: true, maxW: w - 88 - 128 });
+        P.text(g, e.memo, 88, y, { size: 13.5, italic: true, maxW: w - 88 - 128, shrink: 0.76 });
         P.text(g, (e.amount >= 0 ? '+ ' : '') + euro(e.amount, 2), w - 20, y, { size: 13.5, align: 'right', color: e.amount >= 0 ? INK_GREEN : INK_RED });
         y += 27;
       }
@@ -186,7 +186,7 @@ export function createBoard(P, art) {
         P.text(g, `three seasons of quotes to ${dayLabel(D.today, true)} — dashed blue: the usual seasonal level`, 38, 84, { size: 14, italic: true, color: INK_SOFT });
       } else {
         P.text(g, 'Market prices', 22, 38, { size: 22, italic: true });
-        P.text(g, 'last three seasons', 186, 38, { size: 12, italic: true, color: PENCIL });
+        P.text(g, 'last three harvests', 186, 38, { size: 12, italic: true, color: PENCIL });
       }
       const cols = 3, rowsN = 2;
       const top = big ? 112 : 54, left = big ? 30 : 14;
@@ -356,16 +356,20 @@ export function createBoard(P, art) {
         if (p.state === 'forRent' || p.state === 'forSale') P.hatch(g, path, [bx0, by0, bx1 - bx0, by1 - by0], art.shade(st.color, -0.3), rng, 9, p.state === 'forSale' ? 0.8 : -0.8);
         P.ink(g, pts, rng, { close: true, w: 1.3, jitter: 0.7, alpha: 0.8 });
         labels.push(() => {
-        const [mx, my] = M(p.center);
-        const ha = (p.area / 1e4).toFixed(1).replace('.', ',') + ' ha';
-        const small = (bx1 - bx0) < 110;
-        P.text(g, p.name.replace(/ \(.*\)/, ''), mx, my - 4, { size: big ? (small ? 13 : 16) : (small ? 10 : 12), italic: true, bold: p.state === 'owned' || p.state === 'rented', align: 'center', maxW: bx1 - bx0 - 6, halo: '#f1e6cc' });
-        let sub = ha;
-        if (p.state === 'forSale') sub += ' · ' + euro(p.price);
-        else if (p.state === 'forRent') sub += ` · ${euro(p.rentPerHaYear)}/ha/yr`;
-        else if (p.state === 'npc' && p.owner && big) sub += ' · ' + p.owner.split(' ').slice(-1)[0];
-        else if (p.state === 'rented' && big) sub += ` · ${euro(p.rentPerHaYear)}/ha/yr`;
-        P.text(g, sub, mx, my + (big ? 14 : 10), { size: big ? 11.5 : 9.5, align: 'center', color: INK_SOFT, maxW: bx1 - bx0 - 4, halo: '#f1e6cc' });
+          const [mx, my] = M(p.center);
+          const ha = (p.area / 1e4).toFixed(1).replace('.', ',') + ' ha';
+          const small = (bx1 - bx0) < 110;
+          const mine = p.state !== 'npc';
+          // never truncate: shrink a little, otherwise leave the name off (the register lists it)
+          const drawn = P.text(g, p.name.replace(/ \(.*\)/, ''), mx, my - 4, { size: big ? (small ? 13 : 16) : (small ? 10 : 12), italic: true, bold: p.state === 'owned' || p.state === 'rented', align: 'center', maxW: bx1 - bx0 - 6, shrink: 0.8, whole: true, halo: '#f1e6cc' });
+          let sub = ha;
+          if (p.state === 'forSale') sub += ' · ' + euro(p.price);
+          else if (p.state === 'forRent') sub += ` · ${euro(p.rentPerHaYear)}/ha`;
+          else if (p.state === 'npc' && p.owner && big) sub += ' · ' + p.owner.split(' ').slice(-1)[0];
+          else if (p.state === 'rented' && big) sub += ` · ${euro(p.rentPerHaYear)}/ha`;
+          const o = { size: big ? 11.5 : 9.5, align: 'center', color: INK_SOFT, maxW: bx1 - bx0 - 4, shrink: 0.85, whole: true, halo: '#f1e6cc' };
+          const y2 = my + (big ? 14 : 10) - (drawn ? 0 : 7);
+          if (!P.text(g, sub, mx, y2, o) && (mine || big)) P.text(g, ha, mx, y2, o);
         });
       }
       drawLanesAndBrook();
@@ -375,7 +379,8 @@ export function createBoard(P, art) {
         const [px, py] = M([sp.x, sp.y]);
         const sz = big ? 30 : 20;
         drawIcon(P, g, art, sp.id === 'shop' ? 'house' : 'silo', px - sz / 2, py - sz / 2, sz, rng);
-        if (big) P.text(g, sp.name, px, py + sz / 2 + 12, { size: 11.5, italic: true, bold: true, align: 'center', color: INK, halo: '#f1e6cc' });
+        // the farm shop sits on the crossroads between parcels: label it above the icon
+        if (big) P.text(g, sp.name, px, sp.id === 'shop' ? py - sz / 2 - 5 : py + sz / 2 + 12, { size: 11.5, italic: true, bold: true, align: 'center', color: INK, halo: '#f1e6cc' });
       }
       // compass + scale bar
       const cxp = w - (big ? 60 : 36), cyp = big ? 60 : 40, r = big ? 22 : 14;
@@ -432,7 +437,7 @@ export function createBoard(P, art) {
         ['Land owned', own.toFixed(1).replace('.', ',') + ' ha'],
         ['Land rented', rent.toFixed(1).replace('.', ',') + ' ha'],
         ['In store', Object.entries(D.inventory).filter(([, q]) => q > 0.05).map(([k, q]) => `${q.toFixed(0)} ${ITEMS[k] ? ITEMS[k].unit : ''} ${k}`).join(', ') || 'empty'],
-        ['Machines', D.assets.map((a) => a.name.replace(/^Used /, '')).join(', ') || 'none'],
+        ['Machines', (() => { const m = D.assets.slice().sort((a, b) => b.price - a.price); return m.length ? m.slice(0, 2).map((a) => a.name.replace(/^Used /, '')).join(', ') + (m.length > 2 ? ` +${m.length - 2} more` : '') : 'none'; })()],
         ['Farmhands', D.workers.length ? D.workers.map((x) => `${x.name} (${euro(x.wage)}/day)`).join(', ') : 'none hired'],
         ['Reputation', '★'.repeat(Math.round(D.rep * 5)) + '☆'.repeat(5 - Math.round(D.rep * 5))],
       ];

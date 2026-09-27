@@ -19,6 +19,7 @@ export function runOne(strategy, seed, years = YEARS) {
   const mgr = createManager(sim, { strategy, rng: createRng(seed, 'strategy', strategy), ids });
   mgr.setup();
   const rows = [];
+  let hF = 0, hJ = 0;
   for (let y = 0; y < years; y++) {
     const d0 = START + y * YEAR_DAYS, d1 = d0 + YEAR_DAYS - 1;
     sim.fastForward(d0, d1, (d) => mgr.day(d));
@@ -26,7 +27,12 @@ export function runOne(strategy, seed, years = YEARS) {
     const a = sim.api;
     const ps = a.parcels();
     const s = a.summary(YEAR_DAYS);
+    const hFarm = mgr.stats.hFarm - hF, hJobs = mgr.stats.hJobs - hJ;
+    hF = mgr.stats.hFarm; hJ = mgr.stats.hJobs;
+    const jobs = s.byCategory.jobs || 0;
     rows.push({
+      hFarm, hJobs,
+      farmNet: s.operatingNet - jobs, // everything but contract income (contract fuel/upkeep stays in: conservative for farming)
       year: y + 1,
       cash: a.money(),
       net: a.netWorth().total,
@@ -36,7 +42,7 @@ export function runOne(strategy, seed, years = YEARS) {
       hands: a.workers().length,
       t2: a.assets().some((x) => x.category === 'tractor' && x.meta && x.meta.tier >= 2),
       combine: a.assets().some((x) => x.category === 'combine'),
-      jobs: s.byCategory.jobs || 0,
+      jobs,
       farm: (s.byCategory.sales || 0) + (s.byCategory.subsidy || 0),
       opNet: s.operatingNet,
     });
@@ -46,10 +52,10 @@ export function runOne(strategy, seed, years = YEARS) {
 
 const med = (v) => { const s = v.slice().sort((a, b) => a - b); const n = s.length; return n % 2 ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2; };
 const k = (x) => (Math.abs(x) >= 1e6 ? (x / 1e6).toFixed(2) + 'M' : Math.round(x / 1000) + 'k');
-const pad = (s, n) => String(s).padStart(n);
+const perH = (r, v, h) => { const ok = r.filter((x) => x[h] > 5); return ok.length ? String(Math.round(med(ok.map((x) => x[v] / x[h])))) : '–'; };
 
 function main() {
-  const t0 = Date.now();
+  const t0 = process.hrtime();
   const all = {};
   for (const strat of Object.keys(STRATEGY_INFO)) {
     all[strat] = [];
@@ -57,14 +63,14 @@ function main() {
   }
   for (const strat of Object.keys(all)) {
     console.log(`\n### ${strat} — ${STRATEGY_INFO[strat]}  (${SEEDS} seeds, median [min–max])`);
-    console.log('| yr | cash € | net worth € | owned ha | rented ha | hands | t2 tractor | combine | contract € | crops+CAP € | op. net € |');
-    console.log('|---|---|---|---|---|---|---|---|---|---|---|');
+    console.log('| yr | cash € | net worth € | owned ha | rented ha | hands | t2 tractor | combine | contract € | crops+CAP € | op. net € | farm €/h | jobs €/h |');
+    console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
     for (let y = 0; y < YEARS; y++) {
       const r = all[strat].map((rows) => rows[y]);
       const f = (key) => `${k(med(r.map((x) => x[key])))} [${k(Math.min(...r.map((x) => x[key])))}–${k(Math.max(...r.map((x) => x[key])))}]`;
       const ha = (key) => `${med(r.map((x) => x[key])).toFixed(1)}`;
       const share = (key) => `${r.filter((x) => x[key]).length}/${r.length}`;
-      console.log(`| ${y + 1} | ${f('cash')} | ${f('net')} | ${ha('own')} | ${ha('rent')} | ${med(r.map((x) => x.hands))} | ${share('t2')} | ${share('combine')} | ${k(med(r.map((x) => x.jobs)))} | ${k(med(r.map((x) => x.farm)))} | ${k(med(r.map((x) => x.opNet)))} |`);
+      console.log(`| ${y + 1} | ${f('cash')} | ${f('net')} | ${ha('own')} | ${ha('rent')} | ${med(r.map((x) => x.hands))} | ${share('t2')} | ${share('combine')} | ${k(med(r.map((x) => x.jobs)))} | ${k(med(r.map((x) => x.farm)))} | ${k(med(r.map((x) => x.opNet)))} | ${perH(r, 'farmNet', 'hFarm')} | ${perH(r, 'jobs', 'hJobs')} |`);
     }
   }
   // targets (builder = the intended path)
@@ -79,7 +85,7 @@ function main() {
   const C = all.contractor, R = all.renter;
   console.log(`- contracting plateaus: contractor contract € Y3 ${k(med(C.map((r) => r[2].jobs)))} → Y${YEARS} ${k(med(C.map((r) => r[YEARS - 1].jobs)))}`);
   console.log(`- owning beats renting (Y${YEARS} net worth): builder ${k(med(B.map((r) => r[YEARS - 1].net)))} vs renter ${k(med(R.map((r) => r[YEARS - 1].net)))} vs contractor ${k(med(C.map((r) => r[YEARS - 1].net)))}`);
-  console.log(`\n(${Object.keys(all).length} strategies × ${SEEDS} seeds × ${YEARS} years in ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+  console.log(`\n(${Object.keys(all).length} strategies × ${SEEDS} seeds × ${YEARS} years in ${process.hrtime(t0)[0]} s)`);
 }
 
 main();

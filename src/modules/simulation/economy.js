@@ -266,7 +266,7 @@ export function installEconomy(sim) {
     if (doy % MONTH_DAYS === 0) {
       const ha = sim.farmedHa ? sim.farmedHa() : 0;
       const fixed = CONST.fixedCostsMonthly + CONST.fixedCostsPerHaMonthly * ha;
-      api.charge(fixed, 'insurance', `Insurance, accountant & utilities (${ha.toFixed(1)} ha)`, { force: true });
+      api.charge(fixed, 'insurance', `Insurance & overheads, ${ha.toFixed(1)} ha`, { force: true });
     }
     if (E.money < 0) {
       api.charge(-E.money * CONST.overdraftRate / YEAR_DAYS, 'interest', 'Overdraft interest', { force: true });

@@ -77,6 +77,16 @@ export function createAI(ctx, S) {
         if (d <= (task.arrive || 0.35)) { ch.task = task.then || { kind: 'idle', x: task.x, y: task.y, r: 2 }; ch.state = 'idle'; }
         break;
       }
+      case 'patrol': {
+        const pts = task.points || [];
+        if (!pts.length) { ch.task = { kind: 'idle' }; break; }
+        task.i = task.i || 0;
+        const p = pts[task.i % pts.length];
+        ch.state = 'walking';
+        const d = steerTo(ch, p[0], p[1], dt, now, !!task.run, 0.45);
+        if (d <= 0.45 || ch._stuckN > 2) { task.i = (task.i + 1) % pts.length; ch._stuckN = 0; }
+        break;
+      }
       case 'follow': {
         const tgt = S.get(task.targetId) || S.active();
         if (!tgt || tgt.id === ch.id) { ch.task = { kind: 'idle' }; break; }

@@ -62,6 +62,7 @@ export function makeAppearance(rng, role, palette, opts = {}) {
     variant: rng.int(0, 999),
   };
   Object.assign(a, opts.appearance || {});
+  if (opts.appearance && opts.appearance.hat === 'straw' && !opts.appearance.hatColor) a.hatColor = '#d8b46a';
   return a;
 }
 

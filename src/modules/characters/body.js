@@ -10,6 +10,8 @@ import { appKey } from './appearance.js';
 const TAU = Math.PI * 2;
 export const CPPM = 48;          // cached frame resolution
 export const WALK_FRAMES = 8;
+/** readability scale: people are drawn ~28 % larger than life so they read next to machines at 24–48 px/m */
+export const K = 1.28;
 const FRAME_M = 1.0;             // cached frame size (m)
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -75,11 +77,13 @@ export function createBody(art, parts) {
       extra: [],    // additional carried items [{kind,gx,gy,rot,k}]
       skirtRot: 0,
     };
-    const swing = w * (run ? 0.36 : 0.24);
+    const swing = w * (run ? 0.19 : 0.12);
     const sx = P.shoulder + 0.03;
-    // default arm swing: opposite to the leg on the same side
-    P.handL = { x: -sx - 0.012 * w, y: 0.03 - swing * sn * 1.0 };
-    P.handR = { x: sx + 0.012 * w, y: 0.03 + swing * sn * 1.0 };
+    // default arm swing: opposite to the leg on the same side; a forward hand swings in a little
+    // (elbow bend), a backward hand stays close to the hip
+    const fl = sn, fr = -sn; // left hand forward while the left foot is back
+    P.handL = { x: -sx + 0.02 * Math.max(0, fl) * w * (run ? 2 : 1), y: 0.04 - swing * fl };
+    P.handR = { x: sx - 0.02 * Math.max(0, fr) * w * (run ? 2 : 1), y: 0.04 - swing * fr };
     P.skirtRot = -P.twist * 0.6;
 
     // idle life: slow glance around
@@ -174,7 +178,7 @@ export function createBody(art, parts) {
         } else {
           // pitchfork: thrust in → lift and toss to the right → recover
           const t = smooth(seg(u, 0, 0.35)), l = smooth(seg(u, 0.35, 0.68)), b = smooth(seg(u, 0.68, 1));
-          k = lerp(lerp(lerp(0.55, 0.85, t), 0.45, l), 0.55, b);
+          k = lerp(lerp(lerp(0.55, 0.62, t), 0.4, l), 0.55, b);
           rot = lerp(lerp(lerp(0.05, 0.0, t), 0.75, l), 0.05, b);
           G = { x: lerp(lerp(0.1, 0.08, t), 0.14, l), y: lerp(lerp(-0.16, -0.3, t), -0.2, l) };
           G.x = lerp(G.x, 0.1, b); G.y = lerp(G.y, -0.16, b);
@@ -256,6 +260,7 @@ export function createBody(art, parts) {
     img(g, foot, fl.x, fl.y, -0.06, 1 + fl.lift * 0.06, 1 + fl.lift * 0.06);
     img(g, foot, fr.x, fr.y, 0.06, -(1 + fr.lift * 0.06), 1 + fr.lift * 0.06);
     if (skirted) img(g, parts.skirt(a), 0, 0.035, P.skirtRot);
+    else img(g, parts.hips(a), 0, 0.045, P.skirtRot);
     g.save();
     g.translate(0, -P.lean);
     if (P.bob !== 1) g.scale(P.bob, P.bob);
@@ -313,6 +318,7 @@ export function createBody(art, parts) {
     g.save();
     g.translate(ch.x, ch.y);
     g.rotate(ch.rot || 0);
+    g.scale(K, K);
     let P;
     if (live || ch.action) {
       P = pose(ch, time);
@@ -341,7 +347,7 @@ export function createBody(art, parts) {
   /** lantern world position for a character (cheap approximation, no full pose) */
   function lanternWorld(ch) {
     const side = ch.tool === 'seed' || (ch.carry && ch.carry !== 'none' && ch.carry !== 'stick') ? 1 : -1;
-    const lx = side * 0.28, ly = 0.04;
+    const lx = side * 0.28 * K, ly = 0.04 * K;
     const c = Math.cos(ch.rot || 0), s = Math.sin(ch.rot || 0);
     return { x: ch.x + lx * c - ly * s, y: ch.y + lx * s + ly * c };
   }
@@ -352,10 +358,11 @@ export function createBody(art, parts) {
     g.save();
     g.translate(ch.x, ch.y);
     g.rotate(ch.rot || 0);
+    g.scale(K * 0.92, K * 0.92);
     img(g, extras.bedroll(a), 0, 0);
     // head on the pillow, turned to one side; blanket rises and falls with breathing
     const br = 1 + 0.02 * Math.sin(time * 1.6 + (a.variant || 0));
-    img(g, parts.head(a), 0, -0.68, 0.5, 0.95, 0.95);
+    img(g, parts.head({ ...a, hat: a.hat === 'scarf' || a.hat === 'beanie' ? a.hat : 'none' }), 0, -0.66, 0.5, 0.95, 0.95);
     img(g, extras.blanket(a), 0, 0.12, 0, br, 1);
     g.restore();
   }

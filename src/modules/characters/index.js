@@ -2,10 +2,10 @@
 // hired-hand AI, ambient villagers, painted top-down people with a walk cycle.
 import { makeAppearance, portraitOf, pickName } from './appearance.js';
 import { createSprites, SPPM } from './sprites.js';
-import { createBody } from './body.js';
+import { createBody, K } from './body.js';
 import { createMotion, PRINTS, STEP_SOUND } from './motion.js';
 import { createTools, TOOLS, TOOL } from './tools.js';
-import { createAI, isNight } from './ai.js';
+import { createAI } from './ai.js';
 import { presets, stage } from './showcase.js';
 
 export const manifest = {
@@ -329,6 +329,7 @@ export async function init(ctx) {
   function tickAction(c, dt) {
     const a = c.action;
     if (!a) { if (c.cool > 0) c.cool -= dt; return; }
+    if (a.frozen) { if (!(c.task && c.task.kind === 'hold')) c.action = null; return; }
     a.t += dt;
     a.u = Math.min(1, a.t / a.dur);
     const T = TOOL[a.tool] || TOOL.hand;
@@ -538,6 +539,17 @@ export async function init(ctx) {
     ui.setToolbar(TOOLS.map((t) => ({ id: t.id, label: t.label, icon: t.icon, hotkey: t.key, active: active().tool === t.id, onSelect: (item) => { const a = active(); if (a) setTool(a, item.id); } })));
   }
 
+  /** 'hold' task: a frozen pose (showcase turnarounds, cut-scenes) */
+  function applyHold(c) {
+    const t = c.task;
+    if (t.rot != null) c.rot = t.rot;
+    c.walk = t.walk || 0; c.phase = t.phase || 0; c.running = !!t.running; c.speed = 0;
+    if (t.action) {
+      if (!c.action || !c.action.frozen) c.action = { tool: t.action.tool, t: 0, dur: 1, u: t.action.u, fired: true, frozen: true, d: tools.describe(c, t.action.tool), ok: true };
+      c.state = 'working';
+    } else c.state = c.walk > 0.3 ? 'walking' : 'idle';
+  }
+
   // ------------------------------------------------------------------ update
   function update(dt) {
     now += dt;
@@ -548,17 +560,16 @@ export async function init(ctx) {
     const recover = (c, rate) => { c.stamina = Math.min(1, c.stamina + rate * dt); };
     for (const c of C.list) {
       tickAction(c, dt);
-      if (c.id === actId) {
+      if (c.task && c.task.kind === 'hold') {
+        applyHold(c);
+      } else if (c.id === actId) {
         controlActive(c, dt);
       } else if (c.vehicleId) {
         const v = vehicleOf(c); if (v) { c.x = v.x; c.y = v.y; c.rot = v.rot || 0; } else { c.vehicleId = null; c.state = 'idle'; }
       } else if (c.role === 'villager') {
         ai.tickVillager(c, dt, now);
-      } else if (!(c.task && c.task.kind === 'hold')) {
-        ai.tickFarmhand(c, dt, now);
       } else {
-        motion.step(c, 0, 0, false, dt, now);
-        if (c.task.rot != null) motion.face(c, c.task.rot, dt, 4);
+        ai.tickFarmhand(c, dt, now);
       }
       // stamina: resting & sleeping recover
       if (c.state === 'sleeping' || c.state === 'inside') recover(c, 0.02);
@@ -623,9 +634,9 @@ export async function init(ctx) {
     if (!a || a.tool !== 'water' || !P || !P.spout || a.u < 0.24 || a.u > 0.86) return;
     const f = Math.min(1, (a.u - 0.24) / 0.08) * Math.min(1, (0.86 - a.u) / 0.06);
     g.save();
-    g.translate(c.x, c.y); g.rotate(c.rot);
+    g.translate(c.x, c.y); g.rotate(c.rot); g.scale(K, K);
     const sx = P.spout.x, sy = P.spout.y - P.lean;
-    const tx = 0.04, ty = -(TOOL.water.reach) + 0.02;
+    const tx = 0.04, ty = -(TOOL.water.reach / K) + 0.02;
     g.lineCap = 'round';
     g.strokeStyle = `rgba(214,232,240,${0.55 * f})`; g.lineWidth = 0.035;
     g.beginPath(); g.moveTo(sx, sy); g.quadraticCurveTo(sx + 0.02, sy - 0.35, tx, ty); g.stroke();
@@ -652,23 +663,23 @@ export async function init(ctx) {
       if (c.x < view.x0 - 3 || c.x > view.x1 + 3 || c.y < view.y0 - 3 || c.y > view.y1 + 3) continue;
       if (c.state === 'sleeping') {
         const cr = Math.cos(c.rot), sr = Math.sin(c.rot);
-        F.shadow.box(c.x, c.y, 0.8, 1.9, c.rot, 0.22);
+        F.shadow.box(c.x, c.y, 0.8 * K, 1.9 * K, c.rot, 0.22);
         F.object({ y: c.y - 0.4, draw: (g) => body.drawSleeper(g, c, parts, now) });
         // a little storm lantern beside the bedroll
-        const lx = c.x + cr * 0.62 - sr * -0.55, ly = c.y + sr * 0.62 + cr * -0.55;
+        const lx = c.x + (cr * 0.62 - sr * -0.55) * K, ly = c.y + (sr * 0.62 + cr * -0.55) * K;
         F.object({ y: ly, draw: (g) => { const s = lampSprite(); g.drawImage(s, lx - 0.1, ly - 0.1, 0.2, 0.2); } });
         F.light({ x: lx, y: ly, radius: 3.2, color: [255, 184, 110], intensity: 0.55 * flick, glow: 0.5, glowRadius: 0.35 });
         continue;
       }
       const umb = c.umbrella && raining && c.role === 'villager';
-      F.shadow.circle(c.x, c.y, 0.28, 0, 1.75);
+      F.shadow.circle(c.x, c.y, 0.3 * K, 0, 1.75);
       if (umb) F.shadow.circle(c.x, c.y - 0.05, 0.5, 1.85, 1.95);
       F.object({
         y: c.y,
         draw: (g) => {
           const P = body.draw(g, c, now, live);
           if (P) drawStream(g, c, P);
-          if (umb) { const u = parts.umbrella(c.umbrella); const s = u.width / SPPM; g.drawImage(u, c.x - s / 2, c.y - 0.05 - s / 2, s, s); }
+          if (umb) { const u = parts.umbrella(c.umbrella); const s = u.width / SPPM * K; g.drawImage(u, c.x - s / 2, c.y - 0.05 - s / 2, s, s); }
         },
       });
       if (c.lantern) {
@@ -684,7 +695,7 @@ export async function init(ctx) {
     if (!c || c.vehicleId || c.state === 'sleeping') return;
     if (ctx.params.showcase && ctx.params.noring === '1') return;
     const ring = parts.ring();
-    const s = ring.width / SPPM;
+    const s = ring.width / SPPM * K;
     g.globalAlpha = 0.55;
     g.save(); g.translate(c.x, c.y + 0.02); g.rotate(c.rot); g.drawImage(ring, -s / 2, -s / 2, s, s); g.restore();
     g.globalAlpha = 1;
@@ -692,9 +703,9 @@ export async function init(ctx) {
     if (c.stamina < 0.985) {
       g.lineCap = 'round';
       g.strokeStyle = 'rgba(40,34,26,0.35)'; g.lineWidth = 0.075;
-      g.beginPath(); g.arc(c.x, c.y, 0.56, Math.PI * 0.62, Math.PI * 1.38); g.stroke();
+      g.beginPath(); g.arc(c.x, c.y, 0.56 * K, Math.PI * 0.62, Math.PI * 1.38); g.stroke();
       g.strokeStyle = c.stamina < 0.2 ? 'rgba(214,106,74,0.95)' : 'rgba(236,208,120,0.95)'; g.lineWidth = 0.045;
-      g.beginPath(); g.arc(c.x, c.y, 0.56, Math.PI * 1.38 - Math.PI * 0.76 * c.stamina, Math.PI * 1.38); g.stroke();
+      g.beginPath(); g.arc(c.x, c.y, 0.56 * K, Math.PI * 1.38 - Math.PI * 0.76 * c.stamina, Math.PI * 1.38); g.stroke();
     }
     // target tile for the current tool
     const d = c._desc;
@@ -770,7 +781,7 @@ export async function init(ctx) {
     tools: () => TOOLS.map((t) => ({ ...t })),
   };
 
-  const S2 = { ctx, api, spawn, setActive, useTool, setTool, villagers, follow, parts, body, get, C, motion, internal: { get handover() { return handover; } }, setNow: (t) => { now = t; } };
+  const S2 = { ctx, api, spawn, setActive, useTool, setTool, villagers, follow, parts, body, get, C, motion, internal: { get handover() { return handover; } }, setNow: (t) => { now = t; }, simulate: (dt) => update(dt) };
   INSTANCES.set(ctx, S2);
 
   return {
