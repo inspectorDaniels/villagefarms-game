@@ -135,7 +135,12 @@ export async function init(ctx) {
     baseAmbient = ambientFor(elevDeg, rising, w, mp);
 
     // which light casts the shadows: sun by day, the moon on clear moonlit nights
-    const sunStrength = 0.45 * smooth(-1, 5.5, elevDeg) * (1 - 0.85 * cur.cloudCover) * (1 - 0.7 * cur.fog) * (1 - 0.6 * Math.max(cur.rain, cur.snow));
+    // Direct sun through the gaps between clouds is as hard as on a clear day, so object shadows
+    // stay crisp on partly cloudy days; only a closed (overcast) deck flattens them. The cloud
+    // shadows themselves go to their own core buffer (F.shadow.cloud, sun.cloudShadowStrength).
+    const overcastFlat = cur.cloudCover > 0.72 ? clamp(1 - (cur.cloudCover - 0.72) / 0.24, 0, 1) : 1;
+    const directSun = 0.45 * smooth(-1, 5.5, elevDeg) * (1 - 0.7 * cur.fog) * (1 - 0.6 * Math.max(cur.rain, cur.snow));
+    const sunStrength = directSun * overcastFlat;
     const moonStrength = 0.17 * mp.illumination * smooth(3, 22, mp.elevation / DEG) * smooth(-5, -12, elevDeg) * (1 - 0.9 * cur.cloudCover) * (1 - 0.8 * cur.fog);
     const useMoon = moonStrength > sunStrength;
     const src = useMoon ? mp : sp;
@@ -149,9 +154,8 @@ export async function init(ctx) {
     S.shadowStrength = +Math.max(sunStrength, moonStrength).toFixed(4);
     S.color = useMoon ? [176, 194, 232] : sunColor(elevDeg).map(Math.round);
     S.source = useMoon ? 'moon' : 'sun';
-    // strength cloud shadows should use once core composites them separately (core request #1):
-    // direct sun as if the sky were clear, i.e. without the cloudCover factor
-    S.cloudShadowStrength = +(0.45 * smooth(-1, 5.5, elevDeg) * (1 - 0.7 * cur.fog) * (1 - 0.6 * Math.max(cur.rain, cur.snow)) * (cur.cloudCover > 0.8 ? clamp(1 - (cur.cloudCover - 0.8) / 0.18, 0, 1) : 1)).toFixed(4);
+    // cloud shadows: composited separately by core, masked where object shadows already are
+    S.cloudShadowStrength = +(0.5 * smooth(-1, 5.5, elevDeg) * (1 - 0.7 * cur.fog) * (1 - 0.6 * Math.max(cur.rain, cur.snow)) * (useMoon ? 0 : 1)).toFixed(4);
     // lightning: for a split second the strike is the light source — hard, cool, from its direction
     if (flash.level > 0.15) {
       const fx0 = 0.5 - flash.at.x, fy0 = 0.5 - flash.at.y, fl = Math.hypot(fx0, fy0) || 1;
@@ -160,6 +164,7 @@ export async function init(ctx) {
       S.shadowStrength = +Math.max(S.shadowStrength, 0.32 * clamp(flash.level, 0, 1)).toFixed(4);
       S.color = [214, 226, 255];
       S.source = 'lightning';
+      S.cloudShadowStrength = 0;
     }
     const M = env.moon;
     M.azimuth = mp.azimuth; M.elevation = mp.elevation; M.phase = +mp.phase.toFixed(3); M.illumination = +mp.illumination.toFixed(3);
@@ -292,7 +297,8 @@ export async function init(ctx) {
   ctx.renderer.addCollector((view, F) => {
     const cc = cur.cloudCover;
     if (cc > 0.04 && env.sun.shadowStrength > 0.005) {
-      F.shadow.custom((sg, sun, v) => fx.drawCloudShadows(sg, v || view, cc, drift));
+      if (F.shadow.cloud) F.shadow.cloud((sg, sun, v) => fx.drawCloudShadows(sg, v || view, cc, drift));
+      else F.shadow.custom((sg, sun, v) => fx.drawCloudShadows(sg, v || view, cc, drift));
     }
   });
   ctx.renderer.addLayer('weather', (g, view) => {

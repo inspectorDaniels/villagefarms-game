@@ -683,9 +683,14 @@ export const showcase = {
       const L = Math.hypot(tx - x, ty - y), dx = (tx - x) / L, dy = (ty - y) / L;
       for (let s = 0; s < L; s += 1.3, i++) api.decal('footprint', x + dx * s + Math.sin(s) * 0.2, y + dy * s, Math.atan2(dx, -dy), { variant: i });
       // hoofprints along the verge
-      for (let s = 20; s < 100; s += 0.9) {
-        const hy = trackY(s) - 1.55 + Math.sin(s * 0.7) * 0.12;
-        api.decal('hoofprint', s, hy + ((s * 10 | 0) % 2 ? 0.2 : -0.2), Math.PI / 2, { variant: (s * 3) | 0 });
+      // hoofprints: a sheep wandering along the verge (meandering, alternating feet, gaps where
+      // it stepped onto the grass) rather than a ruler-straight dotted line beside the ruts
+      for (let s = 24, k = 0; s < 92; s += 0.62, k++) {
+        const wob = Math.sin(s * 0.19) * 0.7 + Math.sin(s * 0.53 + 1) * 0.25;
+        if (Math.sin(s * 0.11 + 2) > 0.55) continue;
+        const hy = trackY(s) - 1.75 + wob, side = k % 2 ? 0.16 : -0.16;
+        const hr = Math.atan2(Math.cos(s * 0.19) * 0.13 + trackSlope(s), 1) + Math.PI / 2;
+        api.decal('hoofprint', s + Math.sin(k * 2.3) * 0.05, hy + side, hr, { variant: k });
       }
       if (preset === 'default' || preset === 'rain' || preset === 'closeup') {
         for (const [px, sz] of [[40, 2.6], [66, 3.2], [75, 2.2], [47.5, 2.0]]) api.decal('puddle', px, trackY(px) + 0.8 * (px % 2 ? 1 : -1), Math.atan2(trackSlope(px), 1), { size: sz, variant: px | 0 });

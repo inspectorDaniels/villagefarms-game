@@ -14,7 +14,7 @@ export const SHOWCASE_PRESETS = {
   fog: { camera: CAM, time: '08:40', day: 31, weather: 'fog', intensity: 0.8 },
   snow: { camera: CAM, time: '11:30', day: 1, weather: 'snow', intensity: 0.65 },
   storm: { camera: CAM, time: '17:30', day: 20, weather: 'storm', intensity: 0.9 },
-  closeup: { camera: { x: 64, y: 58, zoom: 44 }, time: '21:15', day: 20, weather: 'clear', intensity: 0.1 },
+  closeup: { camera: { x: 64, y: 58, zoom: 44 }, time: '21:40', day: 20, weather: 'clear', intensity: 0.1 },
 };
 
 // scene extents (metres)
@@ -651,7 +651,7 @@ export async function stageShowcase(ctx, presetName, inst) {
       } });
       if (lamp > 0.01) {
         const Ld = SHED.h / 2 + 1.1, dx = SHED.x - Ld * s, dy = SHED.y + Ld * c;
-        F.light({ x: dx - 1.2, y: dy, radius: 6.5, color: [255, 170, 118], intensity: 0.7 * lamp, glow: 0.5, glowRadius: 1.4 });
+        F.light({ x: dx - 1.2, y: dy, radius: 6.5, color: [255, 150, 92], intensity: 0.7 * lamp, glow: 0.5, glowRadius: 1.4 });
       }
     }
 
@@ -700,7 +700,7 @@ export async function stageShowcase(ctx, presetName, inst) {
           g.globalAlpha = 1;
         }
       } });
-      if (lamp > 0.01) F.light({ x: LAMP.x, y: LAMP.y, radius: 12, color: [255, 178, 122], intensity: 0.9 * lamp, glow: 0.9, glowRadius: 2.2 });
+      if (lamp > 0.01) F.light({ x: LAMP.x, y: LAMP.y, radius: 12, color: [255, 156, 96], intensity: 0.9 * lamp, glow: 0.9, glowRadius: 2.2 });
     }
 
     // windsock: pole + a striped sock streaming downwind

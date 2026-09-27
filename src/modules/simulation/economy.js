@@ -57,7 +57,7 @@ export function installEconomy(sim) {
     return {
       id: def.id, category: def.category || 'misc', name: def.name || def.id, price: +def.price || 0,
       leasePerDay: def.leasePerDay != null ? +def.leasePerDay : Math.round((+def.price || 0) * 0.2 / YEAR_DAYS * 100) / 100,
-      upkeepPerDay: def.upkeepPerDay != null ? +def.upkeepPerDay : Math.round((+def.price || 0) * 0.025 / YEAR_DAYS * 100) / 100,
+      upkeepPerDay: def.upkeepPerDay != null ? +def.upkeepPerDay : Math.round((+def.price || 0) * CONST.upkeepYear / YEAR_DAYS * 100) / 100,
       meta: { ...(def.meta || {}) },
     };
   }
@@ -132,10 +132,20 @@ export function installEconomy(sim) {
       return def.id;
     },
     catalog(category) { return Object.values(E.catalog).filter((c) => !category || c.category === category).map((c) => ({ ...c })); },
-    /** buy a catalog item outright. Returns true on success; the owned asset is listed in assets(). */
-    purchase(id) {
+    /** buy a catalog item. Returns true on success; the owned asset is listed in assets().
+     *  opts.finance: dealer finance — pay 25 % now, the rest as a 5-year loan secured on the machine
+     *  (needs enough credit headroom once the machine is counted as collateral). */
+    purchase(id, opts = {}) {
       const c = E.catalog[id];
-      if (!c || !api.charge(c.price, 'machinery', `Bought ${c.name}`)) return false;
+      if (!c) return false;
+      if (opts && opts.finance) {
+        const loan = Math.ceil(c.price * CONST.machineFinanceLTV / 100) * 100;
+        const down = c.price - loan;
+        const headroom = api.creditLimit() + CONST.creditMachineLTV * c.price * CONST.assetResaleNew;
+        if (E.money < down || headroom < loan) return false;
+        securedLoan(loan, CONST.machineFinanceMonths, `Dealer finance on ${c.name}`);
+      }
+      if (!api.charge(c.price, 'machinery', `Bought ${c.name}`)) return false;
       E.assets.push({ id: nid('asset'), itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: sim.today() });
       return true;
     },
@@ -181,11 +191,13 @@ export function installEconomy(sim) {
     },
 
     // ---------- loans ----------
+    /** unsecured borrowing headroom: base + 60 % of last year's operating result + collateral − debt */
     creditLimit() {
       const land = sim.landValue ? sim.landValue() : 0;
       const mach = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
       const debt = E.loans.reduce((a, l) => a + l.balance, 0);
-      return Math.max(0, CONST.creditLimitBase + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt);
+      const income = Math.max(0, api.summary(YEAR_DAYS).operatingNet);
+      return Math.max(0, CONST.creditLimitBase + CONST.creditIncomeMult * income + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt);
     },
     /** borrow; repaid monthly over opts.months (default 60). Returns loan id or null. */
     takeLoan(amount, opts = {}) {
@@ -265,9 +277,10 @@ export function installEconomy(sim) {
 
   /** a loan secured on a specific asset (mortgage); bypasses the unsecured credit limit. Internal. */
   function securedLoan(amount, months, memo) {
+    if (E.money + amount < 0) return null;
     const loan = { id: nid('loan'), principal: amount, balance: amount, rate: CONST.loanRate, takenDay: sim.today(), months, monthly: amount / months, interestPaid: 0, secured: true };
     E.loans.push(loan);
-    sim.record(amount, 'loan', `${memo} — €${Math.round(amount).toLocaleString('en-GB')} over ${months / 12} years`);
+    sim.record(amount, 'loan', `${memo} — €${Math.round(amount).toLocaleString('en-GB')} over ${+(months / 12).toFixed(1)} years`);
     return loan.id;
   }
 

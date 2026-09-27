@@ -94,15 +94,16 @@ export function installLand(sim) {
       return null;
     },
     /** buy a parcel listed for sale: market value + 4 % fees.
-     *  opts.mortgage: borrow up to 70 % of the price over 15 years, secured on the parcel; you pay the rest. */
+     *  opts.mortgage: borrow up to 60 % of the price over 15 years, secured on the parcel; you bring the
+     *  other 40 % + fees in cash (the bank will not lend the deposit). */
     buyParcel(id, opts = {}) {
       const p = find(id);
       if (!p || p.state !== 'forSale') return false;
       const fees = p.price * CONST.landFees;
       if (opts.mortgage) {
-        const loan = Math.min(p.price * CONST.creditLandLTV, Math.max(0, p.price + fees - Math.max(0, sim.world.economy.money)));
+        const loan = Math.ceil(Math.min(p.price * CONST.mortgageLTV, Math.max(0, p.price + fees - Math.max(0, sim.world.economy.money))) / 100) * 100;
         if (sim.world.economy.money + loan < p.price + fees) return false;
-        if (loan > 0) sim.economy.securedLoan(Math.ceil(loan / 100) * 100, 180, `Mortgage on ${p.name}`);
+        if (loan > 0) sim.economy.securedLoan(loan, CONST.mortgageMonths, `Mortgage on ${p.name}`);
       }
       if (!api.canAfford(p.price + fees)) return false;
       api.charge(p.price, 'land', `Bought ${p.name} (${ha(p).toFixed(2)} ha)`);

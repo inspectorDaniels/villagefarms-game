@@ -307,9 +307,9 @@ export function createSprites(art, palette) {
   }
 
   // ---------- decals ----------
-  function tyreStamp(variant) {
-    return reg(`d:tyre:${variant}`, 32, 64, (g, w, h, rng) => {
-      const c = '#3a2e22';
+  function tyreStamp(variant, snow) {
+    return reg(`d:tyre:${variant}:${snow ? 's' : 'd'}`, 32, 64, (g, w, h, rng) => {
+      const c = PRINT(snow);
       for (let y = 2; y < h - 2; y += 7) {
         g.fillStyle = art.rgba(c, rng.range(0.45, 0.7));
         g.beginPath();
@@ -319,9 +319,11 @@ export function createSprites(art, palette) {
       g.fillStyle = art.rgba(c, 0.18); g.fillRect(3, 0, w - 6, h);
     });
   }
-  function footprint(variant) {
-    return reg(`d:foot:${variant}`, 32, 48, (g, w, h, rng) => {
-      const c = '#3b2f24';
+  // prints on snow are pressed blue-grey hollows, not dark mud
+  const PRINT = (snow) => (snow ? '#7d92b4' : '#3b2f24');
+  function footprint(variant, snow) {
+    return reg(`d:foot:${variant}:${snow ? 's' : 'd'}`, 32, 48, (g, w, h, rng) => {
+      const c = PRINT(snow);
       const print = (x, y, flip) => {
         g.save(); g.translate(x, y); g.scale(flip, 1);
         g.fillStyle = art.rgba(c, 0.55);
@@ -335,9 +337,9 @@ export function createSprites(art, palette) {
       print(23, 32 + rng.range(-1, 1), -1);
     });
   }
-  function hoofprint(variant) {
-    return reg(`d:hoof:${variant}`, 32, 32, (g, w, h, rng) => {
-      const c = '#3b2f24';
+  function hoofprint(variant, snow) {
+    return reg(`d:hoof:${variant}:${snow ? 's' : 'd'}`, 32, 32, (g, w, h, rng) => {
+      const c = PRINT(snow);
       g.fillStyle = art.rgba(c, 0.6);
       for (const s of [-1, 1]) {
         g.beginPath(); g.ellipse(w / 2 + s * 4.5, h / 2 + rng.range(-1, 1), 3.4, 7, s * -0.15, 0, TAU); g.fill();
@@ -345,33 +347,51 @@ export function createSprites(art, palette) {
     });
   }
   function puddle(variant) {
-    // Flat, low-contrast and translucent: a wet-dark soak into the ground plus a thin film of
-    // reflected sky. No dome shading, no outline, no centred highlight (it must never read as a stone).
-    return reg(`d:puddle:${variant}`, 128, 96, (g, w, h, rng) => {
+    // Flat standing water, seen from above: a soft wet-dark soak in the ground, then a translucent
+    // film that reflects the (pale) sky with a few long streaks of reflected cloud. Everything is
+    // even-toned: no dome gradient, no outline, no centred highlight — it must never read as a stone.
+    return reg(`d:puddle2:${variant}`, 160, 120, (g, w, h, rng) => {
       const cx = w / 2, cy = h / 2;
+      const r = w * 0.36;
       g.save(); g.translate(cx, cy); g.scale(1, h / w); g.translate(-cx, -cy);
-      const r = w * 0.4;
-      const soak = g.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 1.3);
-      soak.addColorStop(0, 'rgba(34,26,18,0.42)'); soak.addColorStop(0.75, 'rgba(34,26,18,0.2)'); soak.addColorStop(1, 'rgba(34,26,18,0)');
-      g.fillStyle = soak; g.fillRect(0, 0, w, w);
       const shape = rng.fork('w');
-      const path = () => art.blobPath(g, cx, cy, r, shape.fork('p'), 0.16, 4);
-      // soft-edged water film: several slightly shrinking passes instead of one hard edge
-      for (let k = 0; k < 4; k++) {
-        g.save(); g.translate(cx, cy); g.scale(1 - k * 0.07, 1 - k * 0.07); g.translate(-cx, -cy);
-        path();
-        g.fillStyle = 'rgba(176,194,202,0.16)';
-        g.fill();
+      const path = (k) => {
+        g.save(); g.translate(cx, cy); g.scale(k, k); g.translate(-cx, -cy);
+        art.blobPath(g, cx, cy, r, shape.fork('p'), 0.2, 5);
         g.restore();
+      };
+      // wet soak: darkened ground slightly larger than the water, feathered in several passes
+      for (let k = 0; k < 5; k++) { path(1.28 - k * 0.05); g.fillStyle = 'rgba(30,24,18,0.085)'; g.fill(); }
+      // water film: flat sky tint, feathered edge
+      for (let k = 0; k < 4; k++) { path(1.0 - k * 0.035); g.fillStyle = 'rgba(150,170,184,0.2)'; g.fill(); }
+      path(0.86); g.fillStyle = 'rgba(160,180,194,0.22)'; g.fill();
+      // reflected cloud streaks (long, soft, horizontal-ish, all the same tone)
+      path(0.9); g.save(); g.clip();
+      g.lineCap = 'round';
+      for (let i = 0; i < 5; i++) {
+        const y = cy + rng.range(-0.6, 0.6) * r, x = cx + rng.range(-0.5, 0.3) * r, L = rng.range(0.4, 0.9) * r;
+        g.strokeStyle = `rgba(222,232,236,${rng.range(0.1, 0.2)})`; g.lineWidth = rng.range(3, 7);
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + L, y + rng.range(-3, 3)); g.stroke();
       }
-      // faint cloud mottling
-      path(); g.save(); g.clip();
-      art.dabs(g, rng, 7, cx - r, cy - r, r * 2, r * 2, ['#d6e2e6', '#9fb2ba'], r * 0.15, r * 0.35, 0.1);
       g.restore();
-      // one faint edge glint
-      g.strokeStyle = 'rgba(240,246,248,0.22)'; g.lineWidth = 2; g.lineCap = 'round';
-      g.beginPath(); g.ellipse(cx, cy, r * 0.82, r * 0.82, 0, Math.PI * 1.1, Math.PI * 1.45); g.stroke();
+      // thin bright meniscus along part of the rim (catches the sky at the edge)
+      path(0.97); g.save(); g.clip();
+      path(1.0); g.strokeStyle = 'rgba(236,244,246,0.28)'; g.lineWidth = 2.2; g.stroke();
       g.restore();
+      g.restore();
+    });
+  }
+  // tileable dark mottle (64 px = 2 m) used as a stroke pattern to break up trail ribbons
+  function mottle() {
+    return reg('mottle', 64, 64, (g, w, h, rng) => {
+      for (let i = 0; i < 90; i++) {
+        const x = rng.float() * w, y = rng.float() * h, rx = rng.range(1.5, 5), ry = rng.range(1, 3), a = rng.float() * Math.PI;
+        const dark = rng.chance(0.7);
+        g.fillStyle = dark ? `rgba(20,14,8,${rng.range(0.15, 0.45)})` : `rgba(255,245,225,${rng.range(0.08, 0.2)})`;
+        for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) {
+          g.beginPath(); g.ellipse(x + ox, y + oy, rx, ry, a, 0, TAU); g.fill();
+        }
+      }
     });
   }
   function scorch(variant) {
@@ -418,7 +438,7 @@ export function createSprites(art, palette) {
 
   return {
     list, puff, chaff, ember, clod, leaf, petal, ring, crown, halo, sparkle, butterfly, bird, softShadow,
-    tyreStamp, footprint, hoofprint, puddle, scorch, spill,
+    tyreStamp, footprint, hoofprint, puddle, scorch, spill, mottle,
     BUTTERFLY_VARIANTS: BUTTERFLY.length,
   };
 }

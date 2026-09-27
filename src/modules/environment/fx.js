@@ -315,7 +315,7 @@ export function createFx(ctx) {
     // blue hour and night: a cool lift (screen), never a darkening
     if (dusk > 0.02) {
       g.globalCompositeOperation = 'screen';
-      g.fillStyle = `rgba(70,52,120,${0.22 * dusk})`;
+      g.fillStyle = `rgba(84,66,150,${0.3 * dusk})`;
       g.fillRect(0, 0, W, H);
     }
     if (night > 0.02) {
@@ -324,7 +324,7 @@ export function createFx(ctx) {
       g.fillRect(0, 0, W, H);
     }
     // grey days lose saturation (gouache greys), fog most of all — never during golden light
-    const desat = clamp((0.2 * w.cloudCover + 0.12 * w.rain + 0.22 * w.fog + 0.1 * w.storm) * (1 - golden) + 0.12 * night, 0, 0.5);
+    const desat = clamp((0.2 * w.cloudCover + 0.12 * w.rain + 0.22 * w.fog + 0.1 * w.storm) * (1 - golden) + 0.12 * night + 0.16 * dusk, 0, 0.5);
     if (desat > 0.02) {
       g.globalCompositeOperation = 'saturation';
       g.globalAlpha = desat;

@@ -54,17 +54,19 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
     o = o || {};
     const v = o.variant != null ? o.variant : ((x * 7.31 + y * 3.17) | 0) & 3;
     let img, w, h;
+    const printSurf = type === 'tyre' || type === 'footprint' || type === 'hoofprint' ? surfInfo(x, y) : null;
+    const snow = !!(printSurf && printSurf.surf === 'snow');
     switch (type) {
-      case 'tyre': img = sprites.tyreStamp(v % 2); w = o.width || 0.5; h = o.length || w * 2; break;
-      case 'footprint': img = sprites.footprint(v % 3); w = (o.size || 1) * 0.55; h = w * 1.5; break;
-      case 'hoofprint': img = sprites.hoofprint(v % 3); w = (o.size || 1) * 0.22; h = w; break;
+      case 'tyre': img = sprites.tyreStamp(v % 2, snow); w = o.width || 0.5; h = o.length || w * 2; break;
+      case 'footprint': img = sprites.footprint(v % 3, snow); w = (o.size || 1) * 0.55; h = w * 1.5; break;
+      case 'hoofprint': img = sprites.hoofprint(v % 3, snow); w = (o.size || 1) * 0.22; h = w; break;
       case 'puddle': img = sprites.puddle(v % 3); w = o.size || 2; h = w * 0.75; break;
       case 'scorch': img = sprites.scorch(v % 2); w = h = o.size || 2.5; break;
       case 'spill': img = sprites.spill(o.color || '#c9a24a', v % 3); w = h = o.size || 1.6; break;
       default: return null;
     }
     img = sprites.list[img];
-    const si = type === 'puddle' || type === 'scorch' || type === 'spill' ? null : surfInfo(x, y);
+    const si = type === 'puddle' || type === 'scorch' || type === 'spill' ? null : printSurf;
     if (si === null && (type === 'tyre' || type === 'footprint' || type === 'hoofprint')) {
       // on water: nothing, unless no surface info at all
       let s = null; try { s = surfaceAt(x, y); } catch (e) { /* ignore */ }
@@ -141,6 +143,17 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
   // chunks are batched into buckets (type, surface colour, width, alpha level) so a whole
   // field of tracks costs a handful of strokes instead of several per chunk.
   const buckets = new Map();
+  let mottlePat = null;
+  function mottlePattern(g) {
+    if (mottlePat === null) {
+      mottlePat = false;
+      try {
+        const p = g.createPattern(sprites.list[sprites.mottle()], 'repeat');
+        if (p && typeof p.setTransform === 'function' && typeof DOMMatrix === 'function') { p.setTransform(new DOMMatrix().scale(1 / 32)); mottlePat = p; }
+      } catch (e) { mottlePat = false; }
+    }
+    return mottlePat || null;
+  }
   function drawTrails(g, view) {
     const now = clockT();
     for (const bk of buckets.values()) bk.list.length = 0;
@@ -164,7 +177,8 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
     // different fade buckets would overlap and double-darken into knots at every join
     g.lineCap = 'butt';
     g.lineJoin = 'round';
-    const detail = view.zoom > 28;
+    const detail = view.zoom > 20;
+    const mottle = mottlePattern(g);
     for (const bk of buckets.values()) {
       if (!bk.list.length) continue;
       g.beginPath();
@@ -180,33 +194,32 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
         g.strokeStyle = col(0.7, 0.4 * a);
         g.lineWidth = W * 0.5; g.stroke();
       } else if (bk.type === 'tyre' && bk.surf === 'snow') {
-        // compressed snow: soft bluish shade outside, bright pushed-up rims, a wide pale trough
-        g.strokeStyle = `rgba(150,168,196,${0.16 * a})`;
-        g.lineWidth = W * 1.95; g.stroke();
-        g.strokeStyle = `rgba(253,254,255,${0.6 * a})`;
-        g.lineWidth = W * 1.5; g.stroke();
-        g.strokeStyle = `rgba(206,216,230,${0.55 * a})`;
-        g.lineWidth = W * 1.12; g.stroke();
-        g.strokeStyle = `rgba(184,198,218,${0.3 * a})`;
-        g.lineWidth = W * 0.7; g.stroke();
-        if (detail) {
-          g.setLineDash([0.06, 0.16]);
-          g.strokeStyle = `rgba(160,178,204,${0.1 * a})`;
-          g.lineWidth = W * 0.7; g.stroke();
-          g.setLineDash([]);
+        // compressed snow: a wide, soft blue-grey trough, deepest in the middle, flanked by
+        // bright pushed-up rims that fade out into the snow (no dark outer line => no "rails")
+        g.strokeStyle = `rgba(255,255,255,${0.75 * a})`;
+        g.lineWidth = W * 1.7; g.stroke();
+        g.strokeStyle = `rgba(196,208,226,${0.55 * a})`;
+        g.lineWidth = W * 1.2; g.stroke();
+        g.strokeStyle = `rgba(174,190,214,${0.45 * a})`;
+        g.lineWidth = W * 0.9; g.stroke();
+        g.strokeStyle = `rgba(160,178,206,${0.35 * a})`;
+        g.lineWidth = W * 0.55; g.stroke();
+        if (mottle) {
+          g.globalAlpha = 0.18 * a;
+          g.strokeStyle = mottle; g.lineWidth = W * 0.9; g.stroke();
+          g.globalAlpha = 1;
         }
       } else if (bk.type === 'tyre') {
-        g.strokeStyle = col(1, 0.12 * a);
-        g.lineWidth = W * 1.25; g.stroke();
-        g.strokeStyle = col(0.9, 0.12 * a);
-        g.lineWidth = W * 0.7; g.stroke();
-        if (detail) {
-          // tread lugs: dashes along a wide stroke render as soft cross-bars
-          g.setLineDash([0.05, 0.14]);
-          g.lineCap = 'butt';
-          g.strokeStyle = col(0.8, 0.07 * a);
-          g.lineWidth = W * 0.72; g.stroke();
-          g.setLineDash([]);
+        // compacted band: soft shoulder, a denser core, and a mottled texture instead of
+        // regular cross-bars (evenly spaced lugs read as railway sleepers)
+        g.strokeStyle = col(1, 0.09 * a);
+        g.lineWidth = W * 1.3; g.stroke();
+        g.strokeStyle = col(0.92, 0.14 * a);
+        g.lineWidth = W * 0.85; g.stroke();
+        if (mottle && detail) {
+          g.globalAlpha = 0.55 * a;
+          g.strokeStyle = mottle; g.lineWidth = W * 0.8; g.stroke();
+          g.globalAlpha = 1;
         }
       } else {
         g.strokeStyle = col(1, 0.2 * a);

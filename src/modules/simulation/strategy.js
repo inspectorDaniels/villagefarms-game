@@ -89,7 +89,9 @@ export function defineValley(api) {
 
 // ============================ farm manager ============================
 export const STRATEGY_INFO = {
-  contractor: 'keeps the starting farm, invests only in machines for contract work',
+  jobs: 'greedy jobs-only: takes every contract it can do, keeps the starting 2.4 ha, never invests',
+  contractor: 'keeps the starting farm, picks the best-paying contracts, invests only in machines for contract work',
+  smallfarm: 'rents up to ~12 ha, keeps the starter tractor, no hands, no land purchases',
   renter: 'rents every field offered it can afford and farm, never buys land',
   builder: 'rents early, buys land on a mortgage from the moment the bank allows, grows crew and machines',
 };
@@ -129,18 +131,12 @@ export function createManager(sim, opts) {
   const useDiesel = (litres) => { if (litres > 0) { api.buy('diesel', litres); api.removeInventory('diesel', litres); } };
   const contractor = (cost, memo) => { api.charge(cost, 'contractor', memo, { force: true }); M.contractorSpend += cost; };
 
-  function finance(cost, months) {
-    // pay with cash above the reserve; borrow the rest if the bank allows
-    const cashPart = Math.max(0, api.money() - reserve());
-    if (cashPart >= cost) return true;
-    const need = cost - cashPart;
-    if (need > api.creditLimit()) return false;
-    return !!api.takeLoan(Math.ceil(need / 100) * 100, { months });
-  }
   function buyMachine(id) {
     const c = api.catalog().find((x) => x.id === id);
-    if (!c || !finance(c.price, 60)) return false;
-    return api.purchase(id);
+    if (!c) return false;
+    // pay cash when there is plenty above the reserve, otherwise dealer finance (25 % down)
+    if (api.money() - reserve() >= c.price) return api.purchase(id);
+    return api.purchase(id, { finance: true });
   }
 
   // ---------- fields & crop calendar ----------
@@ -331,7 +327,7 @@ export function createManager(sim, opts) {
       const active = api.jobs('accepted').length;
       if (active >= 3) break;
       const machineOffers = offers.some((x) => x.j.requiresMachine);
-      if (j.pay / h < (machineOffers ? 35 : 12)) continue; // odd jobs only when there is no machine work about
+      if (strat !== 'jobs' && j.pay / h < (machineOffers ? 35 : 12)) continue; // odd jobs only when there is no machine work about
       const days = Math.max(1, j.deadlineDay - d);
       const budget = (j.requiresMachine ? Math.min(personH + days * 3, tractorH + days * 3) : personH + days * 3);
       if (h <= budget + days * WORK.hoursPerDay * 0.5) api.acceptJob(j.id);
@@ -340,55 +336,66 @@ export function createManager(sim, opts) {
   }
 
   // ---------- growth decisions (monthly) ----------
-  // a sensible player's pacing (ha farmed allowed by game year): contract work first, then grow
-  const PACE = [3, 11, 20, 30, 42, 55, 68, 80, 90, 100];
-  const paceHa = (d) => PACE[Math.min(PACE.length - 1, Math.floor((d - (M.startDay == null ? (M.startDay = d) : M.startDay)) / YEAR_DAYS))];
+  // No scripted pace: growth is limited by cash/credit, by the crew's hours and by how much land
+  // the market actually offers (a few listings at a time).
+  const capacityHa = () => {
+    const t2 = (tractorTiers()[0] || 1) >= 2 && hasLargeTillage();
+    return (t2 ? 38 : 14) * Math.min(people(), Math.max(1, tractorTiers().length)) + (combineRate() ? 10 : 0);
+  };
   function grow(d) {
     const doy = doyOf(d);
-    if (doy === 6) M.haYearAgo = farmedHa();
     const ha = farmedHa();
     const tiers = tractorTiers();
-    const liquid = () => api.money() + api.creditLimit() - reserve();
+    const cash = () => api.money() - reserve();
+    const liquid = () => cash() + api.creditLimit();
+    const small = strat === 'smallfarm';
     // seasonal operating credit: borrow against the credit line when cash runs low, repay when flush
     if (api.money() < reserve() * 0.5 && api.creditLimit() > 5000) api.takeLoan(Math.min(api.creditLimit(), Math.max(10000, reserve())), { months: 12 });
-    // rent: pace ≈ 14 ha of new leases a year, only with the inputs pre-financed
-    if (strat !== 'contractor') {
+    const farming = strat === 'renter' || strat === 'builder' || small;
+    const maxHa = small ? 12 : Infinity;
+    // rent: only what the crew can work and the inputs + 3 months' rent are covered
+    if (farming) {
       for (const id of api.landMarket().forRent) {
         const p = api.parcel(id);
         const pha = p.area / 1e4;
-        const grown = ha - (M.haYearAgo == null ? ha : M.haYearAgo);
-        const needs = 800 * pha + 3 * p.rentPerHaYear * pha / 12 + 10000;
-        if (liquid() > needs && ha + pha <= paceHa(d) + 1 && api.rentParcel(id)) break;
+        const needs = 800 * pha + 3 * p.rentPerHaYear * pha / 12 + 8000;
+        if (ha + pha > Math.min(maxHa, capacityHa() + 6)) continue;
+        if (liquid() > needs && api.rentParcel(id)) break;
       }
     }
-    // buy: builder takes a 15-year mortgage (70 %) when it can pay 30 % + fees and keep its reserve
+    // buy: builder takes a 15-year mortgage (60 %) and pays 40 % + fees from its own cash
     if (strat === 'builder') {
       for (const id of api.landMarket().forSale) {
         const p = api.parcel(id);
-        const own = p.price * (1 - 0.7 + 0.04);
-        if (api.money() - reserve() > own && api.buyParcel(id, { mortgage: true })) break;
-        if (api.money() - reserve() > own * 0.5 && api.creditLimit() > own) { api.takeLoan(Math.ceil(own / 100) * 100, { months: 60 }); if (api.buyParcel(id, { mortgage: true })) break; }
+        const own = p.price * (1 - 0.6 + 0.04);
+        if (ha + p.area / 1e4 > capacityHa() + 12) continue;
+        if (cash() > own + 800 * p.area / 1e4 && api.buyParcel(id, { mortgage: true })) break;
       }
+      // a rented field that comes up for sale: buy it at the end of the lease instead of renting on
     }
-    // machinery (financed over 5 years)
+    // machinery (dealer finance, 25 % down)
     const busy = strat === 'contractor' && M.declined > 6000;
-    if (tiers[0] < 2 && (ha >= 9 || busy) && liquid() > 60000) { if (buyMachine('tractor_t2')) buyMachine('tillage_l'); }
-    if (!owned('sprayer').length && ha >= 6 && liquid() > 20000) buyMachine('sprayer');
+    // repay short-term / unsecured debt when flush (shortest term first)
+    const surplus = api.money() - reserve() * 2 - 20000;
+    if (surplus > 0) for (const l of api.loans().filter((x) => !x.secured).sort((a, b) => a.months - b.months)) api.repayLoan(l.id, surplus);
+    if (strat === 'jobs' || small) { M.declined = 0; return; } // never invests beyond the starter kit
+    if (tiers[0] < 2 && (ha >= 8 || busy) && cash() > 26000) { if (buyMachine('tractor_t2')) buyMachine('tillage_l'); }
+    if (!owned('sprayer').length && ha >= 6 && cash() > 8000) buyMachine('sprayer');
     const cereals = myParcels().filter((p) => { const f = fields.get(p.id); return f && !f.yard && f.crop !== 'sugarBeet'; }).reduce((t, p) => t + p.area / 1e4, 0);
-    if (!owned('combine').length && (cereals >= 30 || (strat === 'contractor' && busy)) && liquid() > 70000) buyMachine('combine_s');
+    if (!owned('combine').length && (cereals >= 22 || (strat === 'contractor' && busy)) && cash() > 45000) buyMachine('combine_s');
     // crew: hire a hand (plus a tractor) when last year's overflow to contractors / late work cost
-    // more than ~70 % of a wage; let one go after 1.5 years with almost no overflow
+    // more than ~60 % of a wage; let one go after 1.5 years with almost no overflow
     M.overflow = M.overflow.filter((o) => o[0] > d - YEAR_DAYS);
     const lost = M.overflow.reduce((t, o) => t + o[1], 0);
     const wageYear = 950 * YEAR_DAYS;
-    if (strat !== 'contractor' && lost > 0.5 * wageYear && liquid() > 40000 && api.workers().length < 3 && (!M.lastHire || d - M.lastHire >= YEAR_DAYS / 2)) {
+    const lastYear = api.summary(YEAR_DAYS).operatingNet;
+    const outgrown = ha > capacityHa() - 4 && lastYear > 45000 && (api.landMarket().forRent.length + api.landMarket().forSale.length) > 0;
+    if (farming && !small && (lost > 0.6 * wageYear || outgrown) && cash() > 20000 && api.workers().length < 3 && (!M.lastHire || d - M.lastHire >= YEAR_DAYS / 2)) {
       if (tractorTiers().length >= people() + 1 || buyMachine('tractor_t1')) { api.hireWorker(); M.lastHire = d; M.overflow = []; }
-    } else if (api.workers().length && lost < 0.15 * wageYear && d - (M.lastHire || 0) > YEAR_DAYS * 1.5) { api.fireWorker(api.workers()[0].id); M.lastHire = d; }
-    if (ha >= 90 && !owned('combine').some((a) => a.itemId === 'combine_l') && liquid() > 360000) buyMachine('combine_l');
-    // repay short-term / unsecured debt when flush (highest rate, then shortest term first)
-    const surplus = api.money() - reserve() * 2 - 20000;
-    if (surplus > 0) for (const l of api.loans().filter((x) => !x.secured).sort((a, b) => a.months - b.months)) api.repayLoan(l.id, surplus);
+    } else if (api.workers().length && lost < 0.1 * wageYear && d - (M.lastHire || 0) > YEAR_DAYS * 1.5) { api.fireWorker(api.workers()[0].id); M.lastHire = d; }
+    if (ha >= 90 && !owned('combine').some((a) => a.itemId === 'combine_l') && cash() > 120000) buyMachine('combine_l');
     M.declined = 0;
+    if (doy === 6) M.haYearAgo = ha;
   }
 
   return {

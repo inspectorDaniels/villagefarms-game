@@ -14,9 +14,14 @@ export const CONST = {
   loanRate: 0.045,            // per year
   loanRateRange: [0.02, 0.12],
   overdraftRate: 0.12,        // per year, charged on a negative balance
-  creditLimitBase: 60000,     // unsecured credit line
-  creditLandLTV: 0.7,         // + 70 % of owned land market value (mortgage)
-  creditMachineLTV: 0.4,      // + 40 % of owned machinery value
+  creditLimitBase: 25000,     // unsecured credit line …
+  creditIncomeMult: 0.6,      // … + 60 % of the last 12 months' operating result (the bank reads your accounts)
+  creditLandLTV: 0.6,         // + 60 % of owned land market value
+  creditMachineLTV: 0.5,      // + 50 % of owned machinery value
+  mortgageLTV: 0.6,           // buyParcel({mortgage}) lends at most 60 % of the price (15 years); you bring 40 % + fees
+  mortgageMonths: 180,
+  machineFinanceLTV: 0.75,    // purchase(id, {finance}) : dealer finance, 25 % down, 5 years, secured on the machine
+  machineFinanceMonths: 60,
   fixedCostsMonthly: 85,      // farm insurance, accountant, phone, electricity
   fixedCostsPerHaMonthly: 5,  // liability/crop insurance scales with farmed area
   capPaymentPerHa: 235,       // CAP basic + eco-scheme per ha-year, paid pro rata by days held
@@ -38,8 +43,9 @@ export const CONST = {
   saturationDecay: 0.7,       // per day (half-life ≈ 2 days)
   saturationMaxDrop: 0.25,    // at most −25 % when one buyer is flooded
   retailMarkup: 1.12,         // buying a commodity back costs more than selling it
-  assetResaleNew: 0.85,       // machinery is worth 85 % of list once it leaves the dealer …
-  assetDepreciationYear: 0.07,// … minus 7 % of list per year, floor 20 %
+  assetResaleNew: 0.88,       // machinery is worth 88 % of list once it leaves the dealer …
+  assetDepreciationYear: 0.06,// … minus 6 % of list per year, floor 20 %
+  upkeepYear: 0.02,           // default upkeep: 2 % of list per year
   maxOpenOffers: 8,
   maxActiveJobs: 3,
   catchUpMaxDays: 72,
@@ -71,14 +77,14 @@ export const CONSUMABLES = ['diesel', 'fertiliser']; // buy-only: no buyer takes
 
 // Per-hectare agronomy and input costs (€/ha, litres/ha). Months are 0-based (0 = January).
 export const CROPS = {
-  wheat:     { name: 'Winter wheat', product: 'wheat',    yield: 8.5, straw: 3.5, seed: 105,  fertiliser: 330, spray: 190, dieselL: 95,  sowMonths: [9, 10], harvestMonths: [7] },
-  barley:    { name: 'Winter barley', product: 'barley',  yield: 7.5, straw: 3.0, seed: 95,   fertiliser: 270, spray: 160, dieselL: 90,  sowMonths: [8, 9], harvestMonths: [6] },
-  oats:      { name: 'Spring oats', product: 'oats',      yield: 6.0, straw: 3.5, seed: 80,   fertiliser: 180, spray: 80,  dieselL: 85,  sowMonths: [2, 3], harvestMonths: [7] },
-  rapeseed:  { name: 'Oilseed rape', product: 'rapeseed', yield: 4.0, straw: 0,   seed: 160,  fertiliser: 340, spray: 230, dieselL: 90,  sowMonths: [7], harvestMonths: [6] },
-  maize:     { name: 'Grain maize', product: 'maize',     yield: 11,  straw: 0,   seed: 260,  fertiliser: 290, spray: 110, dieselL: 110, sowMonths: [3, 4], harvestMonths: [9] },
-  potatoes:  { name: 'Potatoes', product: 'potatoes',     yield: 45,  straw: 0,   seed: 1400, fertiliser: 460, spray: 680, dieselL: 260, sowMonths: [3], harvestMonths: [8, 9] },
-  sugarBeet: { name: 'Sugar beet', product: 'sugarBeet',  yield: 75,  straw: 0,   seed: 300,  fertiliser: 330, spray: 420, dieselL: 170, sowMonths: [2, 3], harvestMonths: [9, 10] },
-  grass:     { name: 'Grass (hay)', product: 'hay',       yield: 9,   straw: 0,   seed: 30,   fertiliser: 220, spray: 20,  dieselL: 120, sowMonths: [2, 3, 7, 8], harvestMonths: [4, 5, 6, 7] },
+  wheat:     { name: 'Winter wheat', product: 'wheat',    yield: 8.5, straw: 3.5, seed: 90,  fertiliser: 250, spray: 130, dieselL: 95,  sowMonths: [9, 10], harvestMonths: [7] },
+  barley:    { name: 'Winter barley', product: 'barley',  yield: 7.5, straw: 3.0, seed: 80,   fertiliser: 200, spray: 110, dieselL: 90,  sowMonths: [8, 9], harvestMonths: [6] },
+  oats:      { name: 'Spring oats', product: 'oats',      yield: 6.0, straw: 3.5, seed: 70,   fertiliser: 140, spray: 60,  dieselL: 85,  sowMonths: [2, 3], harvestMonths: [7] },
+  rapeseed:  { name: 'Oilseed rape', product: 'rapeseed', yield: 4.0, straw: 0,   seed: 130,  fertiliser: 250, spray: 160, dieselL: 90,  sowMonths: [7], harvestMonths: [6] },
+  maize:     { name: 'Grain maize', product: 'maize',     yield: 11,  straw: 0,   seed: 220,  fertiliser: 220, spray: 80, dieselL: 110, sowMonths: [3, 4], harvestMonths: [9] },
+  potatoes:  { name: 'Potatoes', product: 'potatoes',     yield: 45,  straw: 0,   seed: 1100, fertiliser: 350, spray: 480, dieselL: 260, sowMonths: [3], harvestMonths: [8, 9] },
+  sugarBeet: { name: 'Sugar beet', product: 'sugarBeet',  yield: 75,  straw: 0,   seed: 250,  fertiliser: 250, spray: 300, dieselL: 170, sowMonths: [2, 3], harvestMonths: [9, 10] },
+  grass:     { name: 'Grass (hay)', product: 'hay',       yield: 9,   straw: 0,   seed: 30,   fertiliser: 170, spray: 15,  dieselL: 120, sowMonths: [2, 3, 7, 8], harvestMonths: [4, 5, 6, 7] },
 };
 
 // Contract job types (machine-rate pay). rate = € per unit; transport also pays perTkm × km.
