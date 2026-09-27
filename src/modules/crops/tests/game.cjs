@@ -112,13 +112,16 @@ const { findChrome, chromeArgs } = require(path.resolve(__dirname, '../../../../
     // ---- contractors: a real simulation booking (economy:contractor-done emitted by simulation) …
     const D = fields.find((f) => f !== jobField && f !== A && f !== B);
     const pD = C.stats(D).parcelId;
-    const book = sim.hireContractor ? sim.hireContractor(pD, 'plough') : null;
+    // live path needs a player parcel: define an owned one with a stubble field on it
+    const own = sim.defineParcel({ poly: [[base.x - 100, base.y + 90], [base.x - 45, base.y + 90], [base.x - 45, base.y + 150], [base.x - 100, base.y + 150]], name: 'Own test', state: 'owned', soil: 0.7 });
+    const OF = C.createField(sim.parcel(own).poly, { parcelId: own, state: 'stubble' });
+    const book = sim.hireContractor ? sim.hireContractor(own, 'plough') : null;
     if (book) {
       let done = false;
       for (let d = 0; d < 20 && !done; d++) { await nextDay(); await G.waitFrames(4); done = (sim.contractorBookings() || []).some((x) => x.id === book.id && x.status === 'done'); }
-      const sD = C.stats(D);
-      ok(done && sD.counts.ploughed === sD.cells, `simulation contractor booking ${book.id} (plough, €${book.price}) → economy:contractor-done → ${sD.counts.ploughed}/${sD.cells} cells ploughed`);
-    } else log.push('       (simulation refused hireContractor on an NPC parcel; skipped the live booking check)');
+      const sD = C.stats(OF);
+      ok(done && sD.counts.ploughed === sD.cells, `simulation contractor booking ${book.id} (plough, €${book.price}) → live economy:contractor-done → ${sD.counts.ploughed}/${sD.cells} cells ploughed`);
+    } else log.push('       (simulation refused hireContractor on an owned parcel; skipped the live booking check)');
     // … and the r4 payload shape applied directly: sow half the field with barley, then harvest into inventory
     C.forceStage(D, 'cultivated');
     const half = C.stats(D).area / 2;

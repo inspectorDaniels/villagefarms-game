@@ -35,8 +35,13 @@ export class ChunkCache {
     this.lastDrawn = 0; this.lastBlitPx = 0;
   }
   clear() {
-    for (const c of this.map.values()) if (c.canvas) this._release(c.canvas);
+    for (const c of this.map.values()) this._free(c);
     this.map.clear(); this.jobs.clear(); this.bytes = 0;
+  }
+  _free(e) {
+    if (e.canvas) { if (e.state !== 'raster') this._release(e.canvas); e.canvas = null; }
+    if (e.bmp) { try { e.bmp.close(); } catch (err) { /* already closed */ } e.bmp = null; }
+    e.dead = true;
   }
   _release(canvas) { if (this.pool.length < 48) this.pool.push(canvas); }
   pickRes(pxPerM) {
@@ -82,21 +87,39 @@ export class ChunkCache {
     if (job.gen) { const r = job.gen.next(); done = !!r.done; } else this.paint(job.g, job.rect, job.res);
     if (done) {
       job.g.setTransform(1, 0, 0, 1, 0, 0);
-      job.entry.state = 'ready';
       this.jobs.delete(key);
       this.builds++;
+      this._rasterize(job.entry);
     }
     return done;
+  }
+  /**
+   * Freeze a finished chunk into an ImageBitmap. Chrome may otherwise keep a 2D canvas as a recorded
+   * display list and *replay every vector op* each time it is used as a drawImage source (measured:
+   * ~3 ms per detailed chunk per frame). The bitmap is rasterized once; the canvas goes back to the pool.
+   */
+  _rasterize(entry) {
+    const cv = entry.canvas;
+    if (typeof createImageBitmap !== 'function') { entry.state = 'ready'; return; }
+    entry.state = 'raster';
+    let p;
+    try { p = createImageBitmap(cv, entry.bx0, entry.by0, entry.bx1 - entry.bx0, entry.by1 - entry.by0); } catch (err) { entry.state = 'ready'; return; }
+    p.then((bmp) => {
+      if (entry.dead) { bmp.close(); return; }
+      entry.bmp = bmp;
+      entry.state = 'ready';
+      if (entry.canvas) { this._release(entry.canvas); entry.canvas = null; }
+    }, () => { if (!entry.dead) entry.state = 'ready'; });
   }
   _finish(key) { const job = this.jobs.get(key); if (!job) return; for (let k = 0; k < 100000 && !this._step(key, job); k++); }
   _drop(key) {
     const e = this.map.get(key);
-    if (e && e.canvas) { this._release(e.canvas); this.bytes -= BYTES; }
+    if (e && e.state !== 'empty') { this._free(e); this.bytes -= BYTES; }
     this.map.delete(key); this.jobs.delete(key);
   }
   _evict() {
     if (this.bytes <= this.maxBytes) return;
-    const items = [...this.map.entries()].filter(([, v]) => v.canvas && v.state === 'ready' && v.used < this.frame).sort((a, b) => a[1].used - b[1].used);
+    const items = [...this.map.entries()].filter(([, v]) => v.state === 'ready' && v.used < this.frame).sort((a, b) => a[1].used - b[1].used);
     for (const [k] of items) {
       if (this.bytes <= this.maxBytes * 0.8) break;
       this._drop(k);
@@ -208,7 +231,7 @@ export class ChunkCache {
       const dx0 = X(r.x0), dy0 = Y(r.y0), dx1 = X(r.x1), dy1 = Y(r.y1);
       if (e.state === 'empty') continue;
       if (e.state === 'ready') {
-        px += this._blit(g, e.canvas, 0, 0, CPX, e.bx0, e.by0, e.bx1, e.by1, dx0, dy0, dx1, dy1, W, H);
+        px += this._draw(g, e, 0, 0, CPX, e.bx0, e.by0, e.bx1, e.by1, dx0, dy0, dx1, dy1, W, H);
         drawn++;
         continue;
       }
@@ -217,12 +240,12 @@ export class ChunkCache {
         const lr = LEVELS[li], ls = CPX / lr;
         const pcx = Math.floor(r.x0 / ls), pcy = Math.floor(r.y0 / ls);
         const pe = this.map.get(lr + ':' + pcx + ':' + pcy);
-        if (!pe || pe.state === 'pending') continue;
+        if (!pe || pe.state === 'pending' || pe.state === 'raster') continue;
         pe.used = this.frame;
         if (pe.state === 'empty') break;
         const sx = (r.x0 - pcx * ls) * lr, sy = (r.y0 - pcy * ls) * lr, sw = size * lr;
         // sub-rect of the parent chunk, intersected with its content bbox
-        px += this._blit(g, pe.canvas, sx, sy, sw, Math.max(sx, pe.bx0), Math.max(sy, pe.by0), Math.min(sx + sw, pe.bx1), Math.min(sy + sw, pe.by1), dx0, dy0, dx1, dy1, W, H);
+        px += this._draw(g, pe, sx, sy, sw, Math.max(sx, pe.bx0), Math.max(sy, pe.by0), Math.min(sx + sw, pe.bx1), Math.min(sy + sw, pe.by1), dx0, dy0, dx1, dy1, W, H);
         break;
       }
     }
@@ -230,8 +253,14 @@ export class ChunkCache {
     this.lastDrawn = drawn; this.lastBlitPx = px;
     return drawn;
   }
+  /** draw from an entry's bitmap (which holds only the content bbox) or its canvas */
+  _draw(g, e, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H) {
+    if (e.bmp) return this._blit(g, e.bmp, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H, e.bx0, e.by0);
+    if (e.canvas) return this._blit(g, e.canvas, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H, 0, 0);
+    return 0;
+  }
   /** blit source square (sx,sy,sw) → dest rect, restricted to the content bbox (b*) and the screen */
-  _blit(g, canvas, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H) {
+  _blit(g, canvas, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H, ox, oy) {
     const kx = (dx1 - dx0) / sw, ky = (dy1 - dy0) / sw;
     if (!(kx > 0) || !(ky > 0)) return 0;
     let s0 = Math.max(bx0, sx + (0 - dx0) / kx), s1 = Math.min(bx1, sx + (W - dx0) / kx);
@@ -241,7 +270,7 @@ export class ChunkCache {
     if (s1 - s0 < 0.5 || t1 - t0 < 0.5) return 0;
     const ex0 = dx0 + (s0 - sx) * kx, ey0 = dy0 + (t0 - sy) * ky;
     const ew = (s1 - s0) * kx, eh = (t1 - t0) * ky;
-    g.drawImage(canvas, s0, t0, s1 - s0, t1 - t0, ex0, ey0, ew, eh);
+    g.drawImage(canvas, s0 - ox, t0 - oy, s1 - s0, t1 - t0, ex0, ey0, ew, eh);
     return ew * eh;
   }
   stats() {

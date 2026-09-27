@@ -102,8 +102,20 @@ Progress is the fraction of that parcel's field cells in the target state. At 97
 up to 1, so simulation auto-completes it. The demo/buildtools must create fields on the job parcels
 (`createField(parcel.poly, {parcelId})`).
 
+### CAP and contractors (simulation r4)
+- Crops does **not** call `recordFieldWork`. Simulation listens to `crops:worked` for CAP. Every `crops:worked` carries `{ fieldId, parcelId, tool, cells, areaM2 }`.
+  - `areaM2` is the area actually changed.
+  - Events are coalesced per field and tool, at most one per 60 game-seconds, and `areaM2`/`cells` are summed across the merged calls.
+  - Contractor work emits the event with `contractor: true`, so simulation can skip it and avoid counting the booked area twice.
+- `economy:contractor-done` is handled for both payload shapes, `{ parcelId|fieldId, operation, areaM2?, crop? }` and r3 `{ booking:{ parcelId, op } }`.
+  - The operation is applied along serpentine lanes to at most `areaM2`. A booking within 3 % of the fields' area covers them all, because simulation rounds ha to 0.01.
+  - Mapping: `plough`, `cultivate`, `sow` (`crop`, else the field's `plannedCrop`, else the first in-season crop), `spray`, `fertilise`, `mow`, `rake`, `harvest`/`lift`, `bale`.
+  - Harvested grain/roots and baled hay/straw go into farm inventory via `simulation.addInventory(item, t)`.
+  - The API `applyContract(payload)` → `{cells, areaM2, delivered}` does the same on demand.
+- Harvests done with `work()` by vehicles or characters are **returned**, not stored. The caller decides between trailer and store and calls `addInventory(item, kg/1000)`.
+
 ## Events
-- `crops:worked {fieldId, tool, cells, x, y}`: coalesced, at most one per field and tool per 60 game-s.
+- `crops:worked {fieldId, parcelId, tool, cells, areaM2, x, y, contractor?}`: coalesced, at most one per field and tool per 60 game-s, with `areaM2` summed.
 - `crops:sown {fieldId, crop, phase:'start'|'complete'}`
 - `crops:ripe {fieldId, crop, day, expectedYieldKg}`: when ≥ 50 % of the crop is ripe.
 - `crops:harvested {fieldId, crop, item, kg, cells, complete}`: coalesced like `crops:worked`. Bales emit `{item, kg, bales:[ids]}`.
@@ -141,6 +153,12 @@ blit costs about 0.5 ms, which is why this matters.
 - `work()` takes about 8–10 µs per call when ploughing a 3 m swath, and about 27 µs when harvesting.
 
 `?cropsdebug=1` exposes `globalThis.__CROPS__` (model, renderer) for profiling.
+
+Panning, measured with `tests/pan.cjs` in the full game (18 fields, 240 frames at 8 px/frame):
+- The composite is double-buffered and shifted by the whole-pixel pan offset. Only the exposed strips and changed chunks are redrawn.
+- Chunk painting drops to 450 cells per frame while the camera moves.
+- Crops costs about 2–3 ms per frame while panning, and 0.15–0.3 ms static.
+- A layer larger than the screen (to absorb pans without shifting) blits on a slow path, about 8 ms, so there is no margin.
 
 ## Showcase presets
 Ten fields on a dry spot of the default seed:

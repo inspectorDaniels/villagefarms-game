@@ -210,28 +210,33 @@
     },
     "vehicles": {
       "wave": 2,
-      "status": "r2-built-unreviewed",
-      "score": 6,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
           "score": 6,
           "pass": false,
           "review": "docs/reviews/vehicles-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/vehicles-r2.md"
         }
       ],
       "openIssues": [
-        "Pause ignored: drives/ploughs while paused",
-        "Exit allowed at any speed",
-        "exit() ejects driver when blocked",
-        "E uncouples trailer (should be H only)"
+        "should: refused-exit cases in characters.test.cjs",
+        "save/load replay drifts 1-2 cm in full game (ctlStep not saved)",
+        "no fuel point in full game until demo places one"
       ],
       "note": "r2: pause, exit speed/blocked, E vs H, polys colliders, nearest free, harvest by crop kind, engine auto-off, fuel points (addFuelPoint), exact save/load replay; 34/34 + 13/13 tests"
     },
     "characters": {
       "wave": 2,
-      "status": "r2-built-unreviewed",
+      "status": "failing",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -240,14 +245,19 @@
           "score": 6,
           "pass": false,
           "review": "docs/reviews/characters-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/characters-r2.md"
         }
       ],
       "openIssues": [
-        "Pause ignored (use world.time.paused)",
-        "Delegated jobs invisible: hand stays home after assignJob",
-        "F can't reach free tractor next to occupied one (nearest free:true)",
-        "Exit ignores blocked result; fallback exit axis wrong",
-        "r4.5: link workerId + logWork hours"
+        "Ghost exit: null from vehicles.exit treated as success -> farmer teleports, tractor keeps driver",
+        "positionOf returns camera look-ahead (8-14 m ahead) \u2014 contract bug",
+        "Look-ahead hides own tractor under HUD",
+        "should: delegated hand walks 432 m real-time; idles at site after job; 'Enter combine l' prompt; toolbar while driving"
       ],
       "note": "r2: pause, delegated jobs (hand walks 381 m to site, On a job), F free vehicle, blocked exit, workerId+logWork (70 game-min possessed -> 1.01 h), isAvailable; 11/11 r2 + 22/22 r1 tests; 0.28 ms game"
     },

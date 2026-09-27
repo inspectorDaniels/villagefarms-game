@@ -94,6 +94,9 @@ export async function init(ctx) {
     const s = mod('simulation');
     const doy = ((clock.day + (W.dayOffset || 0)) % YEAR_DAYS + YEAR_DAYS) % YEAR_DAYS;
     let left = Number.isFinite(+b.areaM2) && +b.areaM2 > 0 ? +b.areaM2 : Infinity;
+    // simulation books whole parcels in ha rounded to 0.01: a booking within 3 % of the fields' area covers them all
+    const total = fs.reduce((a, f) => a + f.area, 0);
+    if (Number.isFinite(left) && left >= total * 0.97) left = Infinity;
     const out = { operation: op, cells: 0, areaM2: 0, delivered: {} };
     for (const f of fs) {
       if (!(left > 0)) break;

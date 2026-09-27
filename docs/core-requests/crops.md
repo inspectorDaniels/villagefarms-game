@@ -25,3 +25,11 @@ Harvest results are returned in **kg**. Simulation items are in **t**, so caller
 
 
 **Integrator (iteration 2): registry entry APPLIED.**
+
+## 3. (info, r4) CAP via `crops:worked`, contractors
+- Crops no longer calls `recordFieldWork`. Every `crops:worked` carries `{fieldId, parcelId, tool, cells, areaM2}`, coalesced with `areaM2` summed.
+- Contractor-applied work emits `crops:worked` with `contractor: true`. Simulation should ignore those for CAP if it already credits the booked area.
+- `economy:contractor-done`: crops accepts `{parcelId|fieldId, operation, areaM2, crop?}` and the r3 `{booking}` shape. It delivers harvest/bale output with `addInventory`.
+- Two requests for simulation:
+  - Include `crop` in sow bookings, e.g. `hireContractor(id, 'sow', {crop})`.
+  - Accept `hireContractor` on player fields, not only on parcels.
