@@ -31,3 +31,27 @@ cap, wellies), held tool. Active character gets a subtle ground ring (world-ui).
 
 ## Showcase presets
 `default` (3 farmhands in a yard, one walking ~48 px/m), `crowd` (villagers on a street ~24 px/m), `night`.
+
+---
+## Addendum (director, built ahead of wave 2)
+Vehicles/crops/animals/buildings don't exist yet — all optional, must be null-safe, and the code paths
+for them must be ready (call their brief APIs when `ctx.modules.get()` returns them).
+Must work NOW with wave-1 modules:
+- **Full game auto-spawn**: until a `demo` module exists, when not in showcase mode (`!ctx.params.showcase`)
+  spawn the player farmer and one hired hand at a dry, flat spot near the map centre
+  (`terrain.findDry`), set the player active and camera-follow it. Expose `setAutoSpawn(false)` so demo can take over.
+- Movement: WASD/arrows, Shift run, speed modulated by surface (`terrain.surfaceAt`: slower in mud/sand,
+  blocked by deep water via `terrain.waterDepthAt` > 0.5 m, wading in shallows), collide with `ctx.spatial` solids.
+- Tab/portrait bar switching via `ui.setCharacters`; smooth camera hand-over.
+- Hand tools (1–5, E to use at the tile in front): hoe tills grass → `terrain.paintSurface({x,y,r}, 'soil')`
+  (or `crops.work('cultivate', …)` when crops exists), watering can, seed bag, pitchfork, hand.
+  Tool use has an animation, a short cooldown, costs a little stamina, emits effects (clods/dust) and audio.
+- Contextual prompts via `ui.setPrompt` ("E — Hoe the verge", "F — Enter tractor" when vehicles exists).
+- Jobs: presence-based jobs from `simulation` (e.g. `shopHelp`/`villageWork`) — standing at the job location
+  calls `simulation.tickPresence(jobId, gameSeconds)`; show progress as a world label.
+- Non-active characters: simple AI tasks (goto/work/idle/follow the player), sleep at night.
+- Footsteps via `audio.play('footstep-<surface>')`, footprints/trails via effects (in mud and snow), lantern light at night.
+- Save/load of characters.
+Showcase presets: `default` (farmhands at a yard ~48 px/m), `walk` (walk cycle close-up), `night`, `crowd`.
+Verification: besides screenshots, a scripted puppeteer run (scratchpad) pressing keys in the FULL GAME
+(`--keys` in tools/shot.js supports `KeyD:1500,Tab,KeyE`) must show the character moving, switching, and tilling soil.
