@@ -13,7 +13,7 @@ export const manifest = {
   optionalDeps: ['terrain', 'environment'],
   namespaces: ['crops'],
   api: ['createField', 'removeField', 'fields', 'field', 'fieldAt', 'cellAt', 'work', 'stats', 'forceStage', 'plantAll',
-    'crops', 'calendar', 'bales', 'collectBale', 'simulateDays'],
+    'crops', 'calendar', 'bales', 'collectBale', 'simulateDays', 'applyContract'],
   emits: ['crops:worked', 'crops:sown', 'crops:ripe', 'crops:harvested', 'crops:withered', 'crops:field-changed'],
   listens: ['economy:contractor-done'],
 };
@@ -78,29 +78,38 @@ export async function init(ctx) {
     }
   }
 
-  // ---- simulation contractors (r3): a finished booking is applied to every field on that parcel.
-  // Harvested grain/roots and baled hay/straw go into farm inventory (the contractor delivers to the yard).
+  // ---- simulation contractors: `economy:contractor-done` { parcelId|fieldId, operation, areaM2, crop? }
+  // (the r3 `{ booking: { parcelId, op } }` shape is accepted too). The operation is applied to that area of
+  // the field(s); harvested grain/roots and baled hay/straw are delivered into farm inventory (simulation README:
+  // producers call addInventory, then sell from it).
   const SOW_PREF = ['wheat', 'barley', 'rapeseed', 'maize', 'sugarBeet', 'potatoes', 'oats', 'grass'];
-  const CONTRACT_TOOL = { plough: 'plough', cultivate: 'cultivate', spray: 'spray', mow: 'mow', harvest: 'harvest', lift: 'harvest', bale: 'bale', rake: 'rake', fertilise: 'fertilise' };
-  ctx.events.on('economy:contractor-done', (ev) => {
-    const b = ev && ev.booking;
-    if (!b || !b.parcelId) return;
+  const CONTRACT_TOOL = { plough: 'plough', cultivate: 'cultivate', spray: 'spray', fertilise: 'fertilise', fertilize: 'fertilise',
+    mow: 'mow', rake: 'rake', harvest: 'harvest', lift: 'harvest', bale: 'bale' };
+  function applyContract(ev) {
+    const b = ev && (ev.booking || ev);
+    if (!b) return null;
+    const op = b.operation || b.op;
+    const fs = b.fieldId ? W.fields.filter((f) => f.id === b.fieldId) : b.parcelId ? W.fields.filter((f) => f.parcelId === b.parcelId) : [];
+    if (!op || !fs.length) return null;
     const s = mod('simulation');
-    const fs = W.fields.filter((f) => f.parcelId === b.parcelId);
     const doy = ((clock.day + (W.dayOffset || 0)) % YEAR_DAYS + YEAR_DAYS) % YEAR_DAYS;
+    let left = Number.isFinite(+b.areaM2) && +b.areaM2 > 0 ? +b.areaM2 : Infinity;
+    const out = { operation: op, cells: 0, areaM2: 0, delivered: {} };
     for (const f of fs) {
-      let tool = CONTRACT_TOOL[b.op];
-      if (b.op === 'sow') {
-        const crop = b.crop || f.plannedCrop || SOW_PREF.find((c) => inSowWindow(c, doy)) || 'wheat';
-        tool = 'seed:' + crop;
-      }
+      if (!(left > 0)) break;
+      let tool = CONTRACT_TOOL[op];
+      if (op === 'sow' || op === 'seed') tool = 'seed:' + (b.crop || f.plannedCrop || SOW_PREF.find((c) => inSowWindow(c, doy)) || 'wheat');
       if (!tool) continue;
-      const r = model.workField(f.id, tool, { report: false }); // simulation already recorded the CAP work
-      if (!s || !s.addInventory) continue;
-      if (b.op === 'harvest' || b.op === 'lift') { if (r.yieldKg > 0 && r.item) s.addInventory(r.item, r.yieldKg / 1000); }
-      if (b.op === 'bale') for (const [item, kg] of Object.entries(r.baleKg || {})) if (kg > 0) s.addInventory(item, kg / 1000);
+      const r = model.workField(f.id, tool, { report: true, maxAreaM2: left });
+      out.cells += r.cellsChanged; out.areaM2 += r.areaM2 || 0;
+      if (Number.isFinite(left)) left -= r.areaM2 || 0;
+      const deliver = (item, kg) => { if (!(kg > 0) || !item) return; const t = s && s.addInventory ? s.addInventory(item, kg / 1000) : 0; out.delivered[item] = (out.delivered[item] || 0) + (t || 0); };
+      if (op === 'harvest' || op === 'lift') deliver(r.item, r.yieldKg);
+      if (op === 'bale') for (const [item, kg] of Object.entries(r.baleKg || {})) deliver(item, kg);
     }
-  });
+    return out;
+  }
+  ctx.events.on('economy:contractor-done', (ev) => { applyContract(ev); });
 
   // ---- rendering
   const tiles = createTiles(ctx.art, ctx.palette);
@@ -152,6 +161,8 @@ export async function init(ctx) {
       for (const id of CROP_IDS) out[id] = { canSow: inSowWindow(id, d), growthIfOnSchedule: calendarGrowth(id, d), units: UNITS[CROPS[id].units][monthOfDoy(d)] };
       return out;
     },
+    /** apply a contractor operation now ({ parcelId|fieldId, operation, areaM2?, crop? }) → { cells, areaM2, delivered } */
+    applyContract: (ev) => applyContract(ev),
     bales: () => W.bales.map((b) => ({ ...b })),
     /** pick a bale up (loader / trailer) → { item, kg } or null */
     collectBale(id) {

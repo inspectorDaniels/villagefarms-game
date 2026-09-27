@@ -210,20 +210,45 @@
     },
     "vehicles": {
       "wave": 2,
-      "status": "built-unreviewed",
-      "score": null,
+      "status": "failing",
+      "score": 6,
       "pass": false,
-      "rounds": [],
-      "openIssues": [],
+      "rounds": [
+        {
+          "round": 1,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/vehicles-r1.md"
+        }
+      ],
+      "openIssues": [
+        "Pause ignored: drives/ploughs while paused",
+        "Exit allowed at any speed",
+        "exit() ejects driver when blocked",
+        "E uncouples trailer (should be H only)"
+      ],
       "note": "built 2026-09-27: 24/24 drive mechanics + 13/13 characters-integration checks (tests/*.test.cjs), deterministic replay, save/load, economy via simulation, widths/speeds from simulation.workRates(). Registered. Gaps: no AI driving, no tipping, no slopes, combine harvests root crops. Should set spatial item polys (core now supports it)."
     },
     "characters": {
       "wave": 2,
-      "status": "built-unreviewed",
-      "score": null,
+      "status": "failing",
+      "score": 6,
       "pass": false,
-      "rounds": [],
-      "openIssues": [],
+      "rounds": [
+        {
+          "round": 1,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/characters-r1.md"
+        }
+      ],
+      "openIssues": [
+        "Pause ignored (use world.time.paused)",
+        "Delegated jobs invisible: hand stays home after assignJob",
+        "F can't reach free tractor next to occupied one (nearest free:true)",
+        "Exit ignores blocked result; fallback exit axis wrong",
+        "r4.5: link workerId + logWork hours"
+      ],
       "note": "built 2026-09-27: 22/22 scripted full-game mechanics checks (walk/run/stamina, Tab switch, hoe tills, water/sow, deep water blocks, AI goto/follow/sleep, presence job, save/load). msAvg 0.3 game, <=1.0 showcase. Registered in registry (integrator). Gaps: no pathfinding, player cannot sleep, vehicles/crops hooks untested."
     },
     "animals": {

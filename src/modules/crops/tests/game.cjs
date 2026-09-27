@@ -109,6 +109,27 @@ const { findChrome, chromeArgs } = require(path.resolve(__dirname, '../../../../
     let wd = null;
     for (let d = 0; d < 14 && wd == null; d++) { await nextDay(); await G.waitFrames(4); if (C.stats(B).counts.withered === C.stats(B).cells) wd = G.clock.dayOfYear; }
     ok(wd != null, `barley left unharvested withered on doy ${wd}`);
+    // ---- contractors: a real simulation booking (economy:contractor-done emitted by simulation) …
+    const D = fields.find((f) => f !== jobField && f !== A && f !== B);
+    const pD = C.stats(D).parcelId;
+    const book = sim.hireContractor ? sim.hireContractor(pD, 'plough') : null;
+    if (book) {
+      let done = false;
+      for (let d = 0; d < 20 && !done; d++) { await nextDay(); await G.waitFrames(4); done = (sim.contractorBookings() || []).some((x) => x.id === book.id && x.status === 'done'); }
+      const sD = C.stats(D);
+      ok(done && sD.counts.ploughed === sD.cells, `simulation contractor booking ${book.id} (plough, €${book.price}) → economy:contractor-done → ${sD.counts.ploughed}/${sD.cells} cells ploughed`);
+    } else log.push('       (simulation refused hireContractor on an NPC parcel; skipped the live booking check)');
+    // … and the r4 payload shape applied directly: sow half the field with barley, then harvest into inventory
+    C.forceStage(D, 'cultivated');
+    const half = C.stats(D).area / 2;
+    const r1 = C.applyContract({ parcelId: pD, operation: 'sow', areaM2: half, crop: 'barley' });
+    const sd2 = C.stats(D);
+    ok(r1 && Math.abs(r1.areaM2 - half) <= 4 && sd2.counts.sown === Math.round(half / 4) && sd2.crop === 'barley', `contract {operation:'sow', areaM2:${half}, crop:'barley'} → ${r1 && r1.areaM2} m² sown (${sd2.counts.sown} cells)`);
+    C.plantAll(D, 'barley', 'ripe');
+    const inv0 = (sim.inventory().barley || 0);
+    const r2 = C.applyContract({ fieldId: D, operation: 'harvest' });
+    const inv1 = (sim.inventory().barley || 0);
+    ok(r2 && r2.delivered.barley > 0 && Math.abs(inv1 - inv0 - r2.delivered.barley) < 1e-6, `contract harvest → ${r2 && r2.cells} cells, ${(r2 && r2.delivered.barley || 0).toFixed(2)} t barley delivered to farm inventory (${inv0.toFixed(2)} → ${inv1.toFixed(2)} t)`);
     // ---- events + save/load
     const counts = G.events();
     for (const k of Object.keys(events)) events[k] = (counts[k] || 0) - (counts0[k] || 0);

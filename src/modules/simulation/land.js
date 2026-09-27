@@ -3,6 +3,9 @@
 // index, and the CAP payment pro rata by days held.
 import { CONST, YEAR_DAYS, MONTH_DAYS } from './data.js';
 
+// field operations recordFieldWork accepts (contractor ops + crops tool names)
+export const FIELD_OPS = ['plough', 'cultivate', 'sow', 'seed', 'spray', 'fertilise', 'spread', 'mow', 'harvest', 'lift', 'bale', 'rake', 'ted', 'roll', 'hoe', 'weed', 'mulch', 'plant', 'graze'];
+
 export function polyArea(poly) {
   let a = 0;
   for (let i = 0, n = poly.length; i < n; i++) { const p = poly[i], q = poly[(i + 1) % n]; a += p[0] * q[1] - q[0] * p[1]; }
@@ -109,7 +112,7 @@ export function installLand(sim) {
       if (!api.canAfford(p.price + fees)) return false;
       api.charge(p.price, 'land', `Bought ${p.name} (${ha(p).toFixed(2)} ha)`);
       api.charge(fees, 'land', `Notary & fees — ${p.name}`);
-      const from = p.state; p.state = 'owned'; p.since = sim.today(); p.listedUntil = null; p.owner = null; changed(p, from);
+      const from = p.state; resetCap(p); p.state = 'owned'; p.since = sim.today(); p.listedUntil = null; p.owner = null; changed(p, from);
       return true;
     },
     /** rent a parcel offered to let. The first month's rent is paid now (in advance); minimum term one year. */
@@ -120,7 +123,7 @@ export function installLand(sim) {
       if (!api.charge(first, 'rent', `Rent in advance — ${p.name}`)) return false;
       const today = sim.today();
       p.lease = { start: today, minEnd: today + CONST.leaseMinDays, paidUntil: today + MONTH_DAYS, rentPerHaYear: p.rentPerHaYear };
-      const from = p.state; p.state = 'rented'; p.since = today; p.listedUntil = null; changed(p, from);
+      const from = p.state; resetCap(p); p.state = 'rented'; p.since = today; p.listedUntil = null; changed(p, from);
       return true;
     },
     /** € it would cost to end this lease today (0 once the minimum term is served) */
@@ -131,7 +134,7 @@ export function installLand(sim) {
       if (!p || p.state !== 'rented') return false;
       const fee = exitCost(p);
       if (fee > 0) api.charge(fee, 'rent', `Early lease termination — ${p.name}`, { force: true });
-      p.state = 'npc'; p.lease = null; p.capDays = 0; p.workedSinceCap = false; p.since = sim.today(); reprice(p); changed(p, 'rented');
+      p.state = 'npc'; p.lease = null; resetCap(p); p.since = sim.today(); reprice(p); changed(p, 'rented');
       return true;
     },
     /** sell owned land for 97 % of market value; its mortgage is repaid from the proceeds. Returns € net. */
@@ -140,33 +143,46 @@ export function installLand(sim) {
       if (!p || p.state !== 'owned' || p.tradeable === false) return 0;
       return sellLand(p, CONST.landResale, `Sold ${p.name}`);
     },
-    /** a field operation was done on this parcel (by anyone): counts for CAP; with workerId+hours, logs the hand's paid hours */
+    /** r4: a field operation was done on `areaM2` of this parcel (owned or rented by the player). Credits the
+     *  worked share for CAP; with workerId+hours also logs the hand's paid hours. Returns false if invalid. */
     recordFieldWork(id, op, opts = {}) {
       const p = find(id);
-      if (!p) return false;
-      p.workedDay = sim.today();
-      p.workedSinceCap = true;
-      if (opts.workerId && opts.hours > 0) api.logWork(opts.workerId, opts.hours);
+      if (!p || (p.state !== 'owned' && p.state !== 'rented')) return false;
+      if (!FIELD_OPS.includes(op)) return false;
+      const a = opts.areaM2 == null ? 0 : +opts.areaM2;
+      if (!Number.isFinite(a) || a < 0) return false;
+      creditWork(p, op, a);
+      if (opts.workerId && opts.hours > 0) api.logWork(opts.workerId, opts.hours, 'field');
       return true;
     },
-    /** true when the point lies on land the player owns or rents */
-    canUse(x, y) { const p = api.parcelAt(x, y); return !!p && (p.state === 'owned' || p.state === 'rented'); },
-    /** regional land market state */
-    landMarket() {
-      return {
-        index: L.index, indexHistory: L.indexHistory.slice(),
-        forRent: L.parcels.filter((p) => p.state === 'forRent').map((p) => p.id),
-        forSale: L.parcels.filter((p) => p.state === 'forSale').map((p) => p.id),
-        capAccruedHa: L.capHaDays / YEAR_DAYS,
-      };
-    },
+    /** CAP state of a parcel this year: worked share 0..1 */
+    capShare(id) { const p = find(id); return p ? share(p) : 0; },
   });
+
+  function resetCap(p) { p.capDays = 0; p.worked = {}; p.workedSinceCap = false; }
+  function creditWork(p, op, a) {
+    p.worked = p.worked || {};
+    p.worked[op] = Math.min(p.area, (p.worked[op] || 0) + a);
+    p.workedDay = sim.today();
+    p.workedSinceCap = share(p) > 0;
+  }
+  /** the best-covered operation's share of the parcel (several ops don't add up) */
+  const share = (p) => { let m = 0; for (const v of Object.values(p.worked || {})) m = Math.max(m, v); return Math.min(1, m / Math.max(1, p.area)); };
+  sim.creditWork = (id, op, a) => { const p = find(id); if (p && (p.state === 'owned' || p.state === 'rented')) creditWork(p, op, a); };
+  sim.onCropsWorked = (e) => {
+    if (!e) return;
+    const p = e.parcelId ? find(e.parcelId) : null;
+    if (!p || (p.state !== 'owned' && p.state !== 'rented')) return;
+    const a = +e.areaM2;
+    if (!(a > 0)) return;
+    creditWork(p, String(e.tool || 'work'), a);
+  };
 
   function sellLand(p, frac, memo) {
     const v = p.price * frac;
     api.credit(v, 'landSale', memo);
     const repaid = sim.economy.settleLinked({ parcelId: p.id });
-    p.state = 'npc'; p.owner = 'a neighbour'; p.since = sim.today(); p.lease = null; p.capDays = 0; p.workedSinceCap = false; changed(p, 'owned');
+    p.state = 'npc'; p.owner = 'a neighbour'; p.since = sim.today(); p.lease = null; resetCap(p); changed(p, 'owned');
     return v - repaid;
   }
   /** insolvency: the bank sells the least valuable tradeable owned parcel */
@@ -192,12 +208,12 @@ export function installLand(sim) {
     }
     // CAP accrues per hectare-day held; paid once a year, pro rata, only on land worked since the last CAP day
     for (const p of L.parcels) if (p.state === 'owned' || p.state === 'rented') p.capDays = (p.capDays || 0) + 1;
-    L.capHaDays = L.parcels.reduce((t, p) => t + (p.workedSinceCap && p.capDays ? p.capDays * ha(p) : 0), 0);
+    L.capHaDays = L.parcels.reduce((t, p) => t + (p.capDays ? p.capDays * ha(p) * share(p) : 0), 0);
     if (doy === CONST.capPaymentDayOfYear) {
       let haYears = 0, idle = 0;
       for (const p of L.parcels) {
-        if (p.capDays) { if (p.workedSinceCap) haYears += p.capDays * ha(p) / YEAR_DAYS; else idle += p.capDays * ha(p) / YEAR_DAYS; }
-        p.capDays = 0; p.workedSinceCap = false;
+        if (p.capDays) { const k = share(p); haYears += p.capDays * ha(p) * k / YEAR_DAYS; idle += p.capDays * ha(p) * (1 - k) / YEAR_DAYS; }
+        resetCap(p);
       }
       if (haYears > 0.01) api.credit(haYears * CONST.capPaymentPerHa, 'subsidy', `CAP payment, ${haYears.toFixed(1)} ha-years worked` + (idle > 0.05 ? ` (${idle.toFixed(1)} idle not eligible)` : ''));
       L.capHaDays = 0;

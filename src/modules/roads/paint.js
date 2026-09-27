@@ -277,7 +277,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
     g.beginPath(); pathFrom(g, pts); g.lineWidth = w; g.strokeStyle = style; g.globalAlpha = alpha; g.stroke(); g.globalAlpha = 1;
   }
 
-  function paint(g, rect, res) {
+  function* steps(g, rect, res) {
     const D = getD();
     if (!D) return;
     const env = getEnv();
@@ -313,6 +313,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
           strokePts(g, pts, 2 * ch.hw + 0.55, shoulderCol, 0.4);
         }
       }
+      yield 1;
     }
     const kerbCorner = (c, J) => J.degree > 2 && (CLASSES[J.arms[c.i].cls].kerb || CLASSES[J.arms[c.j].cls].kerb) && c.type === 'fillet';
     for (const J of js) {
@@ -329,10 +330,11 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
       const allKerb = J.arms.every((a) => CLASSES[a.cls].kerb);
       g.beginPath(); pathFrom(g, junctionPoly(J, (c) => (kerbCorner(c, J) ? kW + pave + 0.35 : 0.25)), true);
       g.fillStyle = allKerb ? 'rgba(34,40,26,1)' : shoulderCol; g.globalAlpha = allKerb ? 0.16 : 0.4; g.fill(); g.globalAlpha = 1;
+      yield 1;
     }
 
     // ---------- 2. bridge decks + abutments
-    for (const [ch] of ranges) for (const [a, b] of ch.bridges) paintDeck(g, ch, a, b, pats, lod);
+    for (const [ch] of ranges) for (const [a, b] of ch.bridges) { paintDeck(g, ch, a, b, pats, lod); yield 1; }
 
     // ---------- 3. village pavements
     for (const [ch, r] of ranges) {
@@ -344,6 +346,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         g.fillStyle = 'rgba(150,132,104,0.16)'; g.fill();
         if (lod >= 1) slabJoints(g, ch, r, side, lod);
         backEdge(g, outer, grassCols, lod, hs(ch.key + side));
+        yield 1;
       }
     }
     for (const J of js) {
@@ -366,6 +369,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         }
         backEdge(g, outer, grassCols, lod, hs(J.node + ':' + ci));
       });
+      yield 1;
     }
 
     // ---------- 4. carriageways (lower classes first)
@@ -375,6 +379,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         g.beginPath(); ribbonPath(g, ch, r);
         if (cls === 'track') { g.globalAlpha = 0.18; g.fillStyle = pats.dirt; g.fill(); g.globalAlpha = 1; }
         else { g.fillStyle = pats[cls]; g.fill(); }
+        yield 1;
       }
       for (const J of js) {
         if (J.cls !== cls) continue;
@@ -382,6 +387,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         if (cls === 'track') { g.globalAlpha = 0.4; g.fillStyle = pats.dirt; g.fill(); g.globalAlpha = 1; }
         else { g.fillStyle = pats[cls]; g.fill(); g.strokeStyle = pats[cls]; g.lineWidth = 0.14; g.stroke(); }
         // minor arms of a different surface fade into the junction: draw their mouths first
+        yield 1;
       }
     }
 
@@ -394,17 +400,20 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         drawDecal(g, d, lod, pats, grassCols, rect);
       }
       g.restore();
+      yield 2;
     }
     for (const J of js) {
       g.save(); g.beginPath(); pathFrom(g, J.poly, true); g.clip();
       for (const d of J.decals) drawDecal(g, d, lod, pats, grassCols, rect);
       g.restore();
+      yield 1;
     }
 
     // ---------- 6. kerbs
     for (const [ch, r] of ranges) {
       if (!ch.spec.kerb) continue;
       for (const side of [1, -1]) kerbLine(g, offLine(ch, r, side * (ch.hw + kW / 2)), offLine(ch, r, side * ch.hw), lod);
+      yield 1;
     }
     for (const J of js) J.corners.forEach((c, ci) => {
       if (!kerbCorner(c, J)) return;
@@ -412,16 +421,16 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
     });
 
     // ---------- 7. rural edges: crumble, stones, grass tufts creeping over
-    if (lod >= 1) for (const [ch, r] of ranges) if (!ch.spec.kerb) ruralEdges(g, ch, r, lod, grassCols);
+    if (lod >= 1) for (const [ch, r] of ranges) if (!ch.spec.kerb) { ruralEdges(g, ch, r, lod, grassCols); yield 1; }
 
     // ---------- 8. markings
-    for (const [ch, r] of ranges) markings(g, ch, r, lod);
+    for (const [ch, r] of ranges) { markings(g, ch, r, lod); yield 1; }
     for (const J of js) junctionMarkings(g, J, lod);
     for (const c of D.crossings) if (Math.abs(c.x - (rect.x0 + rect.x1) / 2) < rect.x1 - rect.x0 && Math.abs(c.y - (rect.y0 + rect.y1) / 2) < rect.y1 - rect.y0) zebra(g, c, lod);
 
     // ---------- 9. snow
     if (env.snow > 0.05) {
-      for (const [ch, r] of ranges) snowEdges(g, ch, r, env.snow, lod);
+      for (const [ch, r] of ranges) { snowEdges(g, ch, r, env.snow, lod); yield 1; }
       for (const J of js) if (J.cls !== 'track') snowCorners(g, J, env.snow, lod);
     }
   }
@@ -885,5 +894,38 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
     });
   }
 
-  return { paint, isEmpty: (rect) => { const D = getD(); if (!D) return true; return !D.chains.some((c) => bboxHit(c.bbox, rect.x0, rect.y0, rect.x1, rect.y1)); } };
+  function paint(g, rect, res) { const it = steps(g, rect, res); for (let k = 0; k < 1e6 && !it.next().done; k++); }
+  /** painted-content bbox of a chunk rect (metres, clipped to rect), or null when nothing paints there */
+  function bounds(rect) {
+    const D = getD();
+    if (!D) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const grow = (a, b, c, d) => { if (a < x0) x0 = a; if (b < y0) y0 = b; if (c > x1) x1 = c; if (d > y1) y1 = d; };
+    for (const ch of D.chains) {
+      const pad = outerHalf(ch.cls) + 4.5;
+      if (!bboxHit(ch.bbox, rect.x0 - 3, rect.y0 - 3, rect.x1 + 3, rect.y1 + 3)) continue;
+      const X0 = rect.x0 - pad, Y0 = rect.y0 - pad, X1 = rect.x1 + pad, Y1 = rect.y1 + pad;
+      const P = ch.pts;
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i];
+        if (p[0] < X0 || p[0] > X1 || p[1] < Y0 || p[1] > Y1) continue;
+        grow(p[0] - pad, p[1] - pad, p[0] + pad, p[1] + pad);
+      }
+      if (ch.bridges.length) for (const [a, b] of ch.bridges) {
+        for (const s of [a - 12, b + 12]) {
+          const p = sampleAt(ch.pts, ch.cum, Math.max(0, Math.min(ch.L, s)));
+          if (p.x > X0 - 12 && p.x < X1 + 12 && p.y > Y0 - 12 && p.y < Y1 + 12) grow(p.x - 14, p.y - 14, p.x + 14, p.y + 14);
+        }
+      }
+    }
+    for (const J of D.junctions) {
+      const b = J.bbox;
+      if (!bboxHit(b, rect.x0 - 7, rect.y0 - 7, rect.x1 + 7, rect.y1 + 7)) continue;
+      grow(b.x0 - 6, b.y0 - 6, b.x1 + 6, b.y1 + 6);
+    }
+    x0 = Math.max(x0, rect.x0); y0 = Math.max(y0, rect.y0); x1 = Math.min(x1, rect.x1); y1 = Math.min(y1, rect.y1);
+    if (!(x1 > x0 && y1 > y0)) return null;
+    return { x0, y0, x1, y1 };
+  }
+  return { paint, steps, bounds, isEmpty: (rect) => !bounds(rect) };
 }
