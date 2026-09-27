@@ -259,6 +259,7 @@ export async function init(ctx) {
 
   function update(dt) {
     if (Math.abs(clock.t - lastT) > 3600) resync();
+    keepGround = false;                                       // the load latch only covers the jump (if any) right after load()
     lastT = clock.t;
     const gameDt = dt * clock.rate;
     windT += dt;
@@ -327,7 +328,13 @@ export async function init(ctx) {
     getWeather() { return env.weather; },
     /** force weather. kind ∈ KINDS or 'auto' (release to the seasonal plan). opts.instant snaps. */
     setWeather(k, i = 0.7, opts = {}) {
-      if (k === 'auto' || k == null) { forced = null; return env.weather; }
+      if (k === 'auto' || k == null) {
+        forced = null;
+        if (opts.instant || clock.paused) { snapWeather(); computeLight(); env.ambient = baseAmbient; }
+        else { const ts = targetState(); setKind(ts.kind, ts.intensity); }
+        publishWeather(temperatureNow());
+        return env.weather;
+      }
       if (!KINDS.includes(k)) { ctx.warn(`setWeather: unknown kind "${k}" (valid: ${KINDS.join(', ')}, auto)`); return env.weather; }
       forced = { kind: k, intensity: Number.isFinite(Number(i)) ? clamp(Number(i), 0, 1) : 0.7 };
       if (opts.instant || clock.paused) {
@@ -350,6 +357,7 @@ export async function init(ctx) {
     },
     /** local gusty wind at (x, y) metres: { x, y, speed (m/s), gust 0..1 } */
     windAt(x, y) {
+      x = Number.isFinite(x) ? x : 0; y = Number.isFinite(y) ? y : 0;
       const s = wind.speed;
       const ax = x - wind.x * windT * 1.4, ay = y - wind.y * windT * 1.4;   // gusts advect with the wind
       const g = gustNoise.fbm(ax / 38, ay / 38, 2);

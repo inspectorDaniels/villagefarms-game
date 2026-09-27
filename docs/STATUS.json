@@ -44,11 +44,9 @@
         }
       ],
       "openIssues": [
-        "load() keepGround flag never cleared when clock already restored -> later time skip keeps stale wetness/snow",
-        "README missing darkness, wetnessLevel, snowLevel, snowRate, rainRate docs",
         "(cosmetic, deferred) golden hour chartreuse/warm shadows, lamp pools yellow-green, snow streaks"
       ],
-      "note": "r2 passed 7/10 (mechanics-weighted); 2 small must-fixes sent back to builder"
+      "note": "r2 passed 7/10; r2 functional must-fixes (keepGround latch, README fields) + setWeather/windAt should-fixes applied and spot-checked in browser by orchestrator"
     },
     "roads": {
       "wave": 1,

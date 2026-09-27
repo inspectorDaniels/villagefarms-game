@@ -29,7 +29,7 @@ export function targetsFor(kind, intensity = 0.6) {
     case 'clear': return { cloudCover: 0.04 + 0.1 * i, rain: 0, snow: 0, storm: 0, fog: 0, windMul: 0.8 };
     case 'cloudy': return { cloudCover: 0.24 + 0.24 * i, rain: 0, snow: 0, storm: 0, fog: 0, windMul: 1.0 };
     case 'overcast': return { cloudCover: 0.82 + 0.16 * i, rain: 0, snow: 0, storm: 0, fog: 0, windMul: 1.1 };
-    case 'rain': return { cloudCover: 0.92 + 0.08 * i, rain: 0.25 + 0.75 * i, snow: 0, storm: 0, fog: 0.08 * i, windMul: 1.2 + 0.5 * i };
+    case 'rain': return { cloudCover: 0.92 + 0.08 * i, rain: i < 0.2 ? 0.08 + 1.6 * i : 0.25 + 0.75 * i, snow: 0, storm: 0, fog: 0.08 * i, windMul: 1.2 + 0.5 * i };
     case 'storm': return { cloudCover: 1, rain: 0.85 + 0.15 * i, snow: 0, storm: 0.6 + 0.4 * i, fog: 0.05, windMul: 2.4 + 0.8 * i };
     case 'fog': return { cloudCover: 0.6 + 0.3 * i, rain: 0, snow: 0, storm: 0, fog: 0.45 + 0.55 * i, windMul: 0.25 };
     case 'snow': return { cloudCover: 0.95, rain: 0, snow: 0.25 + 0.75 * i, storm: 0, fog: 0.12 * i, windMul: 0.9 + 0.4 * i };

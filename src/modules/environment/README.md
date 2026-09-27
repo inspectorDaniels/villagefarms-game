@@ -16,9 +16,10 @@ Files:
 | `moon` | `{ azimuth, elevation, phase (0 new, 0.5 full), illumination 0..1 }` |
 | `ambient` | `[r,g,b]` multiply colour. Clear noon ≈ `[255,255,250]`; golden hour amber; mauve/blue hour; night ≈ `[48..66, 60..84, 112..146]` depending on the moon (keys in `sky.js AMB_KEYS`; golden-hour keys keep G ≥ 0.85·R so greens stay green). Overcast is greyer and cooler, fog is milky, and snow cover brightens it. There is a gameplay floor of `[44,55,104]` (`NIGHT_FLOOR`) that also holds after the screen grade: night and blue-hour grading only ever lifts (`screen`), the night vignette is capped at 0.35, so a rainy new-moon night keeps grass at a mean luminance of about 40. Lightning flashes spike it for about 0.2 s. |
 | `daylight` | 0..1, smoothstep of solar elevation −9°…5°. |
+| `darkness` | 0..1, smoothstep of solar elevation −4°…−13°: 0 through civil twilight, 1 at astronomical night. The screen grade uses it for the night tint, desaturation and vignette. The blue-hour amount is `1 − daylight − darkness`. |
 | `sky` | `[r,g,b]` sky tint for reflections (water, puddles, glass). |
 | `golden` | 0..1 golden-hour factor (low sun, clear sky). |
-| `weather` | `{ kind, intensity, cloudCover, wetness, snowCover, fog, rain, snow, storm, precipitation, wind:{x,y,speed}, temperature, forced }`. `kind` is one of `clear, cloudy, overcast, rain, storm, fog, snow`. All continuous values are 0..1 except wind (m/s; the vector points where the wind blows **to**, with x east and y south) and temperature (°C). |
+| `weather` | `{ kind, intensity, cloudCover, wetness, snowCover, fog, rain, snow, storm, precipitation, wind:{x,y,speed}, temperature, forced }`. `kind` is one of `clear, cloudy, overcast, rain, storm, fog, snow`. Derived fields: `wetnessLevel` and `snowLevel` are `wetness`/`snowCover` rounded to 0.05 steps (0..1), for chunk-cached ground art that should repaint only on a step change. `rainRate` is the rain rate in mm/h, `rain·(6 + 20·storm)`: 0..26, about 0.5 for drizzle, 5–6 for steady rain and up to 26 in a heavy storm. `snowRate` is the snowfall in mm/h water equivalent, `snow·3`: 0..3. `forced` is true while `setWeather` overrides the plan. Rain intensity 0 is a drizzle (`rain` 0.08), and intensity 0.2 and up gives `0.25 + 0.75·i`. All continuous values are 0..1 except wind (m/s; the vector points where the wind blows **to**, with x east and y south) and temperature (°C). |
 | `forecast` | `[{ day, kind, tempMin, tempMax, rainMm }]` for the next 5 days, refreshed on `clock:day`. |
 
 Weather params blend toward the plan with a 25-game-minute time constant. Wetness rises in rain and dries with sun, warmth and wind. Snow cover builds below about 1.8 °C and melts into wetness. When the clock jumps (time/day set, or a load), the state is rebuilt by replaying the last 12 game hours, so the ground is plausibly wet or snowy at once.
@@ -27,9 +28,9 @@ Weather params blend toward the plan with a 25-game-minute time constant. Wetnes
 - `getSun()` → `world.environment.sun`
 - `getMoon()` → `world.environment.moon`
 - `getWeather()` → `world.environment.weather`
-- `setWeather(kind, intensity = 0.7, { instant, warm } = {})` forces the weather (use `'auto'` to release it back to the seasonal plan). It snaps immediately when `instant` or when the clock is paused/frozen, and it also warms up the ground state for 3 h of that weather. `?weather=<kind>&intensity=<0..1>` is applied at init.
+- `setWeather(kind, intensity = 0.7, { instant, warm } = {})` forces the weather (use `'auto'` to release it back to the seasonal plan; `weather` is republished at once, with `forced: false`, and the weather snaps when paused or `instant`). It snaps immediately when `instant` or when the clock is paused/frozen, and it also warms up the ground state for 3 h of that weather. `?weather=<kind>&intensity=<0..1>` is applied at init.
 - `forecast(days = 5)` → array like `world.environment.forecast` (max 14).
-- `windAt(x, y)` → `{ x, y, speed, gust 0..1, base }`: gusty, noise-based local wind that advects with the mean wind (for foliage sway and particles).
+- `windAt(x, y)` (non-finite inputs are treated as 0) → `{ x, y, speed, gust 0..1, base }`: gusty, noise-based local wind that advects with the mean wind (for foliage sway and particles).
 - `isNight()` → `daylight < 0.3`
 - `lightLevel()` → 0..1 (daylight dimmed by cloud and fog)
 
