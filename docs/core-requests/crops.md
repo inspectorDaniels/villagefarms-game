@@ -22,3 +22,6 @@ Please keep these simulation APIs and shapes stable: `yieldTable()` (`yield`, `s
 `parcel(id).soil`, `parcelAt`, `jobs(filter)` (object filter incl. `parcelId`) and `reportProgress`.
 Harvest results are returned in **kg**. Simulation items are in **t**, so callers must pass `kg/1000` to
 `addInventory`/`sell`.
+
+
+**Integrator (iteration 2): registry entry APPLIED.**

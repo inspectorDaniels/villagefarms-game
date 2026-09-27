@@ -179,11 +179,12 @@
     },
     "crops": {
       "wave": 2,
-      "status": "pending",
+      "status": "built-unreviewed",
       "score": null,
       "pass": false,
       "rounds": [],
-      "openIssues": []
+      "openIssues": [],
+      "note": "built 2026-09-27: 8 crops, full cell state machine, growth from rain/fertiliser/weeds, yields from simulation.yieldTable (8.33 t/ha managed wheat vs 8.5 table), jobs complete via reportProgress (\u20ac137 paid in live test), save/load + determinism digests. Registered. Gaps: panning redraw 10-40 ms headless, no recordFieldWork call yet (CAP r3)."
     },
     "buildings": {
       "wave": 2,

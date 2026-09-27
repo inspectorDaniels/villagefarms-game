@@ -49,22 +49,26 @@ const { findChrome, chromeArgs } = require(path.resolve(__dirname, '../../../../
     const fields = parcels.map((pid) => C.createField(sim.parcel(pid).poly, { parcelId: pid, state: 'stubble' }));
     ok(fields.every(Boolean) && C.stats(fields[0]).parcelId === parcels[0], `4 fields created on NPC parcels (${C.stats(fields[0]).ha} ha each, soil ${C.stats(fields[0]).soilQuality})`);
 
-    // ---- wait for a plough job on one of our parcels (real offers, days advance)
+    // ---- wait for a real area job (plough / sow / harvest / mow) on one of our parcels, then do it with work()
     G.clock.setDayOfYear(27); G.clock.set('08:00');
     await G.waitFrames(5);
     let job = null;
-    for (let d = 0; d < 24 && !job; d++) {
+    for (let d = 0; d < 36 && !job; d++) {
       await nextDay();
-      job = sim.jobs('offered').find((j) => (j.type === 'plough') && parcels.includes(j.parcelId));
+      job = sim.jobs('offered').find((j) => ['plough', 'sow', 'harvest', 'mow'].includes(j.type) && parcels.includes(j.parcelId));
     }
     let jobField = null;
-    if (ok(!!job, job ? `simulation offered "${job.title}" for ${job.clientFarm} on ${job.parcelId} (pay €${job.pay})` : 'no plough job offered on test parcels within 24 days')) {
+    if (ok(!!job, job ? `simulation offered "${job.title}" (${job.type}) for ${job.clientFarm} on ${job.parcelId} (pay €${job.pay})` : 'no area job offered on test parcels within 36 days')) {
       const m0 = sim.money();
       ok(sim.acceptJob(job.id), 'job accepted');
       jobField = fields[parcels.indexOf(job.parcelId)];
-      const t = drive(jobField, 'plough', 3);
+      let t;
+      if (job.type === 'plough') t = drive(jobField, 'plough', 3);
+      else if (job.type === 'sow') { C.forceStage(jobField, 'cultivated'); t = drive(jobField, 'seed:' + (job.crop || 'wheat'), 4); }
+      else if (job.type === 'harvest') { C.plantAll(jobField, job.crop || 'wheat', 'ripe'); t = drive(jobField, 'harvest', 6); }
+      else { C.plantAll(jobField, 'grass', 'ripe'); t = drive(jobField, 'mow', 3); }
       const j2 = sim.jobs((j) => j.id === job.id)[0];
-      ok(j2 && j2.status === 'completed' && sim.money() > m0, `ploughed ${t.cells} cells → job ${j2 && j2.status}, progress ${j2 && j2.progress}, paid €${(sim.money() - m0).toFixed(2)}`);
+      ok(j2 && j2.status === 'completed' && sim.money() > m0, `${job.type}: ${t.cells} cells changed by work() → job ${j2 && j2.status}, progress ${j2 && j2.progress}, paid €${(sim.money() - m0).toFixed(2)}`);
     }
 
     // ---- the season: field A wheat (managed), field B barley left standing

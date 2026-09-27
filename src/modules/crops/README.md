@@ -131,6 +131,17 @@ The collector submits:
 - shadow walls on the sun-facing boundaries of tall crops (merged runs of equal height, staircase steps skipped),
 - round bales as y-sorted objects with box shadows.
 
+## Performance
+The visible chunks are composited into one screen-sized layer. That layer is re-composited only when
+the view or a chunk changes, so a static camera costs one blit per frame. Headless, each 256 px chunk
+blit costs about 0.5 ms, which is why this matters.
+- Measured in the showcase shot JSONs: crops takes 0.23–0.59 ms per frame.
+- While panning, the composite is redone every frame. This is slower headless: about 10–40 ms for 60–70 chunks.
+- Day processing is incremental (4000 cells per update step). A 60 ha farm takes about 25 ms per day in total, spread over about 40 steps.
+- `work()` takes about 8–10 µs per call when ploughing a 3 m swath, and about 27 µs when harvesting.
+
+`?cropsdebug=1` exposes `globalThis.__CROPS__` (model, renderer) for profiling.
+
 ## Showcase presets
 Ten fields on a dry spot of the default seed:
 - `default`: June patchwork at 6.6 px/m.

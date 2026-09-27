@@ -248,8 +248,9 @@ export function createRenderer(ctx, model, tiles) {
       g.fillStyle = pat;
       for (const f of model.W.fields) {
         if (!inView(f.bbox, view)) continue;
+        if (pat.setTransform) pat.setTransform(new DOMMatrix().rotateSelf(f.angle * 180 / Math.PI + 7).scaleSelf(4.5 / art.PPM, 4.5 / art.PPM));
         const tall = f.crop && CROPS[f.crop].height * f.growth > 0.8 ? 0.55 : 1;
-        g.globalAlpha = Math.min(0.92, snow * 1.1) * tall;
+        g.globalAlpha = Math.min(0.85, snow * 0.95) * tall;
         polyPath(g, f.poly); g.fill();
       }
       g.globalAlpha = 1;

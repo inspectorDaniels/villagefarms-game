@@ -378,6 +378,11 @@ export function createTiles(art, palette) {
     return art.sprite('crops:snow', 64, 64, (g, W, H, rng) => {
       art.noiseFill(g, 0, 0, W, H, palette.snow, { scale: 0.1, grain: 0.04, seed: 'crops:snow', px: 2 });
       for (let i = 0; i < 30; i++) dab(g, W, H, rng.float() * W, rng.float() * H, rng.range(2, 6), rng.range(1, 3), 0, '#c8d4e0', 0.35);
+      // thin patches where ridges, stubble and crop tips poke through
+      g.globalCompositeOperation = 'destination-out';
+      for (let i = 0; i < 70; i++) dab(g, W, H, rng.float() * W, rng.float() * H, rng.range(3, 11), rng.range(2, 5), rng.range(-0.3, 0.3), '#000', rng.range(0.12, 0.35));
+
+      g.globalCompositeOperation = 'source-over';
     });
   }
   return { get, key, bale, sheen, gustSheet, marginTile, snowTile, PX };
