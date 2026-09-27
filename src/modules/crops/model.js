@@ -512,6 +512,7 @@ export function createModel(W, env) {
         queue('crops:harvested', 'h|' + f.id, now.t, { fieldId: f.id, crop: f.crop || cropOfLast(out), item: out.item, kg: t.kg, cells: t.changed, x, y, remainingRipe: f.counts[S.RIPE], complete: done }, ['kg', 'cells'], done);
       }
       reportJobs(f, op, cropK);
+      fieldWorked(f, op, out);
     }
     if (bales.length) emit('crops:harvested', { fieldId: touched[0].f.id, item: res.item, kg: bales.length * BALE_KG[res.item], bales: bales.map((b) => b.id), x, y });
     return res;
@@ -536,6 +537,53 @@ export function createModel(W, env) {
   /** emit coalesced events that are older than 60 game-s (all when force) */
   function flush(t, force) {
     for (const [key, p] of [...pending]) if (force || t - p.t0 >= 60) flushKey(key);
+  }
+
+  // ---------------------------------------------------------------- CAP: field work → simulation.recordFieldWork
+  const workedToday = new Map(); // parcelId|op → day (one record per parcel, op and game day)
+  function simOp(op, out) {
+    if (op === 'seed') return 'sow';
+    if (op === 'harvest') { const it = out && out.item; return it === 'potatoes' || it === 'sugarBeet' ? 'lift' : 'harvest'; }
+    if (op === 'fertilise') return 'spray';   // spreader pass: simulation's op list has no separate fertilise
+    return op;                                 // plough cultivate spray mow rake bale water
+  }
+  function fieldWorked(f, op, out) {
+    const sm = sim();
+    if (!f.parcelId || !sm || !sm.recordFieldWork) return;
+    const o = simOp(op, out);
+    const key = f.parcelId + '|' + o, day = env.now().day;
+    if (workedToday.get(key) === day) return;
+    workedToday.set(key, day);
+    if (workedToday.size > 500) workedToday.clear();
+    sm.recordFieldWork(f.parcelId, o);
+  }
+
+  /**
+   * apply one operation to a whole field at once (contractors). tool as in work(); returns the
+   * same shape as work() plus bale kg (no bale objects: the contractor takes them to the farm).
+   */
+  function workField(fieldId, tool, { report = true } = {}) {
+    const f = byId.get(fieldId);
+    const res = { cellsChanged: 0, yieldKg: 0, item: null, fieldId, strawKg: 0, baleKg: {} };
+    if (!f) return res;
+    let op = tool, cropK = 0;
+    if (tool.startsWith('seed')) { op = 'seed'; cropK = CROP_INDEX[tool.split(':')[1] || 'wheat'] || CROP_INDEX.wheat; }
+    const now = env.now();
+    const out = { kg: 0, item: null, byItem: {}, strawKg: 0, mownKg: 0, baleKg: {}, doy: now.doy };
+    const c = f.cells;
+    for (let k = 0; k < c.state.length; k++) if (c.state[k] && applyCell(f, k, op, cropK, out)) { res.cellsChanged++; touch(f, k); }
+    if (!res.cellsChanged) return res;
+    f.lastWorked = now.t;
+    if (op === 'seed') { f.sownDay = now.day; f.notified.ripe = false; f.notified.withered = false; }
+    summarize(f);
+    res.yieldKg = +(op === 'bale' ? Object.values(out.baleKg).reduce((a, b) => a + b, 0) : out.kg).toFixed(2);
+    res.item = op === 'bale' ? Object.keys(out.baleKg)[0] || null : out.item;
+    res.strawKg = +out.strawKg.toFixed(2); res.baleKg = out.baleKg; res.mownKg = +out.mownKg.toFixed(2);
+    emit('crops:worked', { fieldId: f.id, tool, cells: res.cellsChanged, contractor: true });
+    if (op === 'seed') emit('crops:sown', { fieldId: f.id, crop: cropOf(cropK), phase: 'complete', sownCells: f.counts[S.SOWN], cells: f.nCells });
+    if ((op === 'harvest' && out.kg > 0) || (op === 'bale' && res.yieldKg > 0)) emit('crops:harvested', { fieldId: f.id, crop: f.crop, item: res.item, kg: res.yieldKg, cells: res.cellsChanged, complete: true, contractor: true });
+    if (report) { reportJobs(f, op, cropK); fieldWorked(f, op, out); }
+    return res;
   }
 
   // ---------------------------------------------------------------- jobs (simulation)
@@ -795,7 +843,7 @@ export function createModel(W, env) {
       bales: W.bales.map((b) => ({ ...b })),
       fields: W.fields.map((f) => {
         const o = { id: f.id, poly: f.poly, angle: f.angle, cell: f.grid.cell, parcelId: f.parcelId, name: f.name, soilQ: f.soilQ,
-          baseMoist: f.baseMoist, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, arrays: {} };
+          baseMoist: f.baseMoist, plannedCrop: f.plannedCrop || null, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, arrays: {} };
         for (const [k] of ARRAYS) o.arrays[k] = toB64(f.cells[k]);
         return o;
       }),
@@ -810,7 +858,7 @@ export function createModel(W, env) {
       const c = allocCells(f);
       const N = f.grid.nu * f.grid.nv;
       for (const [k, T] of ARRAYS) c[k] = fromB64(o.arrays[k], T, N);
-      f.soilQ = o.soilQ; f.baseMoist = o.baseMoist; f.sownDay = o.sownDay; f.lastWorked = o.lastWorked;
+      f.soilQ = o.soilQ; f.baseMoist = o.baseMoist; if (o.plannedCrop) f.plannedCrop = o.plannedCrop; f.sownDay = o.sownDay; f.lastWorked = o.lastWorked;
       f.baleAcc = { ...o.baleAcc }; f.notified = { ...o.notified };
       computeStatic(f);
       f.counts.fill(0);
@@ -836,7 +884,7 @@ export function createModel(W, env) {
   }
 
   return {
-    W, byId, createField, removeField, fieldAtObj, work, flush, dayTick, beginDay, stepDay, pendingDay: () => (dayJob ? dayJob.day : null), plantAll, forceStage, refresh, stats, cellAt, summarize,
+    W, byId, createField, removeField, fieldAtObj, work, workField, flush, dayTick, beginDay, stepDay, pendingDay: () => (dayJob ? dayJob.day : null), plantAll, forceStage, refresh, stats, cellAt, summarize,
     save, load, digest, cellCenter, cellIndexAt, toGrid, yieldKgCell, visKey, cropOf,
     fieldPublic(f) { return f ? { id: f.id, crop: f.crop, stage: f.stage, state: f.state, parcelId: f.parcelId, area: f.area, growth: f.growth } : null; },
   };

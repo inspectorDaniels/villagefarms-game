@@ -73,7 +73,7 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "r3-built-unreviewed",
+      "status": "failing",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -88,16 +88,22 @@
           "score": 6,
           "pass": false,
           "review": "docs/reviews/simulation-r2.md"
+        },
+        {
+          "round": 3,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/simulation-r3.md"
         }
       ],
       "openIssues": [
-        "Harness assumes contractor service + work rates that don't exist in the live game (see brief Revision r3 1-3)",
-        "Hired hands dead content: wage ~4x real per worked hour, no added job capacity (r3 4)",
-        "Bank lends to insolvent farm; overdraft ignored (r3 5)",
-        "README claims don't reproduce (\u224815 ha; exploits default run 13/14)",
-        "should: loans left behind on sale, sell fromInventory:false, jobs lack coordinates, CAP on idle land, harness valley > map"
+        "Contract income linear in hands (24 hands -> \u20ac256k/yr) \u2014 market must saturate (r4.1)",
+        "Implements not reserved per job (r4.2)",
+        "CAP bypass via \u20ac80 contractor booking; recordFieldWork unvalidated; not wired to crops (r4.3)",
+        "Wages depend on logWork which nobody calls; hand character not linked to worker (r4.5, characters)",
+        "should: contractor-done unhandled (r4.4, crops), infinite insolvency block (r4.6), delegated job while asleep (r4.7)"
       ],
-      "note": "r3 builder: time model (work.js), assignJob/crew jobs, contractors API, wages per day worked, insolvency rules, CAP on worked land; builder strategy median: hand y2, owned parcel y3, combine y5, 50 ha y8, \u20ac405k y10 (4/8 seeds in 400-600k); 21/21 exploit probes closed."
+      "note": "r3 critic 6/10: all r2 must-fixes verified; new: hands dominate via unsaturated contract market; CAP/wages not wired live. Director Revision r4 assigns ownership."
     },
     "ui": {
       "wave": 1,

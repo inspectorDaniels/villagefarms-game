@@ -15,7 +15,7 @@ export const manifest = {
   api: ['createField', 'removeField', 'fields', 'field', 'fieldAt', 'cellAt', 'work', 'stats', 'forceStage', 'plantAll',
     'crops', 'calendar', 'bales', 'collectBale', 'simulateDays'],
   emits: ['crops:worked', 'crops:sown', 'crops:ripe', 'crops:harvested', 'crops:withered', 'crops:field-changed'],
-  listens: [],
+  listens: ['economy:contractor-done'],
 };
 
 // climate fallback (mm of rain per game day by month) when environment gives no plan for a day
@@ -78,6 +78,30 @@ export async function init(ctx) {
     }
   }
 
+  // ---- simulation contractors (r3): a finished booking is applied to every field on that parcel.
+  // Harvested grain/roots and baled hay/straw go into farm inventory (the contractor delivers to the yard).
+  const SOW_PREF = ['wheat', 'barley', 'rapeseed', 'maize', 'sugarBeet', 'potatoes', 'oats', 'grass'];
+  const CONTRACT_TOOL = { plough: 'plough', cultivate: 'cultivate', spray: 'spray', mow: 'mow', harvest: 'harvest', lift: 'harvest', bale: 'bale', rake: 'rake', fertilise: 'fertilise' };
+  ctx.events.on('economy:contractor-done', (ev) => {
+    const b = ev && ev.booking;
+    if (!b || !b.parcelId) return;
+    const s = mod('simulation');
+    const fs = W.fields.filter((f) => f.parcelId === b.parcelId);
+    const doy = ((clock.day + (W.dayOffset || 0)) % YEAR_DAYS + YEAR_DAYS) % YEAR_DAYS;
+    for (const f of fs) {
+      let tool = CONTRACT_TOOL[b.op];
+      if (b.op === 'sow') {
+        const crop = b.crop || f.plannedCrop || SOW_PREF.find((c) => inSowWindow(c, doy)) || 'wheat';
+        tool = 'seed:' + crop;
+      }
+      if (!tool) continue;
+      const r = model.workField(f.id, tool, { report: false }); // simulation already recorded the CAP work
+      if (!s || !s.addInventory) continue;
+      if (b.op === 'harvest' || b.op === 'lift') { if (r.yieldKg > 0 && r.item) s.addInventory(r.item, r.yieldKg / 1000); }
+      if (b.op === 'bale') for (const [item, kg] of Object.entries(r.baleKg || {})) if (kg > 0) s.addInventory(item, kg / 1000);
+    }
+  });
+
   // ---- rendering
   const tiles = createTiles(ctx.art, ctx.palette);
   renderer = createRenderer(ctx, model, tiles);
@@ -97,6 +121,7 @@ export async function init(ctx) {
     /** poly [[x,y]…] metres; opts { parcelId?, crop?, stage? ('auto'|0..5|name), state? ('grass'|'stubble'|'ploughed'|'cultivated'), angle?, cell? (m, default 2), soil? 0..1, name?, paintTerrain? } → id */
     createField(poly, opts = {}) {
       const id = model.createField(poly, opts);
+      const fo = model.byId.get(id); if (fo && opts.plannedCrop) fo.plannedCrop = opts.plannedCrop;
       const t = mod('terrain');
       const inner = insetPoly(poly, 1.3); // the outer metre stays verge grass (the field edge is feathered onto it)
       if (t && t.paintSurface && opts.paintTerrain !== false && inner) t.paintSurface({ poly: inner }, 'soil');

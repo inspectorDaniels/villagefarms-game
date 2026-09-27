@@ -11,9 +11,10 @@ export function createRenderer(ctx, model, tiles) {
   const { art } = ctx;
   const entries = new Map(); // key → { canvas, res, built, dirty:Set, used, f, ch }
   let bytes = 0, frame = 0;
-  let comp = null, compG = null, compSig = null;
+  // screen composite (double-buffered): shifted by whole pixels while panning, only exposed strips / changed chunks redrawn
+  let comp = null, compG = null, back = null, backG = null, prev = null; // prev = { a, E, F, chunks: Map key → paintV|rect }
   const pool = [];
-  const stats = { builds: 0, cellPaints: 0, lastCellPaints: 0, composites: 0 };
+  const stats = { builds: 0, cellPaints: 0, lastCellPaints: 0, composites: 0, partialBlits: 0 };
   const env = () => ctx.world.environment || {};
   const season = () => ctx.clock.season;
   let lastSeason = null;
@@ -199,9 +200,10 @@ export function createRenderer(ctx, model, tiles) {
     const res = pickRes(m.a);
     let budget = budgetCells;
     stats.lastCellPaints = stats.cellPaints;
-    const X = (x) => Math.round(m.a * x + m.e), Y = (y) => Math.round(m.d * y + m.f);
+    // snap the origin to whole device pixels so a pan is an exact integer shift of the previous composite
+    const E = Math.round(m.e), Fo = Math.round(m.f);
+    const X = (x) => Math.round(m.a * x) + E, Y = (y) => Math.round(m.d * y) + Fo;
     const blits = [];
-    let sig = (Math.round(m.a * 1000) * 31 + Math.round(m.e) * 17 + Math.round(m.f)) | 0;
     for (const f of model.W.fields) {
       if (!f.rs || !inView(f.bbox, view)) continue;
       for (const ch of chunksOf(f, res).values()) {
@@ -220,21 +222,10 @@ export function createRenderer(ctx, model, tiles) {
           budget -= take.length * 9;
         }
         const src = e.built ? e : null;
-        if (src) { blits.push([src.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0)]); sig = (sig * 31 + src.paintV * 7 + X(x0) * 3 + Y(y0)) | 0; }
+        if (src) blits.push([src.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0), src.key, src.paintV]);
       }
     }
-    // composite all chunk blits into one screen-sized layer, re-done only when the view or a chunk changed
-    const cw = g.canvas.width, chh = g.canvas.height;
-    if (!comp || comp.width !== cw || comp.height !== chh) { comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d'); compSig = null; }
-    sig = (sig * 31 + blits.length) | 0;
-    if (sig !== compSig) {
-      compSig = sig;
-      compG.setTransform(1, 0, 0, 1, 0, 0);
-      compG.clearRect(0, 0, cw, chh);
-      compG.imageSmoothingEnabled = true;
-      for (const b of blits) compG.drawImage(b[0], b[1], b[2], b[3], b[4]);
-      stats.composites++;
-    }
+    composite(g, blits, m.a, E, Fo);
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (blits.length) g.drawImage(comp, 0, 0);
     g.setTransform(m);
@@ -256,6 +247,56 @@ export function createRenderer(ctx, model, tiles) {
       g.globalAlpha = 1;
     }
     evict();
+  }
+
+  function composite(g, blits, a, E, F) {
+    const cw = g.canvas.width, chh = g.canvas.height;
+    if (!comp || comp.width !== cw || comp.height !== chh) {
+      comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d');
+      back = document.createElement('canvas'); back.width = cw; back.height = chh; backG = back.getContext('2d');
+      prev = null;
+    }
+    const cur = new Map();
+    for (const b of blits) cur.set(b[5], b);
+    let rects = null; // null = full redraw
+    if (prev && prev.a === a) {
+      const dx = E - prev.E, dy = F - prev.F;
+      if (Math.abs(dx) < cw && Math.abs(dy) < chh) {
+        rects = [];
+        // exposed strips
+        if (dx > 0) rects.push([0, 0, dx, chh]); else if (dx < 0) rects.push([cw + dx, 0, -dx, chh]);
+        if (dy > 0) rects.push([0, 0, cw, dy]); else if (dy < 0) rects.push([0, chh + dy, cw, -dy]);
+        // chunks repainted, appeared or gone since the last composite
+        for (const [k, b] of cur) { const p = prev.chunks.get(k); if (!p || p[6] !== b[6]) rects.push([b[1], b[2], b[3], b[4]]); }
+        for (const [k, p] of prev.chunks) if (!cur.has(k)) rects.push([p[1] + dx, p[2] + dy, p[3], p[4]]);
+        if (dx || dy) { // shift: previous composite → back buffer at the pan offset, then swap
+          backG.setTransform(1, 0, 0, 1, 0, 0);
+          backG.clearRect(0, 0, cw, chh);
+          backG.drawImage(comp, dx, dy);
+          const t = comp; comp = back; back = t; const tg = compG; compG = backG; backG = tg;
+        }
+      }
+    }
+    compG.setTransform(1, 0, 0, 1, 0, 0);
+    compG.imageSmoothingEnabled = true;
+    if (!rects) {
+      compG.clearRect(0, 0, cw, chh);
+      for (const b of blits) compG.drawImage(b[0], b[1], b[2], b[3], b[4]);
+      stats.composites++;
+    } else if (rects.length) {
+      compG.save();
+      compG.beginPath();
+      for (const r of rects) compG.rect(r[0], r[1], r[2], r[3]);
+      compG.clip();
+      for (const r of rects) compG.clearRect(r[0], r[1], r[2], r[3]);
+      for (const b of blits) {
+        let hit = false;
+        for (const r of rects) if (b[1] < r[0] + r[2] && b[1] + b[3] > r[0] && b[2] < r[1] + r[3] && b[2] + b[4] > r[1]) { hit = true; break; }
+        if (hit) { compG.drawImage(b[0], b[1], b[2], b[3], b[4]); stats.partialBlits++; }
+      }
+      compG.restore();
+    }
+    prev = { a, E, F, chunks: cur };
   }
 
   // wind: soft light gusts travelling across tall, flexible crops (close zoom only)

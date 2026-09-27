@@ -104,3 +104,26 @@ Assumptions stated by the director; builders tune numbers but keep the model.
    (1 game year = 14.4 real hours at 1×; players will use 3×/10×).
 8. The harness world must fit the 1024 m map (≈68 ha farmable). README numbers must reproduce from
    the documented default commands.
+
+---
+## Revision r4 (director, after critic r3) — integration ownership
+1. **Contract market saturates.** The valley has a finite amount of contract work: total offers/day
+   capped (≈6–8 incl. crew jobs), and crew-job pay falls as the player's share of the regional market
+   grows (e.g. −30 % at 5+ concurrent crew jobs). Pure contracting must plateau regardless of crew size;
+   the harness re-tests with 3/6/12 hands.
+2. **Machines are reserved per job per day by category** (tractor, combine, trailer, implement kit).
+3. **CAP on the worked share.** Simulation **listens to `crops:worked`** (payload must carry
+   `{ fieldId, parcelId, tool, areaM2 }`, owner: crops) and credits worked m² per parcel; CAP pays
+   `min(1, workedArea/parcelArea)` × rate. `recordFieldWork` stays for non-crop land but validates the
+   parcel (owned/rented by the player), the operation name and the area. `hireContractor` rejects
+   unknown ids. Contractors credit only the booked area.
+4. **Contractor bookings change fields.** Owner: crops listens to `economy:contractor-done`
+   (`{ parcelId|fieldId, operation, areaM2, crop? }`) and applies the operation to that area.
+5. **Wages from real activity.** Owner: characters links each hired character to its worker record
+   (`workerId` from `hireWorker`/`workers()`) and calls `simulation.logWork(workerId, hours, kind)` for
+   game-hours spent active (possessed by the player, or on a work/job/goto task). Simulation pays the
+   day rate on any day with ≥1 h logged or a delegated job worked, otherwise the retainer.
+6. Insolvent farm with nothing left to seize: hands are laid off after 30 more days (event), and the
+   bank offers a restructuring loan once; no infinite blocked state.
+7. Delegated odd jobs require the hand to be awake/available (not sleeping) — simulation checks
+   `characters` availability via an optional API `characters.isAvailable(workerId)` if present.

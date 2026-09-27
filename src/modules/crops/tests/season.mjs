@@ -46,7 +46,9 @@ function run(seed, verbose) {
     { id: 'job:1', type: 'plough', parcelId: 'P1', status: 'accepted', progress: 0 },
     { id: 'job:2', type: 'harvest', parcelId: 'P1', status: 'accepted', progress: 0, crop: 'wheat' },
   ];
+  const recorded = [];
   const simStub = {
+    recordFieldWork: (pid, op) => { recorded.push(pid + ':' + op); return true; },
     parcelAt: (x, y) => (x < 280 && y < 240 ? { id: 'P1' } : { id: 'P2' }),
     parcel: (id) => ({ id, soil: 0.7 }),
     jobs: (flt) => jobs.filter((j) => Object.entries(flt).every(([k, v]) => j[k] === v)).map((j) => ({ ...j })),
@@ -137,11 +139,18 @@ function run(seed, verbose) {
   check(jobs[1].status === 'completed', `harvest job progress ${jobs[1].progress} → ${jobs[1].status}`);
   const hEv = events.filter((e) => e[0] === 'crops:harvested' && e[1].fieldId === fa);
   check(hEv.length > 0 && Math.abs(hEv.reduce((a, e) => a + e[1].kg, 0) - hv.yieldKg) < 1, `crops:harvested events: ${hEv.length}, Σkg ${hEv.reduce((a, e) => a + e[1].kg, 0).toFixed(1)}`);
+  const ops = [...new Set(recorded.filter((r) => r.startsWith('P1:')).map((r) => r.split(':')[1]))];
+  check(['plough', 'cultivate', 'sow', 'spray', 'harvest'].every((o) => ops.includes(o)), `CAP: recordFieldWork calls for P1 (once per op per day): ${recorded.filter((r) => r.startsWith('P1:')).length} → ops ${ops.join(',')}`);
   // straw bales
   const bl = drive(M, 'bale', A, 3);
   out.bales = bl.bales;
   check(bl.item === 'straw' && bl.bales > 0, `baled straw: ${(bl.yieldKg / 1000).toFixed(2)} t → ${bl.bales} round bales of 210 kg`);
 
+  // ---- contractor (whole-field) operation: plough field D via workField
+  {
+    const wf = M.workField(M.W.fields[3].id, 'plough', { report: false });
+    check(wf.cellsChanged === M.stats(M.W.fields[3].id).cells, `contractor workField('plough') on ${M.W.fields[3].id}: ${wf.cellsChanged} cells in one call`);
+  }
   // ---- field B: leave unharvested → withered
   const bRipe = M.stats(fb);
   let witherDay = null;
