@@ -97,7 +97,7 @@ export function buildDecals(D, rngBase, noise) {
       for (let s = rng.range(3, 15); s < L - 1; s += rng.range(9, 26)) {
         const pts = [];
         let q = s;
-        const a = rng.range(-hw * 0.95, 0), b = rng.range(0, hw * 0.95);
+        const a = rng.range(-hw * 0.9, hw * 0.4), b = Math.min(hw * 0.95, a + rng.range(0.8, 2.6));
         for (let lat = a; lat < b; lat += rng.range(0.12, 0.35)) { q += rng.range(-0.16, 0.16); const p = at(q, lat); pts.push([p[0], p[1]]); }
         if (pts.length > 1) dec.push({ k: 'crack', pts, sealed: rng.chance(0.6), bbox: bboxOf(pts, 0.2), fine: true });
       }
@@ -420,7 +420,10 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
     for (const c of D.crossings) if (Math.abs(c.x - (rect.x0 + rect.x1) / 2) < rect.x1 - rect.x0 && Math.abs(c.y - (rect.y0 + rect.y1) / 2) < rect.y1 - rect.y0) zebra(g, c, lod);
 
     // ---------- 9. snow
-    if (env.snow > 0.05) for (const [ch, r] of ranges) snowEdges(g, ch, r, env.snow, lod);
+    if (env.snow > 0.05) {
+      for (const [ch, r] of ranges) snowEdges(g, ch, r, env.snow, lod);
+      for (const J of js) if (J.cls !== 'track') snowCorners(g, J, env.snow, lod);
+    }
   }
 
   // ---------------- helpers
@@ -520,7 +523,7 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
         if (d.ragged) {
           g.strokeStyle = 'rgba(60,56,50,0.5)'; g.lineWidth = 0.06; g.stroke();
         } else {
-          g.strokeStyle = 'rgba(18,19,22,0.38)'; g.lineWidth = lod >= 2 ? 0.05 : 0.08; g.stroke();
+          g.strokeStyle = 'rgba(18,19,22,0.24)'; g.lineWidth = lod >= 2 ? 0.05 : 0.08; g.stroke();
           if (lod >= 2) { g.strokeStyle = 'rgba(200,200,200,0.08)'; g.lineWidth = 0.02; g.stroke(); }
         }
         break;
@@ -838,31 +841,48 @@ export function makePainter({ art, palette, tex, getD, getEnv }) {
     }
   }
 
-  function snowEdges(g, ch, r, snow, lod) {
-    const rnd0 = hs(ch.key + 'snow');
+  const nz = art.noise('roads-snow');
+  const noiseEdge = (x, y) => nz.at(x, y);
+  function snowBand(g, pts, w, snow, lod, seed) {
     const cols = palette.snow;
-    // soft banks along both edges (outside) + slush just inside
-    for (const side of [1, -1]) {
-      const outerW = ch.spec.kerb ? ch.hw + ch.spec.kerbW + ch.spec.pave : ch.hw;
-      const bank = offLine(ch, r, side * (outerW + 0.5 + 0.3 * snow));
-      strokePts(g, bank, 0.9 + snow * 1.4, cols[1], 0.75 * snow);
-      strokePts(g, offLine(ch, r, side * (ch.hw - 0.1)), 0.35 + snow * 0.4, '#d5dade', 0.5 * snow);
-      if (ch.spec.kerb) strokePts(g, offLine(ch, r, side * (ch.hw + ch.spec.kerbW + ch.spec.pave * 0.5)), ch.spec.pave * 0.9, cols[0], 0.55 * snow);
-    }
-    if (ch.cls === 'track' || ch.cls === 'lane') strokePts(g, offLine(ch, r, 0), ch.cls === 'track' ? 0.9 : 0.5, cols[2], 0.8 * snow);
-    if (lod >= 1) {
-      for (let i = r[0]; i <= r[1]; i += 2) {
-        const rnd = prng(rnd0 + i);
-        for (let k = 0; k < 3; k++) {
-          const side = rnd() < 0.5 ? 1 : -1;
-          const lat = side * (ch.hw + (rnd() - 0.3) * 1.2);
-          const p = ch.pts[i];
-          g.fillStyle = cols[(rnd() * 3) | 0]; g.globalAlpha = 0.7 * snow;
-          g.beginPath(); g.ellipse(p[0] - ch.ty[i] * lat, p[1] + ch.tx[i] * lat, 0.2 + rnd() * 0.4, 0.12 + rnd() * 0.2, rnd() * 3, 0, 6.283); g.fill();
-        }
+    g.lineCap = 'butt';
+    strokePts(g, pts, w * 0.5, cols[1], Math.min(0.9, 0.4 + snow));
+    g.lineCap = 'round';
+    if (lod < 1) { strokePts(g, pts, w, cols[1], 0.35 * snow); return; }
+    const rnd = prng(seed);
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy) || 1;
+      const nx = -dy / L, ny = dx / L;
+      const n = Math.ceil(L * (lod >= 2 ? 14 : 5));
+      for (let k = 0; k < n; k++) {
+        const t = rnd(), o = (rnd() - 0.5) * w * (0.8 + rnd() * 0.6) + noiseEdge(a[0] * 0.7, a[1] * 0.7) * w * 0.3;
+        const r = 0.08 + rnd() * 0.2 * (1 - Math.abs(o) / w);
+        g.fillStyle = cols[(rnd() * 3) | 0];
+        g.globalAlpha = Math.min(1, snow * 2.2) * (1 - Math.abs(o) / w * 0.85);
+        if (g.globalAlpha <= 0.05) continue;
+        g.beginPath(); g.ellipse(a[0] + dx * t + nx * o, a[1] + dy * t + ny * o, r, r * 0.7, rnd() * 3, 0, 6.283); g.fill();
       }
-      g.globalAlpha = 1;
     }
+    g.globalAlpha = 1;
+  }
+  function snowEdges(g, ch, r, snow, lod) {
+    const outerW = ch.spec.kerb ? ch.hw + ch.spec.kerbW + ch.spec.pave : ch.hw;
+    const bw = 0.9 + snow * 1.1;
+    for (const side of [1, -1]) {
+      snowBand(g, offLine(ch, r, side * (outerW + bw * 0.45)), bw, snow, lod, hs(ch.key + side) + r[0]);
+      strokePts(g, offLine(ch, r, side * (ch.hw - 0.12)), 0.22 + snow * 0.2, '#cdd3d7', 0.4 * snow);
+    }
+    if (ch.cls === 'track') snowBand(g, offLine(ch, r, 0), 0.9, snow, lod, hs(ch.key + 'c'));
+    if (ch.cls === 'lane') snowBand(g, offLine(ch, r, 0), 0.6, snow * 0.8, lod, hs(ch.key + 'c'));
+  }
+  function snowCorners(g, J, snow, lod) {
+    J.corners.forEach((c, ci) => {
+      const kerbed = J.degree > 2 && c.type === 'fillet' && (CLASSES[J.arms[c.i].cls].kerb || CLASSES[J.arms[c.j].cls].kerb);
+      const outer = kerbed ? CLASSES.village.kerbW + CLASSES.village.pave : 0;
+      const bw = 0.9 + snow * 1.1;
+      snowBand(g, cornerCurve(J, ci, outer + bw * 0.45), bw, snow, lod, hs(J.node + ci));
+    });
   }
 
   return { paint, isEmpty: (rect) => { const D = getD(); if (!D) return true; return !D.chains.some((c) => bboxHit(c.bbox, rect.x0, rect.y0, rect.x1, rect.y1)); } };

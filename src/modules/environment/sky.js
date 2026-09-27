@@ -3,6 +3,8 @@
 
 const DEG = Math.PI / 180;
 export const LATITUDE_DEG = 51;
+/** The clock shows local zone time (CET-like, Brussels ≈ 4.4°E): solar noon ≈ 12:43 on the clock. */
+export const CLOCK_TO_SOLAR_H = -(1 - 4.4 / 15);
 
 export const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 export const lerp = (a, b, t) => a + (b - a) * t;
@@ -23,7 +25,7 @@ export function solarPosition(yearFrac, tod, latDeg = LATITUDE_DEG) {
     - 0.002697 * Math.cos(3 * gamma) + 0.00148 * Math.sin(3 * gamma);
   const eqtMin = 229.18 * (0.000075 + 0.001868 * Math.cos(gamma) - 0.032077 * Math.sin(gamma)
     - 0.014615 * Math.cos(2 * gamma) - 0.040849 * Math.sin(2 * gamma));
-  const tst = tod + eqtMin / 60;                 // true (apparent) solar time, hours
+  const tst = tod + CLOCK_TO_SOLAR_H + eqtMin / 60;                 // true (apparent) solar time, hours
   return horizontal(decl, (tst - 12) * 15 * DEG, latDeg * DEG);
 }
 
@@ -53,7 +55,7 @@ export function moonPosition(absDayFloat, yearFrac, tod, sunDecl, lunationDays, 
   const phase = ((absDayFloat / lunationDays) % 1 + 1) % 1;
   const illum = (1 - Math.cos(phase * 2 * Math.PI)) / 2;           // 0 new … 1 full
   const decl = -sunDecl * Math.cos(phase * 2 * Math.PI) + 5.1 * DEG * Math.sin(absDayFloat * 0.9);
-  const ha = ((tod - 12) / 24 - phase) * 2 * Math.PI;
+  const ha = ((tod + CLOCK_TO_SOLAR_H - 12) / 24 - phase) * 2 * Math.PI;
   const p = horizontal(decl, ha, latDeg * DEG);
   return { ...p, phase, illumination: illum };
 }
@@ -63,16 +65,18 @@ export function shadowDir(az) { return { x: -Math.sin(az), y: Math.cos(az) }; }
 
 // ---------- colour model ----------
 // Ambient (multiply) colour of a clear sky by solar elevation in degrees. Dusk ≠ dawn slightly.
+/** darkest ambient ever produced (rainy new-moon night); the screen grade never darkens below it */
+export const NIGHT_FLOOR = [44, 55, 104];
 const AMB_KEYS = [
-  [-18, [34, 44, 88]],
-  [-12, [42, 52, 100]],
-  [-8, [66, 74, 132]],
-  [-5, [104, 106, 166]],
-  [-2.5, [164, 128, 160]],
-  [0, [236, 164, 132]],
-  [3, [252, 186, 136]],
-  [7, [255, 210, 164]],
-  [12, [255, 230, 196]],
+  [-18, [48, 60, 112]],
+  [-12, [56, 68, 124]],
+  [-8, [88, 98, 162]],
+  [-5, [128, 132, 196]],
+  [-2.5, [178, 150, 190]],
+  [0, [238, 186, 160]],
+  [3, [255, 214, 172]],
+  [7, [255, 226, 188]],
+  [12, [255, 238, 212]],
   [20, [255, 243, 224]],
   [35, [255, 251, 242]],
   [60, [255, 255, 250]],
@@ -139,6 +143,6 @@ export function ambientFor(elevDeg, rising, w, moon) {
     c = [c[0] * (1 + 0.02 * k), c[1] * (1 + 0.04 * k), c[2] * (1 + 0.1 * k)];
   }
   // gameplay floor: even a rainy new-moon night keeps shapes readable
-  c = [Math.max(c[0], 32), Math.max(c[1], 40), Math.max(c[2], 76)];
+  c = [Math.max(c[0], NIGHT_FLOOR[0]), Math.max(c[1], NIGHT_FLOOR[1]), Math.max(c[2], NIGHT_FLOOR[2])];
   return c.map((v) => clamp(Math.round(v), 0, 255));
 }

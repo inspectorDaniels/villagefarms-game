@@ -29,6 +29,7 @@ export async function init(ctx) {
   let T = null;
   let tm = null;
   let drawnTiles = [];
+  let visTiles = [];
   let minimapCache = null;
   let wetNow = 0;
 
@@ -38,7 +39,10 @@ export async function init(ctx) {
     const wx = env && env.weather;
     const snowRaw = wx && typeof wx.snowCover === 'number' ? Math.max(wx.snowCover, local.snowOverride) : local.snowOverride;
     const wetRaw = local.wetOverride != null ? local.wetOverride : (wx && typeof wx.wetness === 'number' ? wx.wetness : 0);
-    const snow = Math.round(clamp(snowRaw, 0, 1) * 4) / 4;
+    // quantise with hysteresis so a slowly accumulating snowCover does not keep repainting tiles
+    const sr = clamp(snowRaw, 0, 1);
+    if (local.snowQ == null || Math.abs(sr - local.snowQ) > 0.2 || (sr === 0 && local.snowQ !== 0)) local.snowQ = Math.round(sr * 4) / 4;
+    const snow = local.snowQ;
     // wetness changes continuously → applied as a live multiply overlay, not baked into tiles
     wetNow = clamp(wetRaw, 0, 1);
     const sig = `${season}|${snow}`;
@@ -251,6 +255,7 @@ export async function init(ctx) {
     if (!tm) return;
     const need = tm.work(view, BUDGET);
     drawnTiles = tm.draw(g, view, need);
+    visTiles = need; // every visible tile, painted or fallback (the wet overlay must cover all of them)
   }, 0);
 
   // wet ground: darken soils (and a little the grass) while it rains / dries
@@ -258,7 +263,7 @@ export async function init(ctx) {
     if (!tm || wetNow < 0.04) return;
     g.globalCompositeOperation = 'multiply';
     g.globalAlpha = Math.min(1, wetNow);
-    for (const tile of drawnTiles) {
+    for (const tile of visTiles) {
       const m = tm.wetMask(tile);
       if (m) g.drawImage(m, tile.x, tile.y, tile.size, tile.size); // no overlap pad: multiply would double up
     }
@@ -282,6 +287,27 @@ export async function init(ctx) {
     g.globalAlpha = 1;
   }, 0);
 
+  // moonlight / sky glints on water at night (after the lighting pass, additive and faint)
+  ctx.renderer.addLayer('glow', (g, view) => {
+    const env = world.environment;
+    const day = env && typeof env.daylight === 'number' ? env.daylight : 1;
+    const night = 1 - day;
+    if (night < 0.3 || view.zoom < 3.5) return;
+    const t = view.time || 0;
+    g.globalCompositeOperation = 'lighter';
+    for (const tile of drawnTiles) {
+      const sh = tile.shimmer;
+      if (!sh) continue;
+      const a = 0.5 + 0.5 * Math.sin(t * 1.2 + sh.phase);
+      g.globalAlpha = (night - 0.3) * 0.32 * a;
+      g.drawImage(sh.frames[0], tile.x, tile.y, tile.size, tile.size);
+      g.globalAlpha = (night - 0.3) * 0.32 * (1 - a);
+      g.drawImage(sh.frames[1], tile.x, tile.y, tile.size, tile.size);
+    }
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+  }, 0);
+
   // reed clumps cast small soft shadows
   ctx.renderer.addCollector((view, F) => {
     if (!T || view.zoom < 6 || !T.reedBuckets) return;
@@ -300,7 +326,6 @@ export async function init(ctx) {
 
   if (ctx.params.weather === 'snow') local.snowOverride = 0.6;
   INST = { local, warm(view) { if (tm) tm.work(view, Infinity); } };
-  if (ctx.params.tdebug) window.__TDBG = () => ({ tm, jobs: [...tm.jobs.keys()], tiles: tm.tiles.size, mb: tm.bytes / 1048576, ov: tm.overviewSig, look: getLook().sig, ovJob: !!tm.overviewJob, bench(L) { const out = {}; for (const lv of [8, 16, 32]) { const t = tm.tileAt(lv, 11, 12); const t0 = performance.now(); const it = tm.tileJob(t, getLook(), 0); let u = 0, r; const ph = []; let tp = performance.now(); while (!(r = it.next()).done) { u += r.value; const tn = performance.now(); ph.push(Math.round(tn - tp) + "/" + r.value); tp = tn; } out[lv] = [performance.now() - t0, u, ph.join(" ")]; } return out; } });
 
   return {
     api,
@@ -336,7 +361,8 @@ export const showcase = {
     if (presetName === 'winter') {
       const env = ctx.modules.get('environment');
       if (env && typeof env.setWeather === 'function') env.setWeather('snow', 0.6);
-      if (INST) INST.local.snowOverride = 0.75;
+      const wx = ctx.world.environment && ctx.world.environment.weather;
+      if (INST && !(wx && typeof wx.snowCover === 'number' && wx.snowCover > 0.3)) INST.local.snowOverride = 0.6;
     }
     // paint the first view up-front (also for a ?cam= override, which boot applies after staging)
     let view = ctx.camera.view();

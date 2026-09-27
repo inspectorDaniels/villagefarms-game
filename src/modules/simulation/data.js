@@ -1,4 +1,4 @@
-// Static economic reference data for Harvest Valley (EU / Belgian flavour, 2026 euro levels).
+// Static economic reference data for Harvest Valley (EU / Belgian flavour, "game scale" euros).
 // Everything here is plain data: no DOM, no ctx, safe to import headlessly.
 
 export const YEAR_DAYS = 36;      // 12 months × 3 days
@@ -8,47 +8,58 @@ export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', '
 export const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August',
   'September', 'October', 'November', 'December'];
 
+// r2 numbers (director decision after review r1). Annual figures ÷ 36 per game day.
 export const CONST = {
   startMoney: 18000,
-  starterLoanMax: 50000,
   loanRate: 0.045,            // per year
-  overdraftRate: 0.12,        // per year, charged on negative balance
-  creditLimitBase: 50000,     // max total debt without collateral
-  creditLandLTV: 0.6,         // + 60 % of owned land value
+  loanRateRange: [0.02, 0.12],
+  overdraftRate: 0.12,        // per year, charged on a negative balance
+  creditLimitBase: 60000,     // unsecured credit line
+  creditLandLTV: 0.7,         // + 70 % of owned land market value (mortgage)
+  creditMachineLTV: 0.4,      // + 40 % of owned machinery value
   fixedCostsMonthly: 85,      // farm insurance, accountant, phone, electricity
   fixedCostsPerHaMonthly: 5,  // liability/crop insurance scales with farmed area
-  capPaymentPerHa: 235,       // CAP basic + eco-scheme payment, paid once a year (October)
+  capPaymentPerHa: 235,       // CAP basic + eco-scheme per ha-year, paid pro rata by days held
   capPaymentDayOfYear: 27,    // 1 October
-  landTransferTax: 0.115,     // Flemish registration duty 10 % + notary ≈ 1.5 %
-  landResale: 0.95,           // selling land nets 95 % of list price (agent, notary)
-  rentPerHaYear: [350, 650],  // by soil quality 0..1
-  landPerHa: [38000, 65000],  // by soil quality 0..1
-  wageRange: [110, 160],      // € per game day per hired hand
-  historyDays: 144,           // kept price history (4 years)
-  ledgerMax: 500,
+  landFees: 0.04,             // purchase fees
+  landResale: 0.97,           // selling nets 97 % of market value
+  landPerHa: [12000, 22000],  // market value by soil quality 0..1 (× regional land index)
+  rentPerHaYear: [450, 750],  // by soil quality (× land index at signing) ≈ 3.5 % of value
+  landGrowthYear: 0.025,      // mean appreciation of the land index
+  landGrowthSd: 0.012,        // monthly noise (log)
+  leaseMinDays: 36,           // minimum lease term: one game year
+  leaseEarlyExitMonths: 3,    // ending early costs min(rest of the minimum term, 3 months' rent)
+  maxRentListings: 3,         // scarce: at most this many parcels to let at once
+  maxSaleListings: 2,
+  listingMonths: [3, 8],      // an unanswered listing is withdrawn after this many months
+  wageRange: [830, 1060],     // € per game day per hired hand (€30–38k/yr ÷ 36)
+  historyDays: 144,           // price history kept (4 years)
+  ledgerMax: 600,
   saturationDecay: 0.7,       // per day (half-life ≈ 2 days)
-  saturationMaxDrop: 0.25,    // at most −25 % when a point is flooded
+  saturationMaxDrop: 0.25,    // at most −25 % when one buyer is flooded
   retailMarkup: 1.12,         // buying a commodity back costs more than selling it
-  assetResale: 0.55,          // used machinery sells for 55 % of list …
-  assetDepreciationYear: 0.08,// … minus 8 % per year of ownership
-  maxOpenOffers: 9,
+  assetResaleNew: 0.85,       // machinery is worth 85 % of list once it leaves the dealer …
+  assetDepreciationYear: 0.07,// … minus 7 % of list per year, floor 20 %
+  maxOpenOffers: 8,
+  maxActiveJobs: 3,
+  catchUpMaxDays: 72,
 };
 
 // kind: 'carry' = storable harvest crop (cheapest at harvest, rising until the next one)
 //       'wave'  = smooth yearly cosine (peakDoy = day-of-year of the maximum)
 //       'flat'  = contract price (sugar beet)
 // amp = half the peak-to-trough seasonal swing; sigma = daily log-volatility; theta = mean reversion/day
-// common = weight of the shared grain-market factor
+// common = weight of the shared grain-market factor; depth = units one buyer absorbs before the price sags
 export const ITEMS = {
-  wheat:     { name: 'Wheat',       unit: 't', base: 210,  kind: 'carry', harvestDoy: 21, amp: 0.07, sigma: 0.026, theta: 0.07, common: 0.7, depth: 80, color: '#c99a2e' },
-  barley:    { name: 'Barley',      unit: 't', base: 185,  kind: 'carry', harvestDoy: 19, amp: 0.07, sigma: 0.026, theta: 0.07, common: 0.7, depth: 60, color: '#b8a25a' },
-  oats:      { name: 'Oats',        unit: 't', base: 200,  kind: 'carry', harvestDoy: 22, amp: 0.06, sigma: 0.03,  theta: 0.07, common: 0.5, depth: 40, color: '#a89468' },
-  rapeseed:  { name: 'Rapeseed',    unit: 't', base: 430,  kind: 'carry', harvestDoy: 20, amp: 0.06, sigma: 0.03,  theta: 0.07, common: 0.5, depth: 30, color: '#d9b62a' },
-  maize:     { name: 'Maize',       unit: 't', base: 195,  kind: 'carry', harvestDoy: 29, amp: 0.07, sigma: 0.026, theta: 0.07, common: 0.6, depth: 70, color: '#e0a531' },
-  potatoes:  { name: 'Potatoes',    unit: 't', base: 160,  kind: 'carry', harvestDoy: 26, amp: 0.16, sigma: 0.06,  theta: 0.09, common: 0,   depth: 90, color: '#a2723f' },
-  sugarBeet: { name: 'Sugar beet',  unit: 't', base: 42,   kind: 'flat',  amp: 0,     sigma: 0.004, theta: 0.1,  common: 0,   depth: 400, color: '#b86b6b' },
-  hay:       { name: 'Hay',         unit: 't', base: 120,  kind: 'carry', harvestDoy: 16, amp: 0.15, sigma: 0.03,  theta: 0.08, common: 0,   depth: 30, color: '#9aa25a' },
-  straw:     { name: 'Straw',       unit: 't', base: 70,   kind: 'carry', harvestDoy: 22, amp: 0.18, sigma: 0.035, theta: 0.08, common: 0,   depth: 35, color: '#d6c07a' },
+  wheat:     { name: 'Wheat',       unit: 't', base: 210,  kind: 'carry', harvestDoy: 21, amp: 0.07, sigma: 0.026, theta: 0.07, common: 0.7, depth: 160, color: '#c99a2e' },
+  barley:    { name: 'Barley',      unit: 't', base: 185,  kind: 'carry', harvestDoy: 19, amp: 0.07, sigma: 0.026, theta: 0.07, common: 0.7, depth: 150, color: '#b8a25a' },
+  oats:      { name: 'Oats',        unit: 't', base: 200,  kind: 'carry', harvestDoy: 22, amp: 0.06, sigma: 0.03,  theta: 0.07, common: 0.5, depth: 90, color: '#a89468' },
+  rapeseed:  { name: 'Rapeseed',    unit: 't', base: 430,  kind: 'carry', harvestDoy: 20, amp: 0.06, sigma: 0.03,  theta: 0.07, common: 0.5, depth: 80, color: '#d9b62a' },
+  maize:     { name: 'Maize',       unit: 't', base: 195,  kind: 'carry', harvestDoy: 29, amp: 0.07, sigma: 0.026, theta: 0.07, common: 0.6, depth: 160, color: '#e0a531' },
+  potatoes:  { name: 'Potatoes',    unit: 't', base: 160,  kind: 'carry', harvestDoy: 26, amp: 0.16, sigma: 0.06,  theta: 0.09, common: 0,   depth: 250, color: '#a2723f' },
+  sugarBeet: { name: 'Sugar beet',  unit: 't', base: 42,   kind: 'flat',  amp: 0,     sigma: 0.004, theta: 0.1,  common: 0,   depth: 3000, color: '#b86b6b' },
+  hay:       { name: 'Hay',         unit: 't', base: 120,  kind: 'carry', harvestDoy: 16, amp: 0.15, sigma: 0.03,  theta: 0.08, common: 0,   depth: 60, color: '#9aa25a' },
+  straw:     { name: 'Straw',       unit: 't', base: 70,   kind: 'carry', harvestDoy: 22, amp: 0.18, sigma: 0.035, theta: 0.08, common: 0,   depth: 70, color: '#d6c07a' },
   milk:      { name: 'Milk',        unit: 'l', base: 0.46, kind: 'wave',  peakDoy: 32, amp: 0.05, sigma: 0.012, theta: 0.06, common: 0,   depth: 25000, color: '#e6e0cf' },
   eggs:      { name: 'Eggs',        unit: 'ea', base: 0.22, kind: 'wave', peakDoy: 10, amp: 0.04, sigma: 0.01,  theta: 0.08, common: 0,   depth: 6000, color: '#e8c89a' },
   wool:      { name: 'Wool',        unit: 'kg', base: 1.8, kind: 'wave',  peakDoy: 4,  amp: 0.06, sigma: 0.02,  theta: 0.06, common: 0,   depth: 600, color: '#d8d2c2' },
@@ -56,6 +67,7 @@ export const ITEMS = {
   fertiliser:{ name: 'Fertiliser (CAN)', unit: 't', base: 420, kind: 'wave', peakDoy: 5, amp: 0.07, sigma: 0.025, theta: 0.05, common: 0, depth: Infinity, color: '#7d8a8f' },
 };
 export const ITEM_ALIASES = { grass: 'hay' };
+export const CONSUMABLES = ['diesel', 'fertiliser']; // buy-only: no buyer takes them back
 
 // Per-hectare agronomy and input costs (€/ha, litres/ha). Months are 0-based (0 = January).
 export const CROPS = {
@@ -69,30 +81,56 @@ export const CROPS = {
   grass:     { name: 'Grass (hay)', product: 'hay',       yield: 9,   straw: 0,   seed: 30,   fertiliser: 220, spray: 20,  dieselL: 120, sowMonths: [2, 3, 7, 8], harvestMonths: [4, 5, 6, 7] },
 };
 
-// Contract job types. rate = € per unit of `unit`; amount range; seasons weight by month (12 entries).
-const W = (arr) => arr; // readability
+// Contract job types (machine-rate pay). rate = € per unit; transport also pays perTkm × km.
+// needs = machine category required; months = offer weight by month (12 entries).
 export const JOB_TYPES = {
-  plough:     { title: 'Plough', unit: 'ha', rate: 115, amount: [1.2, 6], machine: true,
-    months: W([0.2, 0.6, 1.0, 0.8, 0.2, 0, 0, 0.5, 1.0, 1.0, 0.7, 0.2]) },
-  sow:        { title: 'Drill', unit: 'ha', rate: 68, amount: [1.5, 7], machine: true,
-    months: W([0, 0.2, 1.0, 1.0, 0.7, 0, 0, 0.4, 0.9, 1.0, 0.3, 0]) },
-  harvest:    { title: 'Combine', unit: 'ha', rate: 165, amount: [1.5, 6], machine: true,
-    months: W([0, 0, 0, 0, 0, 0.2, 1.0, 1.0, 0.8, 0.7, 0.3, 0]) },
-  mow:        { title: 'Mow', unit: 'ha', rate: 58, amount: [1, 5], machine: true,
-    months: W([0, 0, 0, 0.3, 1.0, 1.0, 0.8, 0.6, 0.4, 0.1, 0, 0]) },
-  transport:  { title: 'Haul', unit: 't', rate: 7.5, amount: [8, 36], machine: true,
-    months: W([0.4, 0.4, 0.5, 0.5, 0.4, 0.6, 1.0, 1.0, 1.0, 1.0, 0.7, 0.4]) },
-  deliver:    { title: 'Deliver', unit: 'load', rate: 70, amount: [1, 3], machine: true,
-    months: W([0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.9]) },
-  animalCare: { title: 'Mind livestock', unit: 'h', rate: 19, amount: [4, 10], machine: false,
-    months: W([0.7, 0.7, 0.8, 0.8, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.7, 0.9]) },
-  shopHelp:   { title: 'Help at the shop', unit: 'h', rate: 14.5, amount: [3, 7], machine: false,
-    months: W([0.5, 0.5, 0.6, 0.6, 0.6, 0.7, 0.8, 0.8, 0.6, 0.6, 0.7, 1.0]) },
-  villageWork:{ title: 'Village odd jobs', unit: 'h', rate: 16.5, amount: [3, 8], machine: false,
-    months: W([0.4, 0.4, 0.6, 0.7, 0.7, 0.7, 0.6, 0.6, 0.7, 0.7, 0.5, 0.4]) },
-  snowClear:  { title: 'Clear snow', unit: 'h', rate: 72, amount: [2, 5], machine: true,
-    months: W([1.0, 0.8, 0.1, 0, 0, 0, 0, 0, 0, 0, 0.2, 0.9]) },
+  plough:     { title: 'Plough', unit: 'ha', rate: 95, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'tillage',
+    months: [0.2, 0.6, 1.0, 0.8, 0.2, 0, 0, 0.5, 1.0, 1.0, 0.7, 0.2] },
+  sow:        { title: 'Drill', unit: 'ha', rate: 65, spread: 0.15, amount: [1.5, 7], machine: true, needs: 'tillage',
+    months: [0, 0.2, 1.0, 1.0, 0.7, 0, 0, 0.4, 0.9, 1.0, 0.3, 0] },
+  harvest:    { title: 'Combine', unit: 'ha', rate: 150, spread: 0.13, amount: [2, 7], machine: true, needs: 'combine',
+    months: [0, 0, 0, 0, 0, 0.2, 1.0, 1.0, 0.8, 0.7, 0.3, 0] },
+  mow:        { title: 'Mow', unit: 'ha', rate: 52, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'tractor',
+    months: [0, 0, 0, 0.3, 1.0, 1.0, 0.8, 0.6, 0.4, 0.1, 0, 0] },
+  transport:  { title: 'Haul', unit: 't', rate: 3.5, perTkm: 0.9, spread: 0.12, amount: [20, 60], machine: true, needs: 'trailer',
+    months: [0.4, 0.4, 0.5, 0.5, 0.4, 0.6, 1.0, 1.0, 1.0, 1.0, 0.7, 0.4] },
+  deliver:    { title: 'Deliver', unit: 'load', rate: 85, spread: 0.2, amount: [1, 3], machine: true, needs: 'trailer',
+    months: [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.9] },
+  animalCare: { title: 'Mind livestock', unit: 'h', rate: 19, spread: 0.1, amount: [4, 10], machine: false,
+    months: [0.7, 0.7, 0.8, 0.8, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.7, 0.9] },
+  shopHelp:   { title: 'Help at the shop', unit: 'h', rate: 14.5, spread: 0.1, amount: [3, 7], machine: false,
+    months: [0.5, 0.5, 0.6, 0.6, 0.6, 0.7, 0.8, 0.8, 0.6, 0.6, 0.7, 1.0] },
+  villageWork:{ title: 'Village odd jobs', unit: 'h', rate: 16.5, spread: 0.1, amount: [3, 8], machine: false,
+    months: [0.4, 0.4, 0.6, 0.7, 0.7, 0.7, 0.6, 0.6, 0.7, 0.7, 0.5, 0.4] },
+  snowClear:  { title: 'Clear snow', unit: 'h', rate: 72, spread: 0.1, amount: [2, 5], machine: true, needs: 'tractor',
+    months: [1.0, 0.8, 0.1, 0, 0, 0, 0, 0, 0, 0, 0.2, 0.9] },
 };
+
+// Work rates (machine hours) for the farm-manager model; exposed through workRates().
+export const WORK = {
+  plough: [1.2, 0.7, 0.5],   // h/ha by tractor tier 1..3 (tier ≥ 2 needs the large tillage set)
+  sow: [0.6, 0.35, 0.25],
+  mow: [0.5, 0.32, 0.25],
+  care: 0.35,                // all spreader/sprayer passes of a season, h/ha
+  harvest: { combine_s: 0.7, combine_l: 0.4 },
+  haulPerT: 0.035, haulPerTkm: 0.02, deliverPerLoad: 1.5,
+  hoursPerDay: 10,           // one person's working day
+  contractor: { tillage: 175, care: 90, harvest: 165, lift: 480 }, // €/ha when you hire it done
+};
+
+// Machinery catalog (registered by default; other modules may override entries by id).
+export const MACHINES = [
+  { id: 'tractor_t1', category: 'tractor', name: 'Used 95 hp tractor', price: 26000, meta: { tier: 1 } },
+  { id: 'tractor_t2', category: 'tractor', name: '180 hp tractor', price: 98000, meta: { tier: 2 } },
+  { id: 'tractor_t3', category: 'tractor', name: '300 hp tractor', price: 185000, meta: { tier: 3 } },
+  { id: 'tillage_s', category: 'tillage', name: 'Plough & 3 m drill', price: 9000, meta: { size: 1 } },
+  { id: 'tillage_l', category: 'tillage', name: '5-furrow plough & 4 m drill', price: 38000, meta: { size: 2 } },
+  { id: 'sprayer', category: 'sprayer', name: 'Sprayer & spreader', price: 16000, meta: {} },
+  { id: 'trailer', category: 'trailer', name: '14 t tipping trailer', price: 11000, meta: {} },
+  { id: 'mower', category: 'mower', name: 'Disc mower', price: 12000, meta: {} },
+  { id: 'combine_s', category: 'combine', name: 'Compact combine', price: 150000, meta: {} },
+  { id: 'combine_l', category: 'combine', name: 'Large combine', price: 330000, meta: {} },
+];
 
 // Seeded NPC neighbours. Flemish + Walloon family names, farms and village people.
 export const CLIENTS = [

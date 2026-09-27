@@ -306,8 +306,8 @@ function classify(T, ctx, x0, y0, x1, y1, nMask, nMisc, forestC, meadowC, bl) {
       code = k > 0.42 ? S.gravel : k < -0.34 ? S.mud : S.sand;
     } else if (rockW[o] > 0.35) code = S.rock;
     else {
-      const fm = bl(forestC, x, y) + 0.06 * nMisc.at(x / 14, y / 14);
-      const mm = bl(meadowC, x, y) + 0.1 * nMisc.at(x / 7 + 50, y / 7) + (moisture[o] - 0.4) * 0.3;
+      const fm = bl(forestC, x, y) + 0.06 * nMisc.at(x / 22, y / 22);
+      const mm = bl(meadowC, x, y) + 0.08 * nMisc.at(x / 20 + 50, y / 20) + (moisture[o] - 0.4) * 0.3;
       if (fm > 0.42 && riverD[o] > 50) code = S.forestFloor;
       else if (mm > 0.12) code = S.meadow;
       else code = S.grass;

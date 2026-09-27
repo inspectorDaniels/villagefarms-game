@@ -190,7 +190,7 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
       const sy = clamp(wy + wn2 * warpAmp + ((hr * 7.31) % 1 - 0.5) * 0.24, 0, H - 1.001);
       const jx = sx | 0, jy = sy | 0;
       let ux = sx - jx, uy = sy - jy;
-      ux = clamp((ux - 0.5) * 1.7 + 0.5, 0, 1); uy = clamp((uy - 0.5) * 1.7 + 0.5, 0, 1);
+      ux = ux * ux * (3 - 2 * ux); uy = uy * uy * (3 - 2 * uy);
       const q = jy * W + jx;
       auxv = aux[q];
       cA[0] = surf[q]; cA[1] = surf[q + 1]; cA[2] = surf[q + W]; cA[3] = surf[q + W + 1];
@@ -269,12 +269,17 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
       // snow cover
       if (snow > 0 && depth <= 0.02) {
         const n = 0.5 + 0.5 * (GS[gk] * b00 + GS[gk + 1] * b10 + GS[gk + gw] * b01 + GS[gk + gw + 1] * b11) + mid * 0.18 - sh * 1.2;
-        const th = 1.05 - snow * 1.1;
-        const sm = smooth(th - 0.07, th + 0.07, n);
+        const th = 1.12 - snow * 0.98;
+        const sm = smooth(th - 0.1, th + 0.1, n);
         if (sm > 0) {
-          const si = clamp((0.55 + mid * 0.4 + sh * 1.5) * 63, 0, 63) | 0;
-          const k = sm * 0.96;
-          r += (snowC[si * 3] * (1 + sh * 0.5) - r) * k; g += (snowC[si * 3 + 1] * (1 + sh * 0.5) - g) * k; b += (snowC[si * 3 + 2] * (1 + sh * 0.3) - b) * k;
+          const si = clamp((0.5 + mid * 0.5 + sh * 2) * 63, 0, 63) | 0;
+          // snow form shading: cool blue in hollows, bright on ridges, soft drift streaks, sparkle grain
+          const drift = nStreak.at(wx * 0.35, wy * 1.1) * 0.035;
+          const lit = 1 + sh * 0.9 + drift + (hr > 0.985 ? 0.06 : 0) - (1 - sm) * 0.05;
+          const blue = clamp(-sh * 2.5 + 0.1 - mid * 0.1, 0, 0.35);
+          const sr = snowC[si * 3] * lit * (1 - blue * 0.16), sg = snowC[si * 3 + 1] * lit * (1 - blue * 0.08), sb = snowC[si * 3 + 2] * lit;
+          const k = sm * 0.97;
+          r += (sr - r) * k; g += (sg - g) * k; b += (sb - b) * k;
         }
       }
       data[p] = r; data[p + 1] = g; data[p + 2] = b; data[p + 3] = 255;
@@ -286,8 +291,8 @@ export function snowMaskAt(look, NZ, wx, wy, sh) {
   if (!(look.snow > 0)) return 0;
   const mid = NZ.mid.at(wx * 0.6, wy * 0.6);
   const n = 0.5 + 0.5 * NZ.warp.at(wx * 0.21 + 50, wy * 0.21) + mid * 0.18 - sh * 1.2;
-  const th = 1.05 - look.snow * 1.1;
-  return smooth(th - 0.07, th + 0.07, n);
+  const th = 1.12 - look.snow * 0.98;
+  return smooth(th - 0.1, th + 0.1, n);
 }
 
 // ---------------------------------------------------------------- decal sprites (painted once, 32 px/m)
@@ -340,6 +345,18 @@ export function makeDecals(art, P) {
         }
       });
     },
+    dab(season, v) {
+      // soft gouache colour dab: breaks up the base with visible brush patches at close range
+      return sp(`dab:${season}:${v}`, 0.9, (g, w, h, rng) => {
+        const cols = sorted(P.grass[season]);
+        const col = v % 2 ? shade(cols[3], 0.08) : shade(cols[0], -0.08);
+        g.save(); g.translate(w / 2, h / 2); g.rotate(rng.float() * 3.14); g.scale(1, rng.range(0.45, 0.75));
+        const gr = g.createRadialGradient(0, 0, 0, 0, 0, w * 0.45);
+        gr.addColorStop(0, rgba(col, 0.55)); gr.addColorStop(0.6, rgba(col, 0.3)); gr.addColorStop(1, rgba(col, 0));
+        g.fillStyle = gr; g.beginPath(); g.arc(0, 0, w * 0.45, 0, 6.28); g.fill();
+        g.restore();
+      });
+    },
     flower(ci, v) {
       return sp(`flower:${ci}:${v}`, 0.32, (g, w, h, rng) => {
         const col = P.flowers[ci % P.flowers.length];
@@ -381,28 +398,28 @@ export function makeDecals(art, P) {
     },
     pebble(set, v) {
       return sp(`pebble:${set}:${v}`, 0.3, (g, w, h, rng) => {
-        const cols = set === 'soil' ? [P.soil.dry, P.soil.clay, P.soil.moist] : set === 'sand' ? [P.gravel[2], P.sand[1], P.rock[3]] : P.gravel;
+        const cols = set === 'soil' ? [mix(P.soil.clay, P.sand[1], 0.35), mix(P.soil.dry, P.gravel[2], 0.45), P.gravel[1]] : set === 'sand' ? [P.gravel[2], P.sand[1], P.rock[3]] : P.gravel;
         const col = rng.pick(cols);
         const cx = w / 2, cy = h / 2, rx = rng.range(w * 0.2, w * 0.36), ry = rx * rng.range(0.6, 0.95), rot = rng.float() * 3.14;
         g.save(); g.translate(cx, cy); g.rotate(rot);
-        ao(g, 0, 0, rx * 1.35, 0.25);
+        ao(g, 0, 0, rx * 1.3, 0.14);
         g.beginPath(); g.ellipse(0, 0, rx, ry, 0, 0, 6.28);
         g.fillStyle = col; g.fill();
         const gr = g.createRadialGradient(0, -ry * 0.15, 0, 0, 0, rx);
         gr.addColorStop(0, rgba(shade(col, 0.35), 0.7)); gr.addColorStop(0.7, rgba(col, 0)); gr.addColorStop(1, rgba(shade(col, -0.3), 0.5));
         g.fillStyle = gr; g.fill();
-        g.strokeStyle = rgba(outline(col), 0.3); g.lineWidth = 0.6; g.stroke();
+        g.strokeStyle = rgba(outline(col), 0.12); g.lineWidth = 0.5; g.stroke();
         g.restore();
       });
     },
     clod(v) {
       return sp(`clod:${v}`, 0.34, (g, w, h, rng) => {
-        const col = mix(P.soil.ploughed, P.soil.dry, rng.float() * 0.5);
+        const col = mix(P.soil.dry, P.soil.clay, rng.float() * 0.6);
         ao(g, w / 2, h / 2, w * 0.45, 0.3);
         art.blobPath(g, w / 2, h / 2, w * rng.range(0.2, 0.3), rng, 0.25, 5);
         g.fillStyle = col; g.fill();
-        g.strokeStyle = rgba(outline(col), 0.5); g.lineWidth = 0.8; g.stroke();
-        g.fillStyle = rgba(shade(col, 0.25), 0.5);
+        g.strokeStyle = rgba(outline(col), 0.18); g.lineWidth = 0.6; g.stroke();
+        g.fillStyle = rgba(shade(col, 0.3), 0.55);
         g.beginPath(); g.arc(w / 2, h / 2 - 1, w * 0.1, 0, 6.28); g.fill();
       });
     },
@@ -459,20 +476,21 @@ export function makeDecals(art, P) {
         const base = season === 'winter' ? [P.roof.thatch[2], P.roof.thatch[0], mix(P.water.reed, P.roof.thatch[1], 0.6)]
           : season === 'autumn' ? [mix(P.water.reed, P.roof.thatch[0], 0.45), P.water.reed, mix(P.water.reed, P.foliage.autumn[3], 0.3)]
             : [shade(P.water.reed, -0.2), P.water.reed, mix(P.water.reed, P.foliage[season][1], 0.5)];
-        const cx = w / 2, cy = h / 2;
-        ao(g, cx, cy, w * 0.25, 0.28);
-        const n = 34;
+        const cx = w / 2, cy = h * 0.66;
+        ao(g, cx, cy, w * 0.26, 0.26);
+        // dense upright clump seen from a steep top-down angle: long leaves fanning upward, some arching over
+        const n = 30;
         for (let k = 0; k < n; k++) {
-          const a = rng.float() * 6.28, L = w * rng.range(0.25, 0.48);
-          blade(g, cx + rng.range(-3, 3), cy + rng.range(-3, 3), a, L, rng.range(-6, 6), rng.range(1.8, 3), base[rng.int(0, 2)]);
+          const a = -Math.PI / 2 + rng.range(-1.0, 1.0), L = h * rng.range(0.3, 0.6);
+          blade(g, cx + rng.range(-w * 0.12, w * 0.12), cy + rng.range(-2, 3), a, L, rng.range(-7, 7), rng.range(1.6, 2.6), base[rng.int(0, 2)]);
         }
-        for (let k = 0; k < 16; k++) {
-          const a = rng.float() * 6.28, L = w * rng.range(0.15, 0.34);
-          blade(g, cx + rng.range(-2, 2), cy + rng.range(-2, 2), a, L, rng.range(-3, 3), rng.range(1.2, 2), shade(base[2], 0.22));
+        for (let k = 0; k < 14; k++) {
+          const a = -Math.PI / 2 + rng.range(-0.7, 0.7), L = h * rng.range(0.2, 0.45);
+          blade(g, cx + rng.range(-w * 0.08, w * 0.08), cy, a, L, rng.range(-4, 4), rng.range(1.1, 1.8), shade(base[2], 0.22));
         }
         const heads = rng.int(1, 3);
         for (let k = 0; k < heads; k++) {
-          const a = rng.float() * 6.28, d = rng.range(2, w * 0.18);
+          const a = -Math.PI / 2 + rng.range(-0.5, 0.5), d = h * rng.range(0.32, 0.48);
           const x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d;
           g.fillStyle = P.bark[0]; g.strokeStyle = outline(P.bark[0]); g.lineWidth = 0.8;
           g.beginPath(); g.ellipse(x, y, 4.2, 2.1, a, 0, 6.28); g.fill(); g.stroke();

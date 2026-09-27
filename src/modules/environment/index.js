@@ -4,7 +4,7 @@
 // through world.environment.
 import { DAY_SECONDS, MONTH_DAYS, YEAR_DAYS } from '../../core/world.js';
 import {
-  solarPosition, moonPosition, shadowDir, ambientFor, sunColor, skyColor, clamp, lerp, smooth, mix3,
+  solarPosition, moonPosition, NIGHT_FLOOR, shadowDir, ambientFor, sunColor, skyColor, clamp, lerp, smooth, mix3,
 } from './sky.js';
 import { WeatherPlan, targetsFor, KINDS } from './weather.js';
 import { createFx } from './fx.js';
@@ -47,7 +47,7 @@ export async function init(ctx) {
   let drift = { x: 0, y: 0 };             // cloud / fog drift, metres (cosmetic, frame time)
   let prevSunUp = null;
   let baseAmbient = [255, 255, 255];
-  const flash = { level: 0, t: 0, next: 6 + flashRng.float() * 6, at: { x: 0.5, y: 0.2 }, pulses: [] };
+  const flash = { level: 0, after: 0, t: 0, next: 6 + flashRng.float() * 6, at: { x: 0.5, y: 0.2 }, pulses: [] };
 
   env.sun = { azimuth: Math.PI, elevation: 0.9, dirX: 0, dirY: -1, shadowLen: 0.8, shadowStrength: 0.4, color: [255, 250, 240], source: 'sun' };
   env.moon = { azimuth: 0, elevation: -1, phase: 0, illumination: 0 };
@@ -149,10 +149,23 @@ export async function init(ctx) {
     S.shadowStrength = +Math.max(sunStrength, moonStrength).toFixed(4);
     S.color = useMoon ? [176, 194, 232] : sunColor(elevDeg).map(Math.round);
     S.source = useMoon ? 'moon' : 'sun';
+    // strength cloud shadows should use once core composites them separately (core request #1):
+    // direct sun as if the sky were clear, i.e. without the cloudCover factor
+    S.cloudShadowStrength = +(0.45 * smooth(-1, 5.5, elevDeg) * (1 - 0.7 * cur.fog) * (1 - 0.6 * Math.max(cur.rain, cur.snow)) * (cur.cloudCover > 0.8 ? clamp(1 - (cur.cloudCover - 0.8) / 0.18, 0, 1) : 1)).toFixed(4);
+    // lightning: for a split second the strike is the light source — hard, cool, from its direction
+    if (flash.level > 0.15) {
+      const fx0 = 0.5 - flash.at.x, fy0 = 0.5 - flash.at.y, fl = Math.hypot(fx0, fy0) || 1;
+      S.dirX = fx0 / fl; S.dirY = fy0 / fl;
+      S.shadowLen = 1.6;
+      S.shadowStrength = +Math.max(S.shadowStrength, 0.32 * clamp(flash.level, 0, 1)).toFixed(4);
+      S.color = [214, 226, 255];
+      S.source = 'lightning';
+    }
     const M = env.moon;
     M.azimuth = mp.azimuth; M.elevation = mp.elevation; M.phase = +mp.phase.toFixed(3); M.illumination = +mp.illumination.toFixed(3);
 
-    env.daylight = +smooth(-9, 5, elevDeg).toFixed(4);
+    env.daylight = +smooth(-11, 3, elevDeg).toFixed(4);
+    env.darkness = +smooth(-4, -13, elevDeg).toFixed(4);      // 0 through civil twilight, 1 at astronomical night
     const sky = skyColor(elevDeg);
     const L = (sky[0] + sky[1] + sky[2]) / 3;
     env.sky = mix3(sky, [L * 0.95 + 20, L * 0.98 + 20, L + 22], cur.cloudCover * 0.8).map((v) => clamp(Math.round(v), 0, 255));
@@ -176,6 +189,10 @@ export async function init(ctx) {
     W.wind.x = +wind.x.toFixed(3); W.wind.y = +wind.y.toFixed(3); W.wind.speed = +wind.speed.toFixed(2);
     W.temperature = +temp.toFixed(1);
     W.forced = !!forced;
+    W.wetnessLevel = Math.round(wetness * 20) / 20;          // stepped (0.05) for chunk-cached ground art
+    W.snowLevel = Math.round(snowCover * 20) / 20;
+    W.rainRate = +(cur.rain * (6 + 20 * cur.storm)).toFixed(2); // mm/h, for splash/audio sync
+    W.snowRate = +(cur.snow * 3).toFixed(2);                   // mm/h water equivalent
   }
 
   function refreshForecast() {
@@ -197,6 +214,8 @@ export async function init(ctx) {
 
   /** clock jumped (time/day set, load): rebuild weather + ground state for the new moment */
   function resync() {
+    prevSunUp = null;                                         // no dawn/dusk events for a jump
+    if (keepGround) { keepGround = false; refreshForecast(); snapWeather(); return; }
     wetness = 0; snowCover = 0;
     const f = forced;
     forced = null;
@@ -207,12 +226,39 @@ export async function init(ctx) {
     refreshForecast();
   }
   let lastT = clock.t;
+  let keepGround = false;                                     // set by load(): the saved ground state wins
+
+  /** fixed-step lightning schedule (deterministic, independent of frame rate) */
+  function stepLightning(dt) {
+    if (cur.storm <= 0.2) { flash.level = 0; flash.after = 0; return; }
+    flash.t += dt;
+    if (flash.t >= flash.next) {
+      flash.t = 0;
+      flash.next = lerp(9, 3.5, cur.storm) + flashRng.float() * 6;
+      const n = flashRng.int(2, 3);
+      flash.pulses = [];
+      let at = 0;
+      for (let i = 0; i < n; i++) { flash.pulses.push({ at, amp: i === 0 ? 1 : flashRng.range(0.45, 0.9) }); at += flashRng.range(0.06, 0.14); }
+      flash.at = { x: flashRng.range(0.05, 0.95), y: flashRng.range(-0.1, 0.5) };
+      ctx.events.emit('env:lightning', { x: flash.at.x, y: flash.at.y, distance: flashRng.range(0.5, 6) });
+    }
+    let lvl = 0;
+    for (const p of flash.pulses) {
+      const u = flash.t - p.at;
+      if (u >= 0) lvl = Math.max(lvl, p.amp * Math.exp(-u * 28));      // hard attack, fast decay
+    }
+    flash.level = lvl * cur.storm;
+    // eyes adjusted to the flash: the storm briefly looks darker afterwards
+    flash.after = flash.pulses.length ? clamp(1 - (flash.t - 0.25) / 1.2, 0, 1) * (flash.t > 0.25 ? 1 : 0) * cur.storm : 0;
+  }
 
   function update(dt) {
     if (Math.abs(clock.t - lastT) > 3600) resync();
     lastT = clock.t;
     const gameDt = dt * clock.rate;
     windT += dt;
+    stepLightning(dt);
+    if (params.flash === '1' && cur.storm > 0.2) { flash.level = Math.max(flash.level, 0.6); flash.after = 0; } // screenshot aid
     const ts = targetState();
     setKind(ts.kind, ts.intensity);
     if (gameDt > 0) {
@@ -227,39 +273,19 @@ export async function init(ctx) {
     const temp = temperatureNow();
     if (gameDt > 0) integrateGround(cur, temp, clamp(Math.sin(sp.elevation) * 1.5, 0, 1), gameDt);
     publishWeather(temp);
-    env.ambient = flash.level > 0.01 ? applyFlash(baseAmbient) : baseAmbient;
+    env.ambient = applyFlash(baseAmbient);
   }
 
   function applyFlash(a) {
-    return mix3(a, [236, 240, 255], clamp(flash.level, 0, 1) * 0.85).map(Math.round);
+    if (flash.level > 0.01) return mix3(a, [208, 222, 255], clamp(flash.level, 0, 1) * 0.9).map(Math.round);
+    if (flash.after > 0.01) { const k = 1 - 0.12 * flash.after; return a.map((v, i) => Math.max(NIGHT_FLOOR[i] * 0.9, Math.round(v * k))); }
+    return a;
   }
 
   function frame(dt) {
     // cloud & fog drift: clouds ride faster upper winds; cosmetic, real time
     const k = 0.9;
     drift.x += wind.x * k * dt; drift.y += wind.y * k * dt;
-    // lightning (seeded schedule): double/triple flicker
-    if (cur.storm > 0.2) {
-      flash.t += dt;
-      if (flash.t >= flash.next) {
-        flash.t = 0;
-        flash.next = lerp(9, 3.5, cur.storm) + flashRng.float() * 6;
-        const n = flashRng.int(2, 3);
-        flash.pulses = [];
-        let at = 0;
-        for (let i = 0; i < n; i++) { flash.pulses.push({ at, amp: i === 0 ? 1 : flashRng.range(0.45, 0.9) }); at += flashRng.range(0.07, 0.16); }
-        flash.at = { x: flashRng.range(0.05, 0.95), y: flashRng.range(-0.1, 0.5) };
-        ctx.events.emit('env:lightning', { x: flash.at.x, y: flash.at.y, distance: flashRng.range(0.5, 6) });
-      }
-      let lvl = 0;
-      for (const p of flash.pulses) {
-        const u = flash.t - p.at;
-        if (u >= 0) lvl = Math.max(lvl, p.amp * Math.exp(-u * 16) * (u < 0.02 ? u / 0.02 : 1));
-      }
-      flash.level = lvl * cur.storm;
-    } else flash.level = 0;
-    if (params.flash === '1' && cur.storm > 0.2) flash.level = Math.max(flash.level, 0.55); // screenshot aid
-    env.ambient = flash.level > 0.01 ? applyFlash(baseAmbient) : baseAmbient;
   }
 
   // ---------- rendering hooks ----------
@@ -280,7 +306,7 @@ export async function init(ctx) {
   ctx.renderer.addLayer('screen', (g, view) => {
     fx.drawScreen(g, view, {
       weather: { cloudCover: cur.cloudCover, rain: cur.rain, fog: cur.fog, storm: cur.storm },
-      golden: env.golden, night: 1 - env.daylight,
+      golden: env.golden, night: env.darkness, dusk: clamp(1 - env.daylight - env.darkness, 0, 1),
       shadowDir: { x: -Math.sin(env.sun.azimuth), y: Math.cos(env.sun.azimuth) },
       flash: flash.level, flashAt: flash.at,
     });
@@ -297,7 +323,7 @@ export async function init(ctx) {
     setWeather(k, i = 0.7, opts = {}) {
       if (k === 'auto' || k == null) { forced = null; return env.weather; }
       if (!KINDS.includes(k)) { ctx.warn(`setWeather: unknown kind "${k}" (valid: ${KINDS.join(', ')}, auto)`); return env.weather; }
-      forced = { kind: k, intensity: clamp(Number(i), 0, 1) || 0.7 };
+      forced = { kind: k, intensity: Number.isFinite(Number(i)) ? clamp(Number(i), 0, 1) : 0.7 };
       if (opts.instant || clock.paused) {
         snapWeather();
         if (opts.warm !== false) warmUp(3, true);
@@ -356,6 +382,8 @@ export async function init(ctx) {
       if (Number.isFinite(d.snowCover)) snowCover = d.snowCover;
       if (d.cur) for (const k of Object.keys(cur)) if (Number.isFinite(d.cur[k])) cur[k] = d.cur[k];
       if (d.wind) Object.assign(wind, d.wind);
+      keepGround = true;                                      // a clock jump caused by the load must not wipe this
+      lastT = clock.t;
     },
   };
   INSTANCES.set(ctx, { api, resync });

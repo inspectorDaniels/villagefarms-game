@@ -24,7 +24,7 @@ export const manifest = {
   id: 'ui',
   wave: 1,
   deps: [],
-  optionalDeps: [],
+  optionalDeps: ['simulation', 'environment', 'terrain', 'roads'],
   namespaces: ['ui'],
   api: ['registerHud', 'removeHud', 'addPanel', 'removePanel', 'openPanel', 'closePanel', 'togglePanel', 'isPanelOpen', 'refreshPanel',
     'toast', 'setToolbar', 'setActiveTool', 'confirm', 'setPrompt', 'worldLabel', 'removeWorldLabel', 'setCharacters', 'icon',
@@ -78,10 +78,10 @@ export async function init(ctx) {
   root.appendChild(labelsLayer);
   const slots = {};
   for (const cls of Object.values(SLOTS)) { slots[cls] = el('div', 'hv-slot ' + cls); root.appendChild(slots[cls]); }
-  const toastBox = el('div', 'hv-toasts');
-  root.appendChild(toastBox);
   const panelWrap = el('div', 'hv-panelwrap');
   root.appendChild(panelWrap);
+  const toastBox = el('div', 'hv-toasts');
+  root.appendChild(toastBox); // above panels: toasts are never hidden by a sheet
   let modal = null;
 
   // ---------------------------------------------------------------- HUD registry
@@ -90,7 +90,7 @@ export async function init(ctx) {
     if (!id) return null;
     removeHud(id);
     const slot = SLOTS[spec.slot] || SLOTS['top-left'];
-    const node = el('div', 'hv-hud hv-hit ' + (spec.card === false ? 'bare' : 'hv-card') + (spec.className ? ' ' + spec.className : ''));
+    const node = el('div', 'hv-hud ' + (spec.card === false ? 'bare' : 'hv-card hv-hit') + (spec.className ? ' ' + spec.className : ''));
     node.dataset.hud = id;
     const h = { id, spec, el: node, order: spec.order || 0, acc: 0 };
     huds.set(id, h);
@@ -311,6 +311,7 @@ export async function init(ctx) {
     W.ui.openPanel = id;
     renderPanel();
     panelWrap.classList.add('on');
+    layout();
     renderLauncher();
     if (spec.onOpen) foreign(`panel ${id} onOpen`, spec.onOpen);
     emit('ui:panel-opened', { id });
@@ -322,7 +323,7 @@ export async function init(ctx) {
     const cid = current.id;
     current = null;
     W.ui.openPanel = null;
-    if (!switching) { panelWrap.classList.remove('on'); panelWrap.innerHTML = ''; ctx.input.uiCapturing = false; }
+    if (!switching) { panelWrap.classList.remove('on'); panelWrap.innerHTML = ''; recheckCapture(); }
     if (spec.onClose) foreign(`panel ${cid} onClose`, spec.onClose);
     renderLauncher();
     emit('ui:panel-closed', { id: cid });
@@ -368,7 +369,7 @@ export async function init(ctx) {
   }
 
   // ---------------------------------------------------------------- prompt + toolbar
-  const promptEl = el('div', 'hv-prompt hv-card');
+  const promptEl = el('div', 'hv-prompt hv-card hv-hit');
   promptEl.style.display = 'none';
   registerHud('ui:prompt', { slot: 'bottom-center', order: -10, card: false, render: (n) => n.appendChild(promptEl) });
   let promptText = null;
@@ -390,7 +391,7 @@ export async function init(ctx) {
   toolsWrap.appendChild(toolsEl);
   registerHud('ui:toolbar', { slot: 'bottom-center', order: 10, card: false, render: (n) => n.appendChild(toolsWrap) });
   const toolCard = toolsEl;
-  toolCard.classList.add('hv-card');
+  toolCard.classList.add('hv-card', 'hv-hit');
   let tools = [];
   function renderTools() {
     toolsWrap.style.display = tools.length ? 'flex' : 'none';
@@ -466,7 +467,7 @@ export async function init(ctx) {
     const kind = o.kind || 'info';
     const ic = o.icon || { field: 'land', sell: 'coin', warn: 'warn', job: 'jobs' }[kind];
     const html = `<div class="b">${ic ? iconSvg(ic) : ''}<span>${esc(o.text || '')}</span></div><span class="dot"></span>`;
-    if (L.html !== html || L.kind !== kind) { L.html = html; L.kind = kind; L.el.className = 'hv-wl ' + kind; L.el.innerHTML = html; }
+    if (L.html !== html || L.kind !== kind) { L.html = html; L.kind = kind; L.w = 0; L.hid = false; L.el.className = 'hv-wl ' + kind; L.el.innerHTML = html; }
     return true;
   }
   function removeWorldLabel(id) {
@@ -486,7 +487,51 @@ export async function init(ctx) {
       if (!vis) continue;
       const px = Math.round(s.sx), py = Math.round(s.sy);
       if (px !== L.px || py !== L.py) { L.px = px; L.py = py; L.el.style.transform = `translate(${px}px,${py}px)`; }
+      if (!L.w) { const b = L.el.firstChild; L.w = b ? b.offsetWidth : 0; L.h = b ? b.offsetHeight : 0; }
+      const x0 = px - L.w / 2 - 4, x1 = px + L.w / 2 + 4, y0 = py - L.h - 13, y1 = py + 4;
+      let hit = x0 < 2 || x1 > cw - 2 || y0 < 2;
+      for (let i = 0; !hit && i < hudRects.length; i++) { const r = hudRects[i]; hit = x0 < r.right && x1 > r.left && y0 < r.bottom && y1 > r.top; }
+      if (hit !== !!L.hid) { L.hid = hit; L.el.classList.toggle('hid', hit); }
     }
+  }
+  // ---------------------------------------------------------------- layout (panel size, toasts, HUD rects)
+  let hudRects = [];
+  let pointer = null;
+  function layout() {
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const tr = slots.tr.getBoundingClientRect(), tl = slots.tl.getBoundingClientRect(), tc = slots.tc.getBoundingClientRect();
+    const side = Math.max(tr.width, tl.width) + 14 + 12;
+    const pw = Math.round(Math.max(360, Math.min(700, vw - 2 * side)));
+    panelWrap.style.width = pw + 'px';
+    const top = Math.round(tc.bottom + 48);
+    panelWrap.style.top = top + 'px';
+    const left = (vw - pw) / 2, right = left + pw;
+    let bottom = vh - 14;
+    const rects = [];
+    for (const k of ['bl', 'bc', 'br', 'tl', 'tc', 'tr']) {
+      for (const c of slots[k].children) {
+        for (const n of (c.classList.contains('bare') ? c.querySelectorAll('.hv-card, .hv-toolname') : [c])) {
+          const r = n.getBoundingClientRect();
+          if (!r.width || !r.height) continue;
+          rects.push(r);
+          if (k[0] === 'b' && r.right > left && r.left < right) bottom = Math.min(bottom, r.top);
+        }
+      }
+    }
+    const tabsH = 34;
+    panelWrap.style.setProperty('--hv-pmax', Math.max(160, Math.round(bottom - 12 - top - tabsH)) + 'px');
+    toastBox.style.top = Math.round(tr.bottom + 12) + 'px';
+    const avail = current ? vw - right - 14 - 10 : 330;
+    toastBox.style.width = Math.round(Math.max(190, Math.min(330, avail))) + 'px';
+    for (const t of toasts) if (!t.out) rects.push(t.el.getBoundingClientRect());
+    if (current) for (const n of panelWrap.children) rects.push(n.getBoundingClientRect());
+    hudRects = rects;
+  }
+  function recheckCapture() {
+    if (modal) { ctx.input.uiCapturing = true; return; }
+    if (!pointer) { ctx.input.uiCapturing = false; return; }
+    const t = document.elementFromPoint(pointer.x, pointer.y);
+    ctx.input.uiCapturing = !!(t && t.closest && t.closest('.hv-hit') && root.contains(t));
   }
 
   // ---------------------------------------------------------------- confirm dialog
@@ -506,8 +551,9 @@ export async function init(ctx) {
         finish(v) {
           if (modal !== m) return;
           modal = null;
-          ctx.input.uiCapturing = false;
+          back.style.pointerEvents = 'none';
           back.classList.remove('on');
+          recheckCapture();
           setTimeout(() => back.remove(), 200);
           resolve(!!v);
         },
@@ -539,24 +585,28 @@ export async function init(ctx) {
       return;
     }
     if (ev.code === 'Escape' && current) { closePanel(); ev.stop = true; return; }
-    for (const p of panels.values()) if (p.hotkey && p.hotkey === ev.code) { togglePanel(p.id); return; }
-    if (ev.code === 'Space') { setSpeed(W.time.paused ? W.ui.speed : 0); return; }
+    for (const m of ['ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']) if (held.has(m)) return;
+    for (const p of panels.values()) if (p.hotkey && p.hotkey === ev.code) { togglePanel(p.id); ev.stop = true; return; }
+    if (ev.code === 'Space') { setSpeed(W.time.paused ? W.ui.speed : 0); ev.stop = true; return; }
     if (ev.code === 'Equal' || ev.code === 'NumpadAdd') {
       const i = SPEEDS.indexOf(W.ui.speed);
       setSpeed(W.time.paused ? W.ui.speed : SPEEDS[Math.min(SPEEDS.length - 1, i + 1)]);
+      ev.stop = true;
       return;
     }
     if (ev.code === 'Minus' || ev.code === 'NumpadSubtract') {
       const i = SPEEDS.indexOf(W.ui.speed);
       if (i <= 0) setSpeed(0); else setSpeed(SPEEDS[i - 1]);
+      ev.stop = true;
       return;
     }
     const t = tools.find((q) => q.hotkey === ev.code);
-    if (t) selectTool(t.id, true);
+    if (t) { selectTool(t.id, true); ev.stop = true; }
   });
   const CAPTURE = '.hv-hit';
   const onPointer = (e) => {
     const t = e.target;
+    pointer = { x: e.clientX, y: e.clientY };
     ctx.input.uiCapturing = !!modal || !!(t && t.closest && t.closest(CAPTURE) && root.contains(t));
   };
   window.addEventListener('pointermove', onPointer, true);
@@ -594,10 +644,15 @@ export async function init(ctx) {
   on('clock:day', () => { if (current) current.sig = null; });
 
   // ---------------------------------------------------------------- frame
-  let slowT = 0, panelT = 0, hudT = 0, night = null;
+  let slowT = 0, panelT = 0, hudT = 0, night = null, layoutT = 1, demoDelay = 0, demoDelta = 0;
+  const onResize = () => { layoutT = 1; };
+  window.addEventListener('resize', onResize);
   function frame(dt) {
     dt = Math.min(0.1, dt || 0);
+    if (demoDelay > 0) { demoDelay -= dt; if (demoDelay <= 0) { const v = data.money(); if (v != null) { M.shown = v - demoDelta; M.target = v - demoDelta; } } }
     updateMoney(dt);
+    layoutT += dt;
+    if (layoutT >= 0.5) { layoutT = 0; layout(); }
     updateClock();
     updateLabels();
     updateToasts(dt);
@@ -643,7 +698,7 @@ export async function init(ctx) {
   };
   const hooks = {
     invalidateMinimap: () => { mini.invalidate(); miniT = 1; },
-    demoMoneyDelta: (d) => { const v = data.money(); if (v != null) { M.shown = v - d; M.target = v - d; } },
+    demoMoneyDelta: (d) => { demoDelta = d; demoDelay = 0.35; },
   };
   renderTools();
   renderChars();
@@ -660,6 +715,7 @@ export async function init(ctx) {
       for (const [t, f] of offs) ctx.events.off(t, f);
       window.removeEventListener('pointermove', onPointer, true);
       window.removeEventListener('pointerdown', onPointer, true);
+      window.removeEventListener('resize', onResize);
       root.remove();
       if (INSTANCE && INSTANCE.api === api) INSTANCE = null;
     },

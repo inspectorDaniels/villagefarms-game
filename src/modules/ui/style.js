@@ -53,8 +53,12 @@ export function buildCss(P, tex) {
   font: 13px/1.35 'Segoe UI', system-ui, sans-serif; color: var(--ink);
   user-select: none; -webkit-user-select: none; -webkit-font-smoothing: antialiased;
 }
-.hv-ui.hv-night .hv-mini canvas, .hv-ui.hv-night .hv-char .pt svg { filter: brightness(.84) saturate(.9); }
-.hv-ui.hv-night { --paper: #eadcbd; --paper2: #dccaa3; --paper3: #cdb991; --shadow: 0 0 0 1px rgba(255,214,150,.10), 0 2px 3px rgba(0,0,0,.35), 0 6px 22px rgba(0,0,0,.45); }
+.hv-ui.hv-night .hv-mini canvas { filter: brightness(.6) saturate(.7) sepia(.25); }
+.hv-ui.hv-night .hv-char .pt svg { filter: brightness(.8) saturate(.85); }
+.hv-ui.hv-night .hv-card, .hv-ui.hv-night .hv-tabs button, .hv-ui.hv-night .hv-wl .b { filter: brightness(.86) sepia(.12); }
+.hv-ui.hv-night .hv-panel, .hv-ui.hv-night .hv-dialog { filter: brightness(.93) sepia(.08); }
+.hv-ui.hv-night .hv-launch button { filter: brightness(.86); }
+.hv-ui.hv-night { --paper: #eadcbd; --paper2: #dccaa3; --paper3: #cdb991; --shadow: 0 0 0 1px rgba(255,196,120,.22), 0 0 16px rgba(255,170,80,.16), 0 2px 3px rgba(0,0,0,.4), 0 6px 22px rgba(0,0,0,.5); --note: #eadcbc; }
 .hv-ui * { box-sizing: border-box; }
 .hv-ui .hv-hit { pointer-events: auto; }
 .hv-ui .hv-serif { font-family: Georgia, 'Times New Roman', serif; }
@@ -73,7 +77,6 @@ export function buildCss(P, tex) {
 
 /* ---------- slots ---------- */
 .hv-ui .hv-slot { position: absolute; display: flex; gap: 10px; pointer-events: none; }
-.hv-ui .hv-slot > * { pointer-events: auto; }
 .hv-ui .hv-slot.tl { top: 14px; left: 14px; flex-direction: column; align-items: flex-start; }
 .hv-ui .hv-slot.tc { width: max-content; top: 12px; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; }
 .hv-ui .hv-slot.tr { top: 14px; right: 14px; flex-direction: column; align-items: flex-end; }
@@ -81,7 +84,7 @@ export function buildCss(P, tex) {
 .hv-ui .hv-slot.bc { width: max-content; bottom: 14px; left: 50%; transform: translateX(-50%); flex-direction: column; align-items: center; }
 .hv-ui .hv-slot.br { bottom: 14px; right: 14px; flex-direction: column; align-items: flex-end; }
 .hv-ui .hv-hud { padding: 8px 12px; }
-.hv-ui .hv-hud.bare { padding: 0; background: none; border: 0; box-shadow: none; }
+.hv-ui .hv-hud.bare { padding: 0; background: none; border: 0; box-shadow: none; pointer-events: none; }
 
 /* ---------- money ---------- */
 .hv-ui .hv-money { display: flex; align-items: center; gap: 10px; padding: 7px 16px 8px 10px; min-width: 196px; }
@@ -179,8 +182,8 @@ export function buildCss(P, tex) {
   border-left: 1px solid rgba(116,96,63,.3); font: italic 10.5px Georgia, serif; color: var(--ink2); }
 
 /* ---------- toasts ---------- */
-.hv-ui .hv-toasts { position: absolute; right: 14px; top: 262px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; width: 330px; pointer-events: none; }
-.hv-ui .hv-toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; max-width: 330px; padding: 9px 14px 9px 10px; font-size: 13px;
+.hv-ui .hv-toasts { position: absolute; right: 14px; top: 262px; transition: width .2s; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; width: 330px; pointer-events: none; }
+.hv-ui .hv-toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 10px; max-width: 100%; padding: 9px 14px 9px 10px; font-size: 13px;
   opacity: 0; transform: translateX(24px); transition: opacity .3s, transform .35s cubic-bezier(.2,.9,.3,1.2); }
 .hv-ui .hv-toast.on { opacity: 1; transform: none; }
 .hv-ui .hv-toast.out { opacity: 0; transform: translateX(16px); transition: opacity .4s, transform .4s; }
@@ -195,7 +198,8 @@ export function buildCss(P, tex) {
 
 /* ---------- world labels ---------- */
 .hv-ui .hv-labels { position: absolute; inset: 0; pointer-events: none; }
-.hv-ui .hv-wl { position: absolute; left: 0; top: 0; will-change: transform; pointer-events: none; }
+.hv-ui .hv-wl { position: absolute; left: 0; top: 0; will-change: transform; pointer-events: none; transition: opacity .25s; }
+.hv-ui .hv-wl.hid { opacity: 0; }
 .hv-ui .hv-wl .b { transform: translate(-50%, calc(-100% - 9px)); display: flex; align-items: center; gap: 6px; white-space: nowrap; padding: 3px 10px 3px 7px;
   border-radius: 12px; font: 12.5px Georgia, serif; color: var(--ink); background: rgba(243,234,214,.94);
   box-shadow: 0 0 0 1px rgba(116,96,63,.6), 0 2px 5px rgba(30,20,8,.3); position: relative; }
@@ -219,7 +223,7 @@ export function buildCss(P, tex) {
 .hv-ui .hv-tabs button .hv-ic { width: 16px; height: 16px; }
 .hv-ui .hv-tabs button:hover { transform: translateY(1px); color: var(--ink); }
 .hv-ui .hv-tabs button.on { background-color: var(--paper); color: var(--ink); font-weight: 600; transform: none; padding-bottom: 9px; }
-.hv-ui .hv-panel { pointer-events: auto; display: flex; flex-direction: column; max-height: calc(100vh - 118px - 150px); }
+.hv-ui .hv-panel { pointer-events: auto; display: flex; flex-direction: column; max-height: var(--hv-pmax, calc(100vh - 118px - 170px)); }
 .hv-ui .hv-panel .hd { display: flex; align-items: center; gap: 10px; padding: 12px 14px 10px 18px; border-bottom: 1px solid rgba(116,96,63,.35);
   box-shadow: 0 1px 0 rgba(255,250,236,.7); }
 .hv-ui .hv-panel .hd .pi { color: var(--accent); } .hv-ui .hv-panel .hd .pi .hv-ic { width: 26px; height: 26px; }
@@ -289,7 +293,7 @@ export function buildCss(P, tex) {
 
 /* jobs */
 .hv-ui .hv-jobs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.hv-ui .hv-job { position: relative; padding: 13px 13px 11px; border-radius: 3px; background-color: #f8f1df; background-image: var(--tex); background-blend-mode: multiply;
+.hv-ui .hv-job { position: relative; padding: 13px 13px 11px; border-radius: 3px; background-color: var(--note, #f8f1df); background-image: var(--tex); background-blend-mode: multiply;
   box-shadow: 0 0 0 1px rgba(116,96,63,.35), 0 2px 4px rgba(40,26,10,.18); display: flex; flex-direction: column; gap: 6px; }
 .hv-ui .hv-job:nth-child(3n+1) { transform: rotate(-.5deg); } .hv-ui .hv-job:nth-child(3n+2) { transform: rotate(.45deg); }
 .hv-ui .hv-job::before { content: ''; position: absolute; top: -5px; left: 50%; width: 11px; height: 11px; margin-left: -5px; border-radius: 50%;

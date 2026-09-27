@@ -6,8 +6,9 @@ import { clamp, smooth } from './sky.js';
 
 const FIELD_N = 160;          // cloud / fog noise field resolution (tileable)
 const CLOUD_PERIOD = 720;     // metres per cloud tile
-const FOG_PERIOD_A = 150;     // metres per fog bank tile (large banks)
-const FOG_PERIOD_B = 64;      // smaller wisps
+const FOG_PERIOD_A = 240;     // metres per fog bank tile (banks)
+const FOG_PERIOD_B = 96;      // smaller wisps
+const FOG_PERIOD_C = 900;     // valley-scale density variation
 
 function makeCanvas(w, h) {
   const c = document.createElement('canvas');
@@ -101,8 +102,8 @@ export function createFx(ctx) {
       g.putImageData(img, 0, 0);
       return c;
     };
-    fogCanvasA = build(cloudField, 0.28, 0.78, 0);
-    fogCanvasB = build(detailField, 0.35, 0.85, 57);
+    fogCanvasA = build(cloudField, 0.12, 0.95, 0);      // wide window → soft bank edges
+    fogCanvasB = build(detailField, 0.2, 1.0, 57);
   }
 
   /** fill the view with `img` repeated every `period` metres, offset (ox, oy) metres — seamless pattern */
@@ -233,14 +234,19 @@ export function createFx(ctx) {
     if (f < 0.02) return;
     w.windAng = Math.atan2(w.wind.y, w.wind.x);
     fogTextures();
-    // even milky veil (fog is everywhere) …
-    g.fillStyle = `rgba(214,219,222,${0.2 * f + 0.12 * f * f})`;
+    // thin milky veil (fog is everywhere) …
+    g.fillStyle = `rgba(214,219,222,${0.1 * f})`;
     g.fillRect(view.x0, view.y0, view.x1 - view.x0, view.y1 - view.y0);
-    // … plus drifting banks at two scales for depth
-    g.globalAlpha = clamp(0.62 * f, 0, 0.62);
-    tile(g, fogCanvasA, FOG_PERIOD_A, drift.x * 0.35 % FOG_PERIOD_A, drift.y * 0.35 % FOG_PERIOD_A, view, 'fogA', w.windAng, 2.2);
-    g.globalAlpha = clamp(0.4 * f, 0, 0.4);
-    tile(g, fogCanvasB, FOG_PERIOD_B, (drift.x * 0.6 + 17) % FOG_PERIOD_B, (drift.y * 0.6 + 31) % FOG_PERIOD_B, view, 'fogB', w.windAng, 1.6);
+    // … low-frequency density (whole valleys thicker/thinner), then banks and wisps at two more
+    // scales, each rotated differently so their slight stretch never lines up into streaks.
+    // Opacities are capped so gameplay objects keep roughly half their contrast.
+    const A = w.windAng;
+    g.globalAlpha = 0.18 * f;
+    tile(g, fogCanvasA, FOG_PERIOD_C, (drift.x * 0.2) % FOG_PERIOD_C, (drift.y * 0.2) % FOG_PERIOD_C, view, 'fogC', A + 1.9, 1.15);
+    g.globalAlpha = 0.28 * f;
+    tile(g, fogCanvasA, FOG_PERIOD_A, (drift.x * 0.35) % FOG_PERIOD_A, (drift.y * 0.35) % FOG_PERIOD_A, view, 'fogA', A + 0.45, 1.25);
+    g.globalAlpha = 0.18 * f;
+    tile(g, fogCanvasB, FOG_PERIOD_B, (drift.x * 0.6 + 17) % FOG_PERIOD_B, (drift.y * 0.6 + 31) % FOG_PERIOD_B, view, 'fogB', A - 0.7, 1.2);
     g.globalAlpha = 1;
   }
 
@@ -273,28 +279,36 @@ export function createFx(ctx) {
   function drawScreen(g, view, st) {
     const W = view.w, H = view.h;
     const w = st.weather;
-    // golden-hour grade: warm light washing in from the sun's side of the screen
-    const golden = st.golden;
+    const golden = st.golden, night = st.night, dusk = st.dusk || 0;
+    // golden hour: warm light *added* from the sun's side (screen blend only ever lifts),
+    // plus a touch of saturation so greens glow instead of going olive
     if (golden > 0.01) {
       const ax = -st.shadowDir.x, ay = -st.shadowDir.y;       // toward the sun
       const cx = W / 2, cy = H / 2, R = Math.hypot(W, H) / 2;
       const gr = g.createLinearGradient(cx + ax * R, cy + ay * R, cx - ax * R, cy - ay * R);
-      gr.addColorStop(0, `rgba(255,170,92,${0.5 * golden})`);
-      gr.addColorStop(0.5, `rgba(255,190,120,${0.22 * golden})`);
-      gr.addColorStop(1, `rgba(150,120,170,${0.16 * golden})`);
-      g.globalCompositeOperation = 'soft-light';
+      gr.addColorStop(0, `rgba(255,176,86,${0.26 * golden})`);
+      gr.addColorStop(0.55, `rgba(255,196,120,${0.1 * golden})`);
+      gr.addColorStop(1, 'rgba(255,210,150,0)');
+      g.globalCompositeOperation = 'screen';
       g.fillStyle = gr;
       g.fillRect(0, 0, W, H);
-    }
-    // night: moonlight blue wash (scotopic vision is blue-shifted and colour-poor)
-    const night = st.night;
-    if (night > 0.02) {
-      g.globalCompositeOperation = 'soft-light';
-      g.fillStyle = `rgba(70,96,170,${0.55 * night})`;
+      g.globalCompositeOperation = 'overlay';
+      g.fillStyle = `rgba(255,190,120,${0.12 * golden})`;
       g.fillRect(0, 0, W, H);
     }
-    // grey days lose saturation (gouache greys), fog most of all
-    const desat = clamp(0.2 * w.cloudCover + 0.12 * w.rain + 0.25 * w.fog + 0.1 * w.storm + 0.28 * night, 0, 0.6);
+    // blue hour and night: a cool lift (screen), never a darkening
+    if (dusk > 0.02) {
+      g.globalCompositeOperation = 'screen';
+      g.fillStyle = `rgba(70,52,120,${0.22 * dusk})`;
+      g.fillRect(0, 0, W, H);
+    }
+    if (night > 0.02) {
+      g.globalCompositeOperation = 'screen';
+      g.fillStyle = `rgba(22,34,70,${0.5 * night})`;
+      g.fillRect(0, 0, W, H);
+    }
+    // grey days lose saturation (gouache greys), fog most of all — never during golden light
+    const desat = clamp((0.2 * w.cloudCover + 0.12 * w.rain + 0.22 * w.fog + 0.1 * w.storm) * (1 - golden) + 0.12 * night, 0, 0.5);
     if (desat > 0.02) {
       g.globalCompositeOperation = 'saturation';
       g.globalAlpha = desat;
@@ -303,18 +317,19 @@ export function createFx(ctx) {
       g.globalAlpha = 1;
     }
     g.globalCompositeOperation = 'source-over';
-    // vignette: subtle by day, deeper at night and in storms
-    const vig = clamp(0.2 + 0.28 * st.night + 0.18 * w.storm + 0.08 * w.rain, 0, 0.62);
+    // vignette: subtle; capped so the night floor survives at the screen edge
+    const vig = Math.min(0.35, 0.16 + 0.12 * night + 0.1 * w.storm + 0.05 * w.rain);
     g.globalAlpha = vig;
     g.drawImage(getVignette(W, H), 0, 0, W, H);
     g.globalAlpha = 1;
-    // lightning: the whole sky lights up, strongest around the (off-screen) strike
+    // lightning: a hard, cold, very short sheet of light, brightest toward the strike
     if (st.flash > 0.01) {
-      g.globalCompositeOperation = 'lighter';
+      g.globalCompositeOperation = 'screen';
       const fx = st.flashAt.x * W, fy = st.flashAt.y * H;
-      const gr = g.createRadialGradient(fx, fy, 0, fx, fy, Math.hypot(W, H) * 0.9);
-      gr.addColorStop(0, `rgba(210,220,255,${0.5 * st.flash})`);
-      gr.addColorStop(1, `rgba(170,185,235,${0.14 * st.flash})`);
+      const gr = g.createRadialGradient(fx, fy, 0, fx, fy, Math.hypot(W, H) * 0.8);
+      gr.addColorStop(0, `rgba(200,214,255,${0.45 * st.flash})`);
+      gr.addColorStop(0.4, `rgba(150,170,235,${0.18 * st.flash})`);
+      gr.addColorStop(1, 'rgba(120,140,220,0)');
       g.fillStyle = gr;
       g.fillRect(0, 0, W, H);
       g.globalCompositeOperation = 'source-over';

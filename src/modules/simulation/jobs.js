@@ -48,15 +48,17 @@ export function installJobs(sim) {
     const job = {
       id: `simulation:job:${J.nextId++}`, type, client: client.name, clientFarm: client.farm,
       unit: T.unit, requiresMachine: T.machine, progress: 0, status: 'offered', offeredDay: day,
-      parcelId: null, from: null, to: null, crop: null, x: null, y: null,
+      parcelId: null, from: null, to: null, crop: null, x: null, y: null, needs: T.needs || null,
     };
     let amount = rng.range(T.amount[0], T.amount[1]);
-    let distFactor = 1;
-    if (AREA.includes(type) && npcParcels.length && rng.chance(0.85)) {
+    let km = 0;
+    if (AREA.includes(type) && npcParcels.length) {
       const p = rng.pick(npcParcels);
       job.parcelId = p.id; job.x = p.center[0]; job.y = p.center[1];
       amount = Math.max(0.3, p.area / 1e4);
       job.to = place(p);
+    } else if (AREA.includes(type) || PRESENCE.includes(type) || type === 'snowClear') {
+      job.to = { kind: 'farm', name: client.farm }; // always somewhere to go
     }
     if (type === 'sow' || type === 'harvest') {
       const opts = CROP_FOR[type].filter((c) => (type === 'sow' ? CROPS[c].sowMonths : CROPS[c].harvestMonths).includes(m));
@@ -72,8 +74,9 @@ export function installJobs(sim) {
       job.to = place(dst) || { kind: 'place', name: 'Coöperatie depot' };
       if (job.from.x != null && job.to.x != null) {
         const d = Math.hypot(job.to.x - job.from.x, job.to.y - job.from.y);
-        distFactor = 1 + Math.min(1.5, d / 1500);
+        km = 1.5 + (d / 1000) * 1.4; // by road, plus the yard-to-gate part
       }
+      else km = 3;
       if (crop === 'sugarBeet' || crop === 'potatoes') amount *= 1.6;
       job.x = job.from.x; job.y = job.from.y;
     }
@@ -87,9 +90,11 @@ export function installJobs(sim) {
     if (PRESENCE.includes(type) || type === 'snowClear') amount = Math.round(amount * 2) / 2;
     job.amount = type === 'transport' ? Math.round(amount) : +amount.toFixed(type === 'deliver' ? 0 : 1);
 
-    const repMult = 0.9 + 0.2 * rec.rep;
-    let pay = T.rate * job.amount * distFactor * repMult * rng.range(0.92, 1.12);
-    if (type === 'harvest' && (job.crop === 'potatoes' || job.crop === 'sugarBeet')) pay *= 1.6; // lifting is slower
+    const repMult = 0.92 + 0.16 * rec.rep;
+    const unitRate = type === 'transport' ? T.rate + T.perTkm * km : T.rate;
+    let pay = unitRate * job.amount * repMult * (1 + T.spread * (rng.float() * 2 - 1));
+    if (type === 'harvest' && (job.crop === 'potatoes' || job.crop === 'sugarBeet')) { pay *= 1.6; job.needs = 'harvester'; } // lifting roots
+    if (km) job.km = +km.toFixed(1);
     job.pay = Math.max(40, Math.round(pay / 5) * 5);
     const quick = PRESENCE.includes(type) || type === 'snowClear';
     job.deadlineDay = day + (quick ? rng.int(1, 2) : rng.int(2, 4));
@@ -120,8 +125,9 @@ export function installJobs(sim) {
 
   function settleRep(j, delta) {
     const c = J.clients[j.client];
-    if (c) { c.rep = Math.max(0, Math.min(1, c.rep + delta)); if (delta > 0) c.done++; else c.failed++; }
-    J.reputation = Math.max(0, Math.min(1, J.reputation + (delta > 0 ? 0.02 : -0.08)));
+    // diminishing returns on success, sharp loss on failure; see jobsDay for the slow decay toward neutral
+    if (c) { c.rep = Math.max(0, Math.min(1, delta > 0 ? c.rep + delta * (1 - c.rep) : c.rep + delta)); if (delta > 0) c.done++; else c.failed++; }
+    J.reputation = Math.max(0, Math.min(1, delta > 0 ? J.reputation + 0.03 * (1 - J.reputation) : J.reputation - 0.08));
   }
 
   Object.assign(api, {
@@ -136,7 +142,7 @@ export function installJobs(sim) {
     acceptJob(id) {
       const j = find(id);
       if (!j || j.status !== 'offered') return false;
-      if (J.list.filter((x) => x.status === 'accepted').length >= 5) return false;
+      if (J.list.filter((x) => x.status === 'accepted').length >= CONST.maxActiveJobs) return false;
       j.status = 'accepted'; j.acceptedDay = sim.today();
       sim.world.economy.version++;
       sim.emit('jobs:accepted', pub(j));
@@ -165,7 +171,7 @@ export function installJobs(sim) {
       const paid = Math.round(j.pay * Math.min(1, j.progress) * (early ? 1.05 : 1));
       j.status = 'completed'; j.completedDay = sim.today(); j.paid = paid; j.progress = Math.min(1, j.progress);
       api.credit(paid, 'jobs', `${j.title} for ${j.clientFarm}${early ? ' (early bonus)' : ''}`);
-      settleRep(j, 0.06);
+      settleRep(j, 0.12);
       J.stats.completed++; J.stats.earned += paid;
       sim.emit('jobs:completed', pub(j));
       return paid;
@@ -193,7 +199,11 @@ export function installJobs(sim) {
     J.list = J.list.filter((j) => !((j.status === 'expired' && day - j.expiresDay > 2) || ((j.status === 'completed' || j.status === 'failed') && day - (j.completedDay || j.failedDay || day) > 12)));
     const rng = sim.rngFor('jobs:' + day);
     const open = J.list.filter((j) => j.status === 'offered').length;
-    let n = rng.weighted([[0, 1], [1, 3], [2, 3.5], [3, 2]]) + (J.reputation > 0.7 ? 1 : 0);
+    if (((day % YEAR_DAYS) + YEAR_DAYS) % MONTH_DAYS === 0) { // monthly drift back toward neutral
+      J.reputation += (0.5 - J.reputation) * 0.04;
+      for (const c of Object.values(J.clients)) c.rep += (0.5 - c.rep) * 0.04;
+    }
+    let n = rng.weighted([[2, 3], [3, 3], [4, 1.5]]) + (J.reputation > 0.8 && rng.chance(0.5) ? 1 : 0);
     n = Math.min(n, CONST.maxOpenOffers - open);
     for (let i = 0; i < n; i++) makeOffer(day, rng);
   }

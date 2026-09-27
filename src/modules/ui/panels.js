@@ -2,7 +2,7 @@
 // through the data adapter; every one has a finished-looking empty state.
 import { icon } from './icons.js';
 import { MONTH_NAMES } from '../../core/clock.js';
-import { DAY_SECONDS, YEAR_DAYS, MONTH_DAYS } from '../../core/world.js';
+import { DAY_SECONDS, YEAR_DAYS, MONTH_DAYS, START_DAY_OF_YEAR } from '../../core/world.js';
 
 // ------------------------------------------------------------------ formatting
 export function esc(s) {
@@ -60,7 +60,8 @@ function balanceChart(hist, uid) {
   const W = 640, H = 150, L = 54, R = 58, T = 12, B = 22;
   const vals = hist.map((h) => h.balance);
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  if (hi - lo < 1) { hi += 500; lo -= 500; }
+  const mid = (hi + lo) / 2, minSpan = Math.max(400, Math.abs(mid) * 0.1);
+  if (hi - lo < minSpan) { lo = mid - minSpan / 2; hi = mid + minSpan / 2; }
   const step = niceStep(hi - lo, 3);
   lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
   const x = (i) => L + (i / Math.max(1, hist.length - 1)) * (W - L - R);
@@ -70,14 +71,10 @@ function balanceChart(hist, uid) {
     grid += `<line x1="${L}" x2="${W - R}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}" stroke="rgba(116,96,63,.28)" stroke-dasharray="2 3"/>`;
     grid += `<text x="${L - 7}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${step >= 1000 ? money(v, { compact: true, dec: 0 }) : money(v, { dec: 0 })}</text>`;
   }
-  // gently wobbled ink line (hand-drawn), deterministic
-  const pts = hist.map((h, i) => [x(i), y(h.balance) + Math.sin(i * 2.3) * 0.35]);
+  // steps: the ledger is discrete (balance holds, then changes at the day boundary)
+  const pts = hist.map((h, i) => [x(i), y(h.balance)]);
   let line = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) {
-    const [px, py] = pts[i - 1], [cx, cy] = pts[i];
-    const mx = (px + cx) / 2;
-    line += ` C${mx.toFixed(1)} ${py.toFixed(1)} ${mx.toFixed(1)} ${cy.toFixed(1)} ${cx.toFixed(1)} ${cy.toFixed(1)}`;
-  }
+  for (let i = 1; i < pts.length; i++) line += ` H${pts[i][0].toFixed(1)} V${pts[i][1].toFixed(1)}`;
   const area = `${line} L${x(hist.length - 1).toFixed(1)} ${H - B} L${L} ${H - B} Z`;
   const last = pts[pts.length - 1];
   const up = vals[vals.length - 1] >= vals[0];
@@ -131,7 +128,8 @@ export function builtinPanels(K) {
       if (m == null) { el.innerHTML = empty('ledger', 'The books are closed', 'No accounts have been opened for this farm yet. Income and expenses will be written here as they happen.'); return; }
       const sum = data.summary(30);
       const net = sum.income - sum.expenses;
-      const hist = data.balanceHistory(30);
+      let hist = data.balanceHistory(30);
+      if (!data.usingSample) hist = hist.filter((h) => h.day >= START_DAY_OF_YEAR);
       const led = data.ledger(14);
       const loans = data.loans();
       const debt = loans.reduce((a, l) => a + (typeof l.balance === 'number' ? l.balance : (l.principal || 0)), 0);
@@ -140,8 +138,8 @@ export function builtinPanels(K) {
         <div class="hv-stat"><div class="k">${icon('up')}Income · 30 days</div><div class="v pos">${money(sum.income, { dec: 0 })}</div><div class="s">Sales, contracts &amp; produce</div></div>
         <div class="hv-stat"><div class="k">${icon('down')}Expenses · 30 days</div><div class="v neg">${money(-sum.expenses, { dec: 0 })}</div><div class="s">Net ${money(net, { sign: true, dec: 0 })}</div></div>
       </div>`;
-      h += `<h3>Balance, last 30 days</h3>`;
-      h += hist.length > 1 ? balanceChart(hist, ++uid) : empty('ledger', 'No history yet', 'The balance chart fills in as the days go by.');
+      h += `<h3>Balance${hist.length > 1 ? ', last ' + hist.length + ' days' : ''}</h3>`;
+      h += hist.length > 1 ? balanceChart(hist, ++uid) : empty('calendar', 'Day one on the farm', 'The balance chart fills in as the days go by.');
       // expense breakdown
       const cats = Object.entries(sum.byCategory).filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1]).slice(0, 5);
       if (cats.length) {
@@ -203,7 +201,7 @@ export function builtinPanels(K) {
         for (const sp of sps) {
           h += `<div class="hv-stat" style="display:flex;gap:10px;align-items:center"><span class="ico" style="width:30px;height:30px;display:grid;place-items:center;color:#9a6c16">${icon('pin')}</span>
             <div style="min-width:0"><div style="font:600 14px Georgia,serif">${esc(sp.name || sp.id)}</div>
-            <div class="muted" style="display:flex;gap:4px;margin-top:3px">${(sp.accepts || []).slice(0, 6).map((a) => `<span title="${esc(a)}" style="display:inline-flex">${icon(({ wheat: 'wheat', barley: 'wheat', oats: 'wheat', maize: 'maize', rapeseed: 'rapeseed', potatoes: 'potato', sugarBeet: 'beet', milk: 'milk', eggs: 'egg', wool: 'wool', hay: 'hay', straw: 'hay' })[a] || 'coin')}</span>`).join('')}</div></div></div>`;
+            <div class="muted" style="display:flex;gap:4px;margin-top:3px">${(sp.accepts || []).slice(0, 6).map((a) => `<span title="${esc(a)}" style="display:inline-flex">${icon(({ wheat: 'wheat', barley: 'barley', oats: 'oats', maize: 'maize', rapeseed: 'rapeseed', potatoes: 'potato', sugarBeet: 'beet', milk: 'milk', eggs: 'egg', wool: 'wool', hay: 'hay', straw: 'hay' })[a] || 'coin')}</span>`).join('')}</div></div></div>`;
         }
         h += `</div>`;
       }
@@ -244,7 +242,7 @@ export function builtinPanels(K) {
             : `<span class="due ${left <= 1 ? 'soon' : ''}">${icon('clock')} ${left <= 0 ? 'Due today' : left === 1 ? '1 day left' : left + ' days left'}</span>`;
           const amt = j.amount != null ? `${+(+j.amount).toFixed(1)} ${esc(j.unit || '')}` : '';
           h += `<div class="hv-job ${g === 'done' ? 'done ' + (j.status === 'failed' ? 'failed' : '') : ''}" data-stamp="${j.status === 'failed' ? 'MISSED' : 'DONE'}">
-            <div class="top"><span class="ico">${icon(ic)}</span><span class="kind">${esc(kind)}</span>${amt ? `<span class="chip">${amt}</span>` : ''}</div>
+            <div class="top"><span class="ico">${icon(ic)}</span><span class="kind">${esc(kind)}</span>${amt && !String(j.title || '').includes(String(+(+j.amount).toFixed(1))) ? `<span class="chip">${amt}</span>` : ''}</div>
             <div class="ttl">${esc(j.title || kind)}</div>
             <div class="who">${icon('person')}${esc(j.client || 'A neighbour')}</div>
             ${g === 'active' ? `<div style="display:flex;align-items:center;gap:8px;margin-top:2px"><div class="hv-bar" style="flex:1"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div><span class="muted" style="font-size:11.5px;width:32px;text-align:right">${Math.round((j.progress || 0) * 100)}%</span></div>` : ''}

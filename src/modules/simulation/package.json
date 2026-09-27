@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "Marks the simulation module's .js files as ES modules for headless Node tests (tests/progression.mjs). No effect in the browser."
+}

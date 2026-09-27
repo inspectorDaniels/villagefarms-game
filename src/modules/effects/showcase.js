@@ -482,7 +482,7 @@ export const showcase = {
     const envApi = ctx.modules.get('environment');
     const envHasWeather = () => { const e = world.environment || {}; return !!(e.weather && e.weather.kind); };
     if (envApi && typeof envApi.setWeather === 'function' && !ctx.params.weather) {
-      envApi.setWeather(W.kind === 'cloudy' ? 'cloudy' : W.kind, W.intensity || undefined);
+      envApi.setWeather(W.kind, W.intensity || 0.7, { instant: true });
     }
     // fallbacks used only while environment/terrain are not providing data
     hooks.weather = Object.assign({}, W);
@@ -568,7 +568,7 @@ export const showcase = {
     const addTractorFx = (v, { dust = 12, exhaust = 5, trailType = 'tyre', trail = true, dustColor } = {}) => {
       const dl = api.emitter('dust', { rate: dust, color: dustColor });
       const dr = api.emitter('dust', { rate: dust, color: dustColor });
-      const ex = api.emitter('exhaust', { rate: exhaust * 1.6, z: 2.8 });
+      const ex = api.emitter('exhaust', { rate: exhaust, z: 2.8, life: 1.5 });
       E.push(() => {
         const moving = Math.abs(v.speed) > 0.01;
         const [lx, ly] = local(v, -0.97, 1.9), [rx, ry] = local(v, 0.97, 1.9);
@@ -591,7 +591,7 @@ export const showcase = {
       const dirSign = wx > 0.2 ? -1 : 1;
       const tA = trackVehicle('sc:tA', (preset === 'closeup' ? 54 : 56) - dirSign * 4, 2.2 * dirSign, palette.paint.tractorRed);
       vehicles.push(tA);
-      addTractorFx(tA, { dust: preset === 'winter' ? 0 : 6, dustColor: '#a88b64' });
+      addTractorFx(tA, { dust: preset === 'winter' ? 0 : 4.5, dustColor: '#a88b64' });
       if (preset === 'winter') {
         const sp1 = api.emitter('snowpuff', { rate: 10 }), sp2 = api.emitter('snowpuff', { rate: 10 });
         E.push(() => { sp1.setPosition(...local(tA, -0.97, 2.2)); sp2.setPosition(...local(tA, 0.97, 2.2)); });
@@ -603,7 +603,7 @@ export const showcase = {
         vehicles.push(tB);
         addTractorFx(tB, { dust: 3, exhaust: 4, dustColor: '#8a6a48' });
         // one emitter sweeping along the 12 m boom gives a continuous mist band
-        const mist = api.emitter('spray', { rate: 36, jitter: 0.35 });
+        const mist = api.emitter('spray', { rate: 18, jitter: 0.35, size: 0.85 });
         const boomRng = ctx.rng('showcase-boom');
         E.push(() => {
           const [x, y] = local(tB, boomRng.range(-5.9, 5.9), 3.1);
@@ -615,8 +615,8 @@ export const showcase = {
     if (preset === 'harvest') {
       const cmb = lineVehicle('sc:cmb', COMBINE_X0, COMBINE_Y, -1.2, combineSprite(art, palette), 6.8, 9.2);
       vehicles.push(cmb);
-      const chaff = api.emitter('chaff', { rate: 26, speed: 3.0, spread: 0.8 });
-      const chDust = api.emitter('dust', { rate: 7, size: 1.6, color: '#b89a64' });
+      const chaff = api.emitter('chaff', { rate: 17, speed: 3.0, spread: 0.8 });
+      const chDust = api.emitter('dust', { rate: 7, size: 1.8, color: '#d8c08a' });
       const hdDust = api.emitter('dust', { rate: 5, size: 1.2, color: '#c9ad78' });
       const exh = api.emitter('exhaust', { rate: 4, z: 3.8 });
       E.push(() => {
@@ -634,7 +634,7 @@ export const showcase = {
       pl.plough = ploughSprite(art);
       vehicles.push(pl);
       addTractorFx(pl, { dust: 3, exhaust: 4, dustColor: '#8a6a48' });
-      const clods = api.emitter('clods', { rate: 18, speed: 1.8, spread: 0.6, size: 0.3 });
+      const clods = api.emitter('clods', { rate: 11, speed: 1.8, spread: 0.6, size: 0.42 });
       const pDust = api.emitter('dust', { rate: 4, size: 1.0, color: '#8a6a48' });
       E.push(() => {
         const [cx, cy] = local(pl, 0.9, 4.2);
@@ -655,7 +655,7 @@ export const showcase = {
     }
 
     // chimney smoke (every preset) + autumn bonfire
-    api.emitter('chimney', { x: CHIMNEY.x, y: CHIMNEY.y, rate: 2.6, z: 7.2 });
+    api.emitter('chimney', { x: CHIMNEY.x, y: CHIMNEY.y, rate: 2.1, z: 7.2 });
     if (preset === 'autumn') {
       api.decal('scorch', 44.5, 56, 0.4, { size: 3 });
       api.emitter('chimney', { x: 44.5, y: 56, rate: 4, z: 0.4, size: 0.8, color: '#9d9a92' });
@@ -664,7 +664,7 @@ export const showcase = {
     // petals from the blossom tree in spring
     if (season === 'spring') {
       const bt = TREES[5];
-      const pe = api.emitter('petals', { x: bt[0], y: bt[1], rate: 3, z: 3.5, count: 1 });
+      const pe = api.emitter('petals', { x: bt[0], y: bt[1], rate: 1.6, z: 3.5, count: 1 });
       E.push(() => { const a = T.t * 1.7; pe.setPosition(bt[0] + Math.cos(a) * 1.8, bt[1] + Math.sin(a * 1.3) * 1.8); });
     }
     // sun glints on the pond on bright days
@@ -781,7 +781,7 @@ export const showcase = {
       T.t += dt;
       place();
       for (const f of E) f();
-      if (glintOn && glintRng.chance(dt * 9)) {
+      if (glintOn && glintRng.chance(dt * 5)) {
         const a = glintRng.float() * TAU, r = Math.sqrt(glintRng.float()) * 5.5;
         I.particles.emit('sparkle', POND.x + Math.cos(a) * r, POND.y + Math.sin(a) * r, { count: 1 });
       }

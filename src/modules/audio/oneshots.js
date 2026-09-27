@@ -2,7 +2,7 @@
 // o = { rng, p (pitch multiplier), dist (thunder 0..1) }.
 import {
   gain, filt, chain, noise, bufSrc, osc, perc, env, glide, shaper, mallet, bell, voice,
-  grainBuffer, walkCurve, pulseWave, wave, clamp,
+  walkCurve, pulseWave, wave, clamp, grainRecipe, ready,
 } from './synth.js';
 
 function thump(ac, out, t, f0, f1, peak, dec) {
@@ -15,14 +15,40 @@ function nburst(ac, out, R, rng, t, kind, type, f, Q, peak, a, dec) {
   chain(n, fl, g, out); perc(g.gain, t, peak, a, dec);
   return fl;
 }
-function grains(ac, out, t, rng, dur, opts, filters, peak) {
-  const b = grainBuffer(ac, dur, rng, opts);
-  const s = bufSrc(ac, b, t, dur);
-  const g = gain(ac, peak);
-  chain(s, ...filters, g, out);
-}
 const hump = (a, b, c) => (u) => (u < a ? 0 : u < b ? (u - a) / (b - a) : u < c ? 1 - (u - b) / (c - b) * 0.9 : 0.1 * Math.max(0, 1 - (u - c) * 4));
 const two = (f1, f2, w = 0.6) => (u) => Math.max(f1(u), f2(u) * w);
+
+// Granular textures are pre-baked (time-sliced, see synth.bake) as N seeded variants per recipe.
+// Each play picks a variant and varies playback rate + filter frequencies, so repeats never match.
+export const GRAINS = {
+  grass: [0.26, 4, { rate: 1400, decay: 0.0012, envf: two(hump(0, 0.08, 0.45), hump(0.3, 0.42, 0.9)) }],
+  gravel: [0.26, 4, { rate: 420, decay: 0.0032, spread: 0.95, envf: two(hump(0, 0.05, 0.4), hump(0.38, 0.45, 0.85), 0.8) }],
+  scuff: [0.07, 3, { rate: 2500, decay: 0.0005, envf: hump(0, 0.2, 1) }],
+  snow: [0.3, 4, { rate: 2600, decay: 0.0007, spread: 0.7, envf: (u) => (u < 0.18 ? u / 0.18 : u < 0.55 ? 1 : Math.max(0, 1 - (u - 0.55) / 0.4)) }],
+  clod: [0.4, 4, { rate: 70, decay: 0.004, spread: 0.9, envf: (u) => Math.max(0.05, 1 - u) }],
+  straw: [1.5, 2, { rate: 500, decay: 0.002, envf: (u) => (u < 0.1 ? u * 10 : u > 0.8 ? (1 - u) * 5 : 1) }],
+  crackle: [0.9, 3, { rate: 110, decay: 0.006, spread: 0.9, envf: (u) => Math.max(0.05, 1 - u) }],
+};
+export const GRAIN_KEYS = [];
+for (const [name, [dur, n, opts]] of Object.entries(GRAINS)) for (let i = 0; i < n; i++) GRAIN_KEYS.push(grainRecipe(`grain:${name}:${i}`, dur, opts));
+
+function grains(ac, out, t, R, rng, name, filters, peak, p = 1) {
+  const [dur, n] = GRAINS[name];
+  const buf = ready(R, `grain:${name}:${rng.int(0, n - 1)}`);
+  const j = 0.93 + rng.float() * 0.14;
+  for (const f of filters) f.frequency.value = Math.min(ac.sampleRate * 0.45, f.frequency.value * j);
+  const g = gain(ac, 0);
+  if (!buf) { // not baked yet (first seconds after unlock): cheap filtered-noise stand-in
+    const s = noise(ac, R, 'white', t, dur + 0.02, rng);
+    chain(s, ...filters, g, out);
+    env(g.gain, t, [[0, 0], [dur * 0.08, peak * 0.5], [dur * 0.4, peak * 0.25], [dur, 0]]);
+    return;
+  }
+  const rate = p * (0.9 + rng.float() * 0.2);
+  const s = bufSrc(ac, buf, t, dur / rate + 0.02, { rate });
+  g.gain.value = peak;
+  chain(s, ...filters, g, out);
+}
 
 export const ONESHOTS = {
   // ------------------------------------------------------------ UI
@@ -68,21 +94,19 @@ export const ONESHOTS = {
   // ------------------------------------------------------------ footsteps
   'footstep-grass'(ac, out, t, R, o) {
     thump(ac, out, t, 95 * o.p, 55, 0.3, 0.07);
-    grains(ac, out, t, o.rng, 0.26, { rate: 1400, decay: 0.0012, envf: two(hump(0, 0.08, 0.45), hump(0.3, 0.42, 0.9)) },
-      [filt(ac, 'bandpass', 3200 * o.p, 0.6), filt(ac, 'highpass', 900)], 0.55);
+    grains(ac, out, t, R, o.rng, 'grass', [filt(ac, 'bandpass', 3200 * o.p, 0.6), filt(ac, 'highpass', 900)], 0.55);
     return 0.3;
   },
   'footstep-gravel'(ac, out, t, R, o) {
     thump(ac, out, t, 85 * o.p, 50, 0.3, 0.06);
-    grains(ac, out, t, o.rng, 0.26, { rate: 420, decay: 0.0032, spread: 0.95, envf: two(hump(0, 0.05, 0.4), hump(0.38, 0.45, 0.85), 0.8) },
-      [filt(ac, 'bandpass', 2300 * o.p, 0.55), filt(ac, 'lowpass', 7000)], 0.75);
+    grains(ac, out, t, R, o.rng, 'gravel', [filt(ac, 'bandpass', 2300 * o.p, 0.55), filt(ac, 'lowpass', 7000)], 0.75);
     return 0.3;
   },
   'footstep-asphalt'(ac, out, t, R, o) {
     thump(ac, out, t, 130 * o.p, 70, 0.32, 0.045);
     nburst(ac, out, R, o.rng, t, 'white', 'bandpass', 2300 * o.p, 1.6, 0.45, 0.0006, 0.02);
     nburst(ac, out, R, o.rng, t, 'pink', 'bandpass', 650 * o.p, 1.2, 0.25, 0.001, 0.04);
-    grains(ac, out, t + 0.1, o.rng, 0.07, { rate: 2500, decay: 0.0005, envf: hump(0, 0.2, 1) }, [filt(ac, 'highpass', 2600)], 0.15);
+    grains(ac, out, t + 0.1, R, o.rng, 'scuff', [filt(ac, 'highpass', 2600)], 0.15);
     return 0.22;
   },
   'footstep-mud'(ac, out, t, R, o) {
@@ -100,8 +124,7 @@ export const ONESHOTS = {
   },
   'footstep-snow'(ac, out, t, R, o) {
     nburst(ac, out, R, o.rng, t, 'brown', 'lowpass', 220, 0.7, 0.3, 0.02, 0.12);
-    grains(ac, out, t, o.rng, 0.3, { rate: 2600, decay: 0.0007, spread: 0.7, envf: (u) => (u < 0.18 ? u / 0.18 : u < 0.55 ? 1 : Math.max(0, 1 - (u - 0.55) / 0.4)) },
-      [filt(ac, 'bandpass', 1900 * o.p, 0.5), filt(ac, 'lowpass', 6500)], 0.6);
+    grains(ac, out, t, R, o.rng, 'snow', [filt(ac, 'bandpass', 1900 * o.p, 0.5), filt(ac, 'lowpass', 6500)], 0.6);
     return 0.32;
   },
 
@@ -126,8 +149,8 @@ export const ONESHOTS = {
   moo(ac, out, t, R, o) {
     const d = 1.6;
     voice(ac, out, t, R, o.rng, {
-      dur: d, tilt: 1.35, vib: [5.2, 0.018], jit: 0.02, breath: 0.12,
-      f0: [[0, 86], [0.25, 116], [0.8, 124], [1.3, 106], [d, 80]],
+      dur: d, tilt: 1.35, vib: [5.2, 0.022], jit: 35, sub: 0.22, breath: 0.14,
+      f0: [[0, 84], [0.22, 118], [0.6, 126], [1.05, 112], [1.35, 92], [d, 68]],
       formants: [
         { f: 230, q: 2.2, g: 0.7 },                                              // nasal murmur (the "mm")
         { f: [[0, 280], [0.32, 540], [1.2, 580], [d, 340]], q: 3, g: 1.0 },       // F1 opens "mm-OOO"
@@ -143,7 +166,7 @@ export const ONESHOTS = {
   baa(ac, out, t, R, o) {
     const d = 0.95;
     voice(ac, out, t, R, o.rng, {
-      dur: d, tilt: 1.0, vib: [22, 0.055], breath: 0.1,
+      dur: d, tilt: 1.0, vib: [22, 0.055], jit: 25, sub: 0.07, breath: 0.12,
       f0: [[0, 245], [0.08, 300], [0.6, 285], [d, 238]],
       formants: [
         { f: [[0, 340], [0.07, 790], [0.8, 740], [d, 480]], q: 4, g: 1.0 },
@@ -185,7 +208,7 @@ export const ONESHOTS = {
     [[0, 1], [0.29, 0.94]].forEach(([dt, k]) => {
       const p = o.p * k;
       voice(ac, out, t + dt, R, rng, {
-        dur: 0.18, tilt: 0.85, breath: 0.55,
+        dur: 0.18, tilt: 0.85, breath: 0.55, jit: 40, sub: 0.2,
         f0: [[0, 540], [0.03, 610], [0.18, 370]],
         formants: [
           { f: [[0, 500], [0.03, 820], [0.18, 580]], q: 3, g: 1 },
@@ -200,8 +223,7 @@ export const ONESHOTS = {
   'plough-clod'(ac, out, t, R, o) {
     nburst(ac, out, R, o.rng, t, 'brown', 'lowpass', 230, 0.9, 0.7, 0.004, 0.14);
     thump(ac, out, t, 60 * o.p, 38, 0.5, 0.16);
-    grains(ac, out, t + 0.02, o.rng, 0.4, { rate: 70, decay: 0.004, spread: 0.9, envf: (u) => Math.max(0.05, 1 - u) },
-      [filt(ac, 'bandpass', 1500 * o.p, 0.8)], 0.45);
+    grains(ac, out, t + 0.02, R, o.rng, 'clod', [filt(ac, 'bandpass', 1500 * o.p, 0.8)], 0.45);
     nburst(ac, out, R, o.rng, t + 0.13, 'brown', 'lowpass', 300, 0.9, 0.3, 0.004, 0.08);
     return 0.5;
   },
@@ -216,8 +238,7 @@ export const ONESHOTS = {
     chain(lfo, lg, am.gain);
     env(am.gain, t, [[0, 0], [0.15, 0.3], [d - 0.3, 0.3], [d, 0]]);
     chain(n, bp, am, out);
-    grains(ac, out, t, o.rng, d, { rate: 500, decay: 0.002, envf: (u) => (u < 0.1 ? u * 10 : u > 0.8 ? (1 - u) * 5 : 1) },
-      [filt(ac, 'highpass', 2600)], 0.3);
+    grains(ac, out, t, R, o.rng, 'straw', [filt(ac, 'highpass', 2600)], 0.3);
     return d + 0.05;
   },
   horn(ac, out, t, R, o) {
@@ -252,8 +273,7 @@ export const ONESHOTS = {
     if (dist < 0.75) {
       const k = 1 - dist;
       nburst(ac, out, R, rng, t0, 'white', 'highpass', 1400, 0.7, 0.9 * k, 0.002, 0.3);
-      grains(ac, out, t0, rng, 0.9, { rate: 110, decay: 0.006, spread: 0.9, envf: (u) => Math.max(0.05, 1 - u) },
-        [filt(ac, 'bandpass', 2200, 0.7)], 0.55 * k);
+      grains(ac, out, t0, R, rng, 'crackle', [filt(ac, 'bandpass', 2200, 0.7)], 0.55 * k);
     }
     // rolling rumble: an envelope made of several decaying claps
     const N = 256, curve = new Float32Array(N), humps = rng.int(4, 7);
@@ -274,3 +294,12 @@ export const ONESHOTS = {
 };
 
 export const ONESHOT_IDS = Object.keys(ONESHOTS);
+
+/** pre-rendered "prints": [duration s, variants]; thunder variants are rendered at different distances */
+export const PRINTS = {
+  'ui-click': [0.15, 3], 'ui-open': [0.75, 2], coin: [1.15, 2], error: [0.5, 2],
+  'footstep-grass': [0.33, 5], 'footstep-gravel': [0.33, 5], 'footstep-asphalt': [0.26, 4], 'footstep-mud': [0.36, 4], 'footstep-snow': [0.36, 4],
+  door: [1.1, 3], moo: [1.75, 4], baa: [1.08, 4], cluck: [1.4, 4], bark: [0.6, 4], 'plough-clod': [0.55, 4],
+  'harvest-thresh': [1.6, 3], horn: [0.62, 2], splash: [0.8, 4], thunder: [7.2, 3],
+};
+export const THUNDER_DIST = [0.15, 0.45, 0.8];

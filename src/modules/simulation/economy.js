@@ -1,5 +1,5 @@
 // Money, ledger, summaries, inventory, catalog/assets, loans, hired workers.
-import { CONST, YEAR_DAYS, MONTH_DAYS, WORKER_NAMES } from './data.js';
+import { CONST, YEAR_DAYS, MONTH_DAYS, WORKER_NAMES, MACHINES, ITEMS } from './data.js';
 
 // categories that move capital or debt rather than profit (excluded from operating P&L)
 export const CAPITAL_CATEGORIES = ['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'assetSale'];
@@ -15,6 +15,7 @@ export function installEconomy(sim) {
     E.capacity = {};
     E.loans = [];
     E.catalog = E.catalog && Object.keys(E.catalog).length ? E.catalog : {};
+    for (const m of MACHINES) if (!E.catalog[m.id]) E.catalog[m.id] = catalogEntry(m);
     E.assets = [];
     E.workers = [];
     E.days = [];
@@ -52,9 +53,17 @@ export function installEconomy(sim) {
     sim.emit('economy:transaction', { ...entry, ...(extra || {}) });
   };
 
+  function catalogEntry(def) {
+    return {
+      id: def.id, category: def.category || 'misc', name: def.name || def.id, price: +def.price || 0,
+      leasePerDay: def.leasePerDay != null ? +def.leasePerDay : Math.round((+def.price || 0) * 0.2 / YEAR_DAYS * 100) / 100,
+      upkeepPerDay: def.upkeepPerDay != null ? +def.upkeepPerDay : Math.round((+def.price || 0) * 0.025 / YEAR_DAYS * 100) / 100,
+      meta: { ...(def.meta || {}) },
+    };
+  }
   function assetValue(a) {
     const years = Math.max(0, (sim.today() - a.boughtDay) / YEAR_DAYS);
-    return a.price * Math.max(0.15, CONST.assetResale - CONST.assetDepreciationYear * years);
+    return a.price * Math.max(0.2, CONST.assetResaleNew - CONST.assetDepreciationYear * years);
   }
 
   Object.assign(api, {
@@ -75,11 +84,12 @@ export function installEconomy(sim) {
     /** newest first */
     ledger(n = 20) { return E.ledger.slice(-n).reverse().map((e) => ({ ...e })); },
     /** totals over the last `periodDays` game days (inclusive of today). operating* excludes capital/financing. */
-    summary(periodDays = YEAR_DAYS) {
-      const from = sim.today() - periodDays + 1;
+    summary(periodDays = YEAR_DAYS, endDay) {
+      const to = endDay == null ? sim.today() : endDay;
+      const from = to - periodDays + 1;
       const r = { income: 0, expenses: 0, net: 0, operatingIncome: 0, operatingExpenses: 0, operatingNet: 0, byCategory: {}, days: periodDays };
       for (const b of E.days) {
-        if (b.day < from) continue;
+        if (b.day < from || b.day > to) continue;
         for (const [k, v] of Object.entries(b.by)) {
           r.byCategory[k] = (r.byCategory[k] || 0) + v;
           if (v > 0) r.income += v; else r.expenses -= v;
@@ -117,12 +127,8 @@ export function installEconomy(sim) {
     // ---------- catalog / assets ----------
     registerCatalogItem(def) {
       if (!def || !def.id) throw new Error('registerCatalogItem: id required');
-      E.catalog[def.id] = {
-        id: def.id, category: def.category || 'misc', name: def.name || def.id, price: +def.price || 0,
-        leasePerDay: def.leasePerDay != null ? +def.leasePerDay : null,
-        upkeepPerDay: def.upkeepPerDay != null ? +def.upkeepPerDay : Math.round((+def.price || 0) * 0.02 / YEAR_DAYS * 100) / 100,
-        meta: def.meta || {},
-      };
+      E.catalog[def.id] = catalogEntry(def);
+
       return def.id;
     },
     catalog(category) { return Object.values(E.catalog).filter((c) => !category || c.category === category).map((c) => ({ ...c })); },
@@ -130,7 +136,7 @@ export function installEconomy(sim) {
     purchase(id) {
       const c = E.catalog[id];
       if (!c || !api.charge(c.price, 'machinery', `Bought ${c.name}`)) return false;
-      E.assets.push({ id: nid('asset'), itemId: id, name: c.name, category: c.category, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: sim.today() });
+      E.assets.push({ id: nid('asset'), itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: sim.today() });
       return true;
     },
     /** lease a catalog item (first day paid now). Returns true on success. */
@@ -138,8 +144,17 @@ export function installEconomy(sim) {
       const c = E.catalog[id];
       if (!c || !(c.leasePerDay > 0)) return false;
       if (!api.charge(c.leasePerDay, 'lease', `Lease ${c.name} (first day)`)) return false;
-      E.assets.push({ id: nid('asset'), itemId: id, name: c.name, category: c.category, mode: 'leased', price: c.price, leasePerDay: c.leasePerDay, upkeepPerDay: 0, boughtDay: sim.today() });
+      E.assets.push({ id: nid('asset'), itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'leased', price: c.price, leasePerDay: c.leasePerDay, upkeepPerDay: 0, boughtDay: sim.today() });
       return true;
+    },
+    /** give the player a catalog item without payment (starting kit, gifts). Returns asset id or null. */
+    grantAsset(id, opts = {}) {
+      const c = E.catalog[id];
+      if (!c) return null;
+      const a = { id: nid('asset'), itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: opts.boughtDay != null ? opts.boughtDay : sim.today() };
+      E.assets.push(a);
+      E.version++;
+      return a.id;
     },
     assets() { return E.assets.map((a) => ({ ...a, value: a.mode === 'owned' ? Math.round(assetValue(a)) : 0 })); },
     /** sell an owned asset (returns €) or hand back a leased one (returns 0) */
@@ -153,17 +168,32 @@ export function installEconomy(sim) {
       return 0;
     },
 
+    /** cash + land market value + machinery value + stored produce − debt */
+    netWorth() {
+      const land = sim.landValue ? sim.landValue() : 0;
+      const machinery = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
+      let stock = 0;
+      for (const [k, q] of Object.entries(E.inventory)) if (ITEMS[k] && E.prices[k]) stock += q * E.prices[k] * 0.95;
+      const debt = E.loans.reduce((a, l) => a + l.balance, 0);
+      const r = { cash: E.money, land, machinery, stock, debt };
+      r.total = Math.round(E.money + land + machinery + stock - debt);
+      return r;
+    },
+
     // ---------- loans ----------
     creditLimit() {
       const land = sim.landValue ? sim.landValue() : 0;
+      const mach = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
       const debt = E.loans.reduce((a, l) => a + l.balance, 0);
-      return Math.max(0, CONST.creditLimitBase + CONST.creditLandLTV * land - debt);
+      return Math.max(0, CONST.creditLimitBase + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt);
     },
     /** borrow; repaid monthly over opts.months (default 60). Returns loan id or null. */
     takeLoan(amount, opts = {}) {
       if (!(amount > 0) || amount > api.creditLimit() + 1e-6) return null;
-      const months = Math.max(3, opts.months || 60);
-      const loan = { id: nid('loan'), principal: amount, balance: amount, rate: opts.rate || CONST.loanRate, takenDay: sim.today(), months, monthly: amount / months, interestPaid: 0 };
+      const months = Math.round(Math.max(3, Math.min(240, +opts.months || 60)));
+      const [rlo, rhi] = CONST.loanRateRange;
+      const rate = Math.max(rlo, Math.min(rhi, Number.isFinite(+opts.rate) && opts.rate != null ? +opts.rate : CONST.loanRate));
+      const loan = { id: nid('loan'), principal: amount, balance: amount, rate, takenDay: sim.today(), months, monthly: amount / months, interestPaid: 0 };
       E.loans.push(loan);
       sim.record(amount, 'loan', `Loan €${Math.round(amount).toLocaleString('en-GB')} at ${(loan.rate * 100).toFixed(1)} %/yr over ${months} months`);
       return loan.id;
@@ -185,7 +215,7 @@ export function installEconomy(sim) {
     hireWorker(name) {
       const rng = sim.rngFor('worker:' + E.nextId);
       const skill = rng.range(0, 1);
-      const wage = Math.round(CONST.wageRange[0] + (CONST.wageRange[1] - CONST.wageRange[0]) * (0.25 + 0.75 * skill) - rng.range(0, 12));
+      const wage = Math.round((CONST.wageRange[0] + (CONST.wageRange[1] - CONST.wageRange[0]) * (0.2 + 0.8 * skill) - rng.range(0, 30)) / 5) * 5;
       const w = { id: nid('worker'), name: name || rng.pick(WORKER_NAMES), wage: Math.max(CONST.wageRange[0], wage), skill: +skill.toFixed(2), hiredDay: sim.today(), paid: 0 };
       E.workers.push(w);
       E.version++;

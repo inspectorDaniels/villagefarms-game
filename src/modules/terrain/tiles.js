@@ -122,7 +122,7 @@ export class TileManager {
     }
     const g = out.getContext('2d');
     g.setTransform(L, 0, 0, L, -tile.x * L + mo, -tile.y * L + mo);
-    if (L >= 16) yield* this.decalPass(g, tile, look, L);
+    if (L >= 32) yield* this.decalPass(g, tile, look, L); // land decals only where they read (≥ ~25 px/m)
     if (L >= 8) yield* this.waterDecals(g, tile, look, L);
     g.setTransform(1, 0, 0, 1, 0, 0);
     let shimmer = null;
@@ -155,9 +155,21 @@ export class TileManager {
         band = !!(T.pedge[o] | T.pedge[o + 1] | T.pedge[o + W] | T.pedge[o + W + 1]);
         if (T.waterLevel[o] - T.height[o] > -0.08) continue;
         const R = cellRng(x, y, 99);
-        if (look.snow > 0 && snowMaskAt(look, NZ, x + 0.5, y + 0.5, T.shade[o]) > 0.4) continue;
+        let snowy = 0;
+        if (look.snow > 0) {
+          snowy = snowMaskAt(look, NZ, x + 0.5, y + 0.5, T.shade[o]);
+          if (snowy > 0.3) {
+            // a few straw-coloured winter tufts poke through the snow
+            const R2 = cellRng(x, y, 55);
+            if ((code === S.grass || code === S.meadow) && R2() < 1.6 * dens * Math.max(0, 0.85 - snowy)) draw(D.tuft('winter', (R2() * 6) | 0, code === S.meadow), x + R2(), y + R2());
+            continue;
+          }
+        }
         const cl = NZ.v.at(x * 0.19 + 3, y * 0.19 - 7);
         const px = () => x + R(), py = () => y + R();
+        if (L >= 32 && (code === S.grass || code === S.meadow)) {
+          for (let i = 0; i < 2; i++) if (R() < 0.8) draw(D.dab(season, (R() * 6) | 0), px(), py());
+        }
         switch (code) {
           case S.grass: {
             const k = Math.floor((0.5 + R() * 1.4 + Math.max(0, cl) * 1.5) * dens);
@@ -241,7 +253,7 @@ export class TileManager {
         if (!(T.flags[o] & F_LILY)) continue;
         const R = cellRng(x, y, 4242);
         if (R() > (season === 'autumn' ? 0.35 : 0.6)) continue;
-        draw(D.lily((R() * 6) | 0, season === 'summer' && R() < 0.2), x + R(), y + R(), 0.7 + R() * 0.6);
+        draw(D.lily((R() * 6) | 0, season === 'summer' && R() < 0.2), x + R(), y + R(), 1 + R() * 0.7);
       }
       yield (x1 - x0) * (y1 - y0);
     }
@@ -254,7 +266,7 @@ export class TileManager {
       if (arr) for (const r of arr) if (r.x > x0 - 1 && r.x < x1 + 1 && r.y > y0 - 1 && r.y < y1 + 1) list.push(r);
     }
     list.sort((a, b) => a.y - b.y || a.x - b.x);
-    for (const r of list) draw(D.reed(season, r.v), r.x, r.y, r.r / 0.62);
+    for (const r of list) draw(D.reed(season, r.v), r.x, r.y, r.r / 0.45);
     yield list.length * 30;
   }
 
@@ -333,7 +345,8 @@ export class TileManager {
 
   /** 2 px/m multiply mask: soils darken most when wet, vegetation a little, water not at all */
   wetMask(tile) {
-    if (tile.wetMask && tile.wetMaskVer === tile.ver) return tile.wetMask;
+    const v = this.verOf(tile.x, tile.y, tile.size);
+    if (tile.wetMask && tile.wetMaskVer === v) return tile.wetMask;
     const T = this.T, W = T.w, res = 2, pw = tile.size * res;
     const c = this.art.canvas(pw, pw), g = c.getContext('2d');
     const img = g.createImageData(pw, pw), d = img.data;
@@ -345,7 +358,7 @@ export class TileManager {
       d[p] = 132; d[p + 1] = 124; d[p + 2] = 122; d[p + 3] = wet * 255;
     }
     g.putImageData(img, 0, 0);
-    tile.wetMask = c; tile.wetMaskVer = tile.ver;
+    tile.wetMask = c; tile.wetMaskVer = v;
     return c;
   }
 
@@ -400,7 +413,7 @@ export class TileManager {
     const vk = view.x0.toFixed(2) + ',' + view.y0.toFixed(2) + ',' + view.zoom.toFixed(3);
     if (vk !== this.lastViewKey) { this.lastViewKey = vk; this.movedAt = this.frame; }
     const moving = this.frame - (this.movedAt || 0) < 30;
-    let preLeft = budget === Infinity || (!moving && this.frame % 4) ? 0 : PREFETCH_BUDGET;
+    let preLeft = budget === Infinity || (!moving && this.frame % 8) ? 0 : PREFETCH_BUDGET;
     if (budget !== Infinity) for (const t of pre) wanted.add(t.key); // keep partially painted ring jobs alive
     if (!queue.length) {
       if (preLeft) for (const t of pre) if (!this.fresh(t, look)) queue.push(t);

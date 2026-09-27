@@ -46,7 +46,9 @@ export async function init(ctx) {
     if (w && typeof w === 'object' && w.kind) return w;
     return hooks.weather || null;
   }
+  let frameWind = null; // env.windAt(view centre), refreshed once per frame
   function wind() {
+    if (frameWind) return frameWind;
     const w = weather();
     const wi = w && w.wind;
     if (wi && Number.isFinite(wi.x) && Number.isFinite(wi.y)) return wi;
@@ -137,7 +139,7 @@ export async function init(ctx) {
     // rain splashes / ripples, only within view and only when they'd be visible
     if (wet && view.zoom >= 8) {
       const inten = Number.isFinite(w.intensity) ? w.intensity : 0.6;
-      dir.rainAcc += Math.min(260, area * 0.12 * (0.3 + inten)) * dt;
+      dir.rainAcc += Math.min(200, area * 0.085 * (0.3 + inten)) * dt;
       let n = Math.min(40, Math.floor(dir.rainAcc));
       dir.rainAcc -= n;
       while (n-- > 0) {
@@ -182,7 +184,7 @@ export async function init(ctx) {
 
     // autumn leaves drifting on the wind
     if (season === 'autumn' && view.zoom >= 6) {
-      const target = 220;
+      const target = 150;
       if (have(TID.leaves) < target) {
         const rate = Math.min(40, (0.6 + windSpeed * 0.5) * area * 0.003);
         dir.leafAcc += rate * dt;
@@ -290,6 +292,12 @@ export async function init(ctx) {
     api,
     frame(dt) {
       const view = ctx.camera.view();
+      frameWind = null;
+      const envApi = ctx.modules.get('environment');
+      if (envApi && typeof envApi.windAt === 'function') {
+        const wv = envApi.windAt((view.x0 + view.x1) / 2, (view.y0 + view.y1) / 2);
+        if (wv && Number.isFinite(wv.x) && Number.isFinite(wv.y)) frameWind = wv;
+      }
       if (internal.showcaseFrame) internal.showcaseFrame(Math.min(dt, 0.1));
       step(Math.min(dt, 0.1), view);
     },

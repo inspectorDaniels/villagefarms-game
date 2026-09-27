@@ -1,8 +1,8 @@
 // Continuous sounds. Builder: (ac, out, R, o) → { set(name, v, t), tick?(t0, t1), stop(t) }
 // o = { rng, t0, params }. tick() is used by schedulers (birds/owl/music) to place events in [t0, t1).
 import {
-  gain, filt, chain, noise, bufSrc, osc, perc, env, glide, shaper, wave, pulseWave, cachedBuffer, gustBuffer,
-  normalize, clamp, TAU, voice, pluckBuffer,
+  gain, filt, chain, noise, bufSrc, osc, perc, env, glide, shaper, wave, pulseWave, recipe, buffer, ready,
+  gustRecipe, normalizeGen, clamp, TAU, voice, pluckRecipe, glottalWave,
 } from './synth.js';
 
 function stopAll(nodes, t) { for (const n of nodes) { try { n.stop(t); } catch (e) { /* already stopped */ } } }
@@ -16,7 +16,7 @@ export const ENGINES = {
   tractor: {
     cyl: 4, idle: 850, max: 2300, inertia: 0.28, irregular: 0.3, soft: 2.3, hard: 1.25, drive: 2.2,
     res: [[95, 6, 2.2], [235, 4, 2], [540, 3, 1.4], [1250, 2, 1.2]], lp: [520, 1300, 2600],
-    clatter: 0.5, clatterF: 2300, intake: 0.18, turbo: 0.9, gain: 0.5, whine: 9.3,
+    clatter: 0.5, clatterF: 2300, intake: 0.18, turbo: 0.9, gain: 0.4, whine: 9.3,
   },
   car: {
     cyl: 4, idle: 800, max: 6200, inertia: 0.12, irregular: 0.09, soft: 2.6, hard: 1.6, drive: 1.4,
@@ -156,40 +156,49 @@ function engineLoop(kind) {
 }
 
 // ============================================================== ambience beds
+// Generated textures are recipes: baked in time slices after unlock; loops start once LOOP_NEEDS are ready.
+const getb = (R, key) => R.bufs.get(key) || buffer(R, key);
+const GUST_WIND = gustRecipe('wind', 24, [[7, 1], [2.2, 0.55], [0.6, 0.2]]);
+const GUST_RIVER = gustRecipe('river', 20, [[3, 1], [0.8, 0.7], [0.25, 0.4]]);
+
 function wind(ac, out, R, o) {
   const rng = o.rng, t0 = o.t0, nodes = [];
-  const gust = gustBuffer(R, 'wind', 24, [[6, 1], [2, 0.5], [0.7, 0.25]]);
+  const gust = getb(R, GUST_WIND);
   const g1 = bufSrc(ac, gust, t0, null, { loop: true, offset: rng.float() * 20 });
   const g2 = bufSrc(ac, gust, t0, null, { loop: true, rate: 0.73, offset: rng.float() * 20 });
   nodes.push(g1, g2);
   const master = gain(ac, 0); master.connect(out); tgt(master.gain, 1, t0, 0.5);
-  // broadband rush with gust-swept band
-  const pn = noise(ac, R, 'pink', t0, null, rng), rbp = filt(ac, 'bandpass', 450, 0.55), rushG = gain(ac, 0);
+  // body of moving air: pink noise, low band swept up by gusts (most energy below 800 Hz)
+  const pn = noise(ac, R, 'pink', t0, null, rng), rbp = filt(ac, 'bandpass', 260, 0.7), rushG = gain(ac, 0);
   nodes.push(pn);
   const mRush = gain(ac, 0), mRushF = gain(ac, 0);
   chain(g1, mRush, rushG.gain); chain(g1, mRushF, rbp.frequency);
-  chain(pn, rbp, rushG, master);
-  // whistle (narrow resonance, e.g. round a fence post)
-  const wn = noise(ac, R, 'white', t0, null, rng), wbp = filt(ac, 'bandpass', 1000, 16), whG = gain(ac, 0);
-  nodes.push(wn);
-  const mWh = gain(ac, 0), mWhF = gain(ac, 500);
-  chain(g2, mWh, whG.gain); chain(g2, mWhF, wbp.frequency);
-  chain(wn, wbp, whG, master);
-  // low buffeting
+  chain(pn, filt(ac, 'lowpass', 1500), rbp, rushG, master);
+  // two whistles (air round posts/wires): narrow resonances whose pitch and level follow the gusts
+  const whis = [];
+  for (const [f0, q] of [[620, 22], [1150, 26]]) {
+    const wn = noise(ac, R, 'white', t0, null, rng), wbp = filt(ac, 'bandpass', f0, q), wbp2 = filt(ac, 'bandpass', f0, q), whG = gain(ac, 0);
+    nodes.push(wn);
+    const mWh = gain(ac, 0), mWhF = gain(ac, f0 * 0.6);
+    chain(g2, mWh, whG.gain); chain(g2, mWhF, wbp.frequency); mWhF.connect(wbp2.frequency);
+    chain(wn, wbp, wbp2, whG, master);
+    whis.push([wbp, wbp2, mWh, f0]);
+  }
+  // low buffeting (gust-driven)
   const bn = noise(ac, R, 'brown', t0, null, rng), rumG = gain(ac, 0); nodes.push(bn);
   const mRum = gain(ac, 0); chain(g1, mRum, rumG.gain);
-  chain(bn, filt(ac, 'lowpass', 130), rumG, master);
-  // leaves / grass rustle riding on the gusts
+  chain(bn, filt(ac, 'lowpass', 160), rumG, master);
+  // leaf/grass rustle only on gust peaks
   const ln = noise(ac, R, 'white', t0, null, rng, 0.97), leafG = gain(ac, 0); nodes.push(ln);
   const mLeaf = gain(ac, 0); chain(g1, mLeaf, leafG.gain);
-  chain(ln, filt(ac, 'highpass', 3200), filt(ac, 'lowpass', 9000), leafG, master);
+  chain(ln, filt(ac, 'highpass', 3000), filt(ac, 'lowpass', 7000), leafG, master);
   const apply = (v, t) => {
     v = clamp(v, 0, 1);
-    tgt(rushG.gain, 0.18 * v, t, 0.5); tgt(mRush.gain, 0.7 * v, t, 0.5);
-    tgt(rbp.frequency, 280 + 260 * v, t, 0.5); tgt(mRushF.gain, 250 + 700 * v, t, 0.5);
-    tgt(wbp.frequency, 800 + 600 * v, t, 0.5); tgt(mWh.gain, 0.22 * v * v, t, 0.5);
-    tgt(rumG.gain, 0.05 * v, t, 0.5); tgt(mRum.gain, 0.4 * v * v, t, 0.5);
-    tgt(leafG.gain, 0.01 * v, t, 0.5); tgt(mLeaf.gain, 0.09 * v, t, 0.5);
+    tgt(rushG.gain, 0.06 * v, t, 0.8); tgt(mRush.gain, 0.8 * v, t, 0.8);
+    tgt(rbp.frequency, 180 + 160 * v, t, 0.8); tgt(mRushF.gain, 150 + 450 * v, t, 0.8);
+    for (const [a, b, m, f0] of whis) { tgt(a.frequency, f0 * (0.8 + 0.4 * v), t, 0.8); tgt(b.frequency, f0 * (0.8 + 0.4 * v), t, 0.8); tgt(m.gain, 5 * Math.pow(v, 1.6), t, 0.8); }
+    tgt(rumG.gain, 0.04 * v, t, 0.8); tgt(mRum.gain, 0.6 * v * v, t, 0.8);
+    tgt(leafG.gain, 0, t, 0.8); tgt(mLeaf.gain, 0.05 * v * v, t, 0.8);
   };
   apply(o.params.speed == null ? 0.5 : o.params.speed, t0);
   return {
@@ -198,22 +207,23 @@ function wind(ac, out, R, o) {
   };
 }
 
-function rainDrops(R) {
-  return cachedBuffer(R, 'rain-drops', 3, (d, sr, rng) => {
-    const n = d.length, count = 3 * 520;
-    for (let k = 0; k < count; k++) {
-      const i0 = Math.floor(rng.float() * n), amp = 0.04 + 0.96 * Math.pow(rng.float(), 3);
-      if (rng.chance(0.62)) { // tick on leaves/soil
-        const tau = 0.0004 + rng.float() * 0.0016, L = Math.floor(tau * 6 * sr);
-        for (let i = 0; i < L; i++) d[(i0 + i) % n] += amp * Math.exp(-i / (tau * sr)) * (rng.float() * 2 - 1);
-      } else { // ping on a puddle / hard surface
-        const f = 1400 + rng.float() * 3800, tau = 0.004 + rng.float() * 0.012, L = Math.floor(tau * 6 * sr);
-        for (let i = 0; i < L; i++) { const tt = i / sr; d[(i0 + i) % n] += amp * 0.6 * Math.exp(-tt / tau) * Math.sin(TAU * f * tt * (1 + tt * 8)); }
-      }
+const RAIN_DROPS = recipe('rain-drops', 3, function* (d, sr, rng) {
+  const n = d.length, count = 3 * 520;
+  for (let k = 0; k < count; k++) {
+    const i0 = Math.floor(rng.float() * n);
+    let amp = 0.04 + 0.96 * Math.pow(rng.float(), 3);
+    if (rng.chance(0.62)) { // tick on leaves/soil
+      const tau = 0.0004 + rng.float() * 0.0016, L = Math.floor(tau * 6 * sr), kk = Math.exp(-1 / (tau * sr));
+      for (let i = 0; i < L; i++) { d[(i0 + i) % n] += amp * (rng.float() * 2 - 1); amp *= kk; }
+    } else { // ping on a puddle / hard surface (rising chirp)
+      const f = 1400 + rng.float() * 3800, tau = 0.004 + rng.float() * 0.012, L = Math.floor(tau * 6 * sr), kk = Math.exp(-1 / (tau * sr));
+      let ph = 0; amp *= 0.6;
+      for (let i = 0; i < L; i++) { ph += TAU * f * (1 + 16 * i / sr) / sr; d[(i0 + i) % n] += amp * Math.sin(ph); amp *= kk; }
     }
-    normalize(d, 0.9);
-  });
-}
+    if ((k & 31) === 31) yield 4096;
+  }
+  yield* normalizeGen(d, 0.9);
+}, 32000);
 function rain(ac, out, R, o) {
   const rng = o.rng, t0 = o.t0, nodes = [];
   const master = gain(ac, 0); master.connect(out); tgt(master.gain, 1, t0, 0.6);
@@ -223,7 +233,7 @@ function rain(ac, out, R, o) {
   chain(mn, filt(ac, 'bandpass', 1000, 0.5), midG, master);
   const ln = noise(ac, R, 'brown', t0, null, rng), lowG = gain(ac, 0); nodes.push(ln);
   chain(ln, filt(ac, 'lowpass', 420), lowG, master);
-  const drops = rainDrops(R);
+  const drops = getb(R, RAIN_DROPS);
   const d1 = bufSrc(ac, drops, t0, null, { loop: true, offset: rng.float() * 2.5 });
   const d2 = bufSrc(ac, drops, t0, null, { loop: true, rate: 0.83, offset: rng.float() * 2.5 });
   nodes.push(d1, d2);
@@ -242,26 +252,25 @@ function rain(ac, out, R, o) {
   };
 }
 
-function bubbles(R) {
-  return cachedBuffer(R, 'river-bubbles', 4, (d, sr, rng) => {
-    const n = d.length, count = 4 * 22;
-    for (let k = 0; k < count; k++) {
-      const i0 = Math.floor(rng.float() * n), f0 = 280 + 1500 * Math.pow(rng.float(), 2);
-      const tau = 0.008 + rng.float() * 0.03, amp = 0.15 + Math.pow(rng.float(), 2), L = Math.floor(tau * 6 * sr);
-      let ph = 0;
-      for (let i = 0; i < L; i++) {
-        const tt = i / sr, f = f0 * (1 + 6 * tt); // Minnaert bubble: rising pitch as it nears the surface
-        ph += TAU * f / sr;
-        d[(i0 + i) % n] += amp * Math.exp(-tt / tau) * Math.sin(ph) * Math.min(1, i / 20);
-      }
+const BUBBLES = recipe('river-bubbles', 4, function* (d, sr, rng) {
+  const n = d.length, count = 4 * 22;
+  for (let k = 0; k < count; k++) {
+    const i0 = Math.floor(rng.float() * n), f0 = 280 + 1500 * Math.pow(rng.float(), 2);
+    const tau = 0.008 + rng.float() * 0.03, L = Math.floor(tau * 6 * sr), kk = Math.exp(-1 / (tau * sr));
+    let amp = 0.15 + Math.pow(rng.float(), 2), ph = 0;
+    for (let i = 0; i < L; i++) {
+      ph += TAU * f0 * (1 + 6 * i / sr) / sr; // Minnaert bubble: rising pitch as it nears the surface
+      d[(i0 + i) % n] += amp * Math.sin(ph) * Math.min(1, i / 20);
+      amp *= kk;
     }
-    normalize(d, 0.9);
-  });
-}
+    if ((k & 7) === 7) yield 4096;
+  }
+  yield* normalizeGen(d, 0.9);
+}, 24000);
 function river(ac, out, R, o) {
   const rng = o.rng, t0 = o.t0, nodes = [];
   const master = gain(ac, 0); master.connect(out); tgt(master.gain, 1, t0, 0.6);
-  const flowC = gustBuffer(R, 'river', 20, [[3, 1], [0.8, 0.7], [0.25, 0.4]]);
+  const flowC = getb(R, GUST_RIVER);
   const bands = [[260, 1.1, 0.35], [720, 1.4, 0.25], [1900, 1.3, 0.14], [4200, 1, 0.05]];
   const G = [];
   bands.forEach(([f, q, a], i) => {
@@ -272,7 +281,7 @@ function river(ac, out, R, o) {
     chain(n, filt(ac, 'bandpass', f, q), g, master);
     G.push([g, m, a]);
   });
-  const bb = bubbles(R);
+  const bb = getb(R, BUBBLES);
   const b1 = bufSrc(ac, bb, t0, null, { loop: true, offset: rng.float() * 3 });
   const b2 = bufSrc(ac, bb, t0, null, { loop: true, rate: 1.21, offset: rng.float() * 3 });
   nodes.push(b1, b2);
@@ -290,35 +299,33 @@ function river(ac, out, R, o) {
   };
 }
 
-function cricketBuffer(R) {
-  return cachedBuffer(R, 'crickets', 4, (d, sr, rng) => {
-    const n = d.length, dur = n / sr;
-    const cr = [];
-    for (let k = 0; k < 4; k++) cr.push({ f: 4150 + rng.float() * 900, per: 0.34 + rng.float() * 0.25, pulses: rng.int(3, 4), amp: 0.3 + rng.float() * 0.5, ph: rng.float() });
-    for (const c of cr) {
-      // choose chirp period so the loop is seamless
-      const per = dur / Math.round(dur / c.per);
-      for (let t = c.ph * per; t < dur; t += per) {
-        for (let p = 0; p < c.pulses; p++) {
-          const ts = t + p * 0.034 + (rng.float() - 0.5) * 0.002, L = Math.floor(0.016 * sr), i0 = Math.floor(ts * sr);
-          const a = c.amp * (p === 0 ? 0.7 : 1);
-          for (let i = 0; i < L; i++) {
-            const tt = i / sr, e = Math.sin(Math.PI * i / L);
-            d[(i0 + i) % n] += a * e * e * Math.sin(TAU * c.f * (tt + ts) + 0.4 * Math.sin(TAU * 60 * tt));
-          }
+const CRICKETS = recipe('crickets', 4, function* (d, sr, rng) {
+  const n = d.length, dur = n / sr;
+  const cr = [];
+  for (let k = 0; k < 4; k++) cr.push({ f: 4150 + rng.float() * 900, per: 0.34 + rng.float() * 0.25, pulses: rng.int(3, 4), amp: 0.3 + rng.float() * 0.5, ph: rng.float() });
+  for (const c of cr) {
+    const per = dur / Math.round(dur / c.per); // seamless loop
+    for (let t = c.ph * per; t < dur; t += per) {
+      for (let p = 0; p < c.pulses; p++) {
+        const ts = t + p * 0.034 + (rng.float() - 0.5) * 0.002, L = Math.floor(0.016 * sr), i0 = Math.floor(ts * sr);
+        const a = c.amp * (p === 0 ? 0.7 : 1);
+        for (let i = 0; i < L; i++) {
+          const tt = i / sr, e = Math.sin(Math.PI * i / L);
+          d[(i0 + i) % n] += a * e * e * Math.sin(TAU * c.f * (tt + ts) + 0.4 * Math.sin(TAU * 60 * tt));
         }
       }
+      yield 1500;
     }
-    // distant bush-cricket: continuous high trill
-    for (let i = 0; i < n; i++) {
-      const tt = i / sr, am = Math.max(0, Math.sin(TAU * 40 * tt));
-      d[i] += 0.07 * am * am * Math.sin(TAU * 6900 * tt);
-    }
-    normalize(d, 0.85);
-  });
-}
+  }
+  for (let i = 0; i < n; i++) { // distant bush-cricket: continuous high trill
+    const tt = i / sr, am = Math.max(0, Math.sin(TAU * 40 * tt));
+    d[i] += 0.07 * am * am * Math.sin(TAU * 6900 * tt);
+    if ((i & 2047) === 2047) yield 4096;
+  }
+  yield* normalizeGen(d, 0.85);
+}, 24000);
 function crickets(ac, out, R, o) {
-  const rng = o.rng, t0 = o.t0, b = cricketBuffer(R);
+  const rng = o.rng, t0 = o.t0, b = getb(R, CRICKETS);
   const s1 = bufSrc(ac, b, t0, null, { loop: true, offset: rng.float() * 3.5 });
   const s2 = bufSrc(ac, b, t0, null, { loop: true, rate: 0.955, offset: rng.float() * 3.5 });
   const master = gain(ac, 0); master.connect(out); tgt(master.gain, 1, t0, 0.8);
@@ -458,25 +465,41 @@ function scheduler(pickCall, meanGap, spatial = true) {
             pan.pan.value = spatial ? (rng.float() * 2 - 1) * 0.85 : 0;
             const g = gain(ac, 0.3 + 0.7 * (1 - dist)), lp = filt(ac, 'lowpass', 12000 - 8000 * dist);
             chain(g, lp, pan, master);
-            pickCall(ac, g, next, rng, R, P);
+            const d = pickCall(ac, g, next, rng, R, P) || 10;
+            const ms = (next - ac.currentTime + d + 1) * 1000;
+            if (!R.sync) setTimeout(() => { try { g.disconnect(); lp.disconnect(); pan.disconnect(); } catch (e) { /* gone */ } }, ms);
           }
           const gap = meanGap(P);
           next += gap * (0.25 + -Math.log(1 - rng.float() * 0.95));
         }
       },
-      stop(t) { stopped = true; tgt(master.gain, 0, t, 0.5); },
+      stop(t) {
+        stopped = true; tgt(master.gain, 0, t, 0.5);
+        if (!R.sync) setTimeout(() => { try { master.disconnect(); } catch (e) { /* gone */ } }, 15000);
+      },
     };
   };
 }
+/** play a pre-rendered print if the realtime context has one (1 node), else synthesise live */
+function fromPrint(ac, g, t, rng, R, key) {
+  const pr = R.prints && R.prints.get(key);
+  if (!pr || !pr.length) return 0;
+  const v = pr[Math.floor(rng.float() * pr.length)];
+  const s = ac.createBufferSource();
+  s.buffer = v.buf; s.playbackRate.value = 0.97 + rng.float() * 0.06;
+  s.connect(g); s.start(t);
+  return v.buf.duration;
+}
 const birds = scheduler((ac, g, t, rng, R, P) => {
   const name = rng.weighted(SPECIES[P.season] || SPECIES.spring);
-  BIRDS[name](ac, g, t, rng, R);
+  return fromPrint(ac, g, t, rng, R, 'bird:' + name) || BIRDS[name](ac, g, t, rng, R);
 }, (P) => 3.2 / (0.12 + clamp(P.density, 0, 1) * 1.8));
-const owl = scheduler((ac, g, t, rng, R) => { BIRDS.owl(ac, g, t, rng, R); }, (P) => 16 / (0.2 + clamp(P.density, 0, 1)));
+const owl = scheduler((ac, g, t, rng, R) => fromPrint(ac, g, t, rng, R, 'bird:owl') || BIRDS.owl(ac, g, t, rng, R), (P) => 16 / (0.2 + clamp(P.density, 0, 1)));
 
 // ============================================================== music (very quiet, generative)
 const SCALE = [146.83, 164.81, 185.0, 220.0, 246.94, 293.66, 329.63, 369.99, 440.0, 493.88]; // D major pentatonic
 const CHORDS = [[73.42, 146.83, 185.0, 220.0], [98.0, 146.83, 196.0, 246.94], [61.74, 123.47, 185.0, 246.94], [110.0, 164.81, 220.0, 277.18]];
+const PLUCKS = SCALE.map((f) => pluckRecipe(f * 2));
 function phrase(ac, out, t, rng, R) {
   const ch = rng.pick(CHORDS);
   // pad: detuned triangles, slow swell
@@ -489,13 +512,29 @@ function phrase(ac, out, t, rng, R) {
   const n = rng.int(4, 7);
   for (let i = 0; i < n; i++) {
     idx = clamp(idx + rng.pick([-2, -1, -1, 1, 1, 2, 0]), 2, SCALE.length - 1);
-    const s = bufSrc(ac, pluckBuffer(R, SCALE[idx] * 2), tt, 2.6), g = gain(ac, 0.14 * (0.7 + rng.float() * 0.3));
-    chain(s, filt(ac, 'lowpass', 2800), g, out);
+    const pb = ready(R, PLUCKS[idx]);
+    if (pb) {
+      const s = bufSrc(ac, pb, tt, 2.6), g = gain(ac, 0.14 * (0.7 + rng.float() * 0.3));
+      chain(s, filt(ac, 'lowpass', 2800), g, out);
+    }
     tt += rng.pick([0.4, 0.6, 0.6, 0.8, 1.2]);
   }
   return Math.max(9, tt - t);
 }
-const music = scheduler((ac, g, t, rng, R) => phrase(ac, g, t, rng, R), () => 12, false);
+const music = scheduler((ac, g, t, rng, R) => fromPrint(ac, g, t, rng, R, 'music:phrase') || phrase(ac, g, t, rng, R), () => 12, false);
+
+/** scheduled material that is pre-rendered ("printed") after unlock: key → [dur, variants, build(ac,out,t,R,rng)] */
+export const LOOP_PRINTS = {
+  'bird:blackbird': [2.4, 4, (ac, o, t, R, r) => BIRDS.blackbird(ac, o, t, r, R)],
+  'bird:chaffinch': [1.4, 3, (ac, o, t, R, r) => BIRDS.chaffinch(ac, o, t, r, R)],
+  'bird:tit': [1.7, 3, (ac, o, t, R, r) => BIRDS.tit(ac, o, t, r, R)],
+  'bird:sparrow': [1.3, 3, (ac, o, t, R, r) => BIRDS.sparrow(ac, o, t, r, R)],
+  'bird:woodpigeon': [2.6, 2, (ac, o, t, R, r) => BIRDS.woodpigeon(ac, o, t, r, R)],
+  'bird:cuckoo': [2.0, 2, (ac, o, t, R, r) => BIRDS.cuckoo(ac, o, t, r, R)],
+  'bird:crow': [1.9, 3, (ac, o, t, R, r) => BIRDS.crow(ac, o, t, r, R)],
+  'bird:owl': [4.8, 3, (ac, o, t, R, r) => BIRDS.owl(ac, o, t, r, R)],
+  'music:phrase': [10, 5, (ac, o, t, R, r) => phrase(ac, o, t, r, R)],
+};
 
 export const LOOPS = {
   'engine-tractor': engineLoop('tractor'),
@@ -504,3 +543,24 @@ export const LOOPS = {
   river, wind, rain, crickets, birds, owl, music,
 };
 export const LOOP_IDS = Object.keys(LOOPS);
+/** generated buffers a loop needs before it may start (baked in time slices first) */
+export const LOOP_NEEDS = {
+  wind: [GUST_WIND, 'noise:pink', 'noise:brown'], rain: [RAIN_DROPS, 'noise:pink', 'noise:brown'],
+  river: [GUST_RIVER, BUBBLES, 'noise:pink'], crickets: [CRICKETS], music: PLUCKS,
+  'engine-tractor': ['noise:pink'], 'engine-car': ['noise:pink', 'noise:brown'], 'engine-combine': ['noise:pink'],
+  birds: [], owl: ['noise:pink'],
+};
+
+/** create cached wave tables ahead of first use (one step per frame after baking finished) */
+export function prewarm(ac, R, mk, step) {
+  const kinds = ['tractor', 'car', 'combine'];
+  if (step < 3) {
+    const kind = kinds[step];
+    engineWaves(ac, R, kind, ENGINES[kind], mk('prewarm:' + kind));
+    pulseWave(ac, R, 0.14, 28);
+    if (kind === 'combine') { pulseWave(ac, R, 0.25, 16); wave(ac, R, 'combine-drum', 64, (re, im) => { for (let k = 1; k <= 64; k++) im[k] = (k % 8 === 0 ? 1 : 0.1) / Math.pow(k, 0.8); }); }
+  } else {
+    for (const t of [0.7, 0.8, 0.85, 1.0, 1.35]) glottalWave(ac, R, t);
+    pulseWave(ac, R, 0.3, 16);
+  }
+}

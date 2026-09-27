@@ -47,3 +47,27 @@ the jobs board with offers, and a land-parcel map sketch. Must look like part of
 (paper, ink, gouache), not a debug dump. Presets: `default` (office board), `market` (price charts),
 `jobs`. Also self-check balance: a simulated typical season of a 5 ha wheat farm should net a
 plausible profit (report the number in README).
+
+---
+## Revision r2 (director decision after critic review simulation-r1) — supersedes numbers above
+
+**Progression target** (active play, default seed; verify with a committed script
+`src/modules/simulation/tests/progression.mjs`, runnable `node src/modules/simulation/tests/progression.mjs`,
+printing year-by-year cash/net worth/ha for 10 game years for 3 strategies × 8 seeds):
+- Year 1: starting farm (own 0.6 ha yard + rent 1.8 ha); contract jobs are the main income; end-of-year cash ≈ €35–60k.
+- Year 2: renting ≈ 8–12 ha; upgrade to a tier-2 tractor is affordable.
+- Year 3–4: first land purchase (a 3–5 ha parcel) is affordable with a loan; 20–30 ha farmed.
+- Year 6–8: 50–80 ha estate, combine owned, 2–3 hired hands; net worth ≥ €1M.
+- From ≈ 15 ha upwards, farming own/rented land with own machinery must out-earn pure contracting
+  per unit of player time; owning land must beat renting over a ≥ 10-year horizon (appreciation + no rent),
+  but require a loan to get there. Pure contracting must plateau (limited offers).
+
+**Numbers (game scale, replaces the realistic-€ land/wage figures):**
+- Land price €12–22k/ha by soil; appreciates ≈ 2–3 %/game-year with noise; purchase fees 4 %; resale 97 % of market value.
+- Rent €450–750/ha/yr (≈ 3.5 % of price), charged **monthly in advance**; lease **minimum term 1 game year**;
+  ending early costs the remaining minimum-term rent (or 3 months, whichever is less). Rentals are scarce (a few offers at a time).
+- CAP subsidy paid **pro rata by days held** over the year.
+- Wages from annual salaries ÷ 36: hired hand €30–38k/yr ⇒ ≈ €830–1060 per game day; must be worth it only when a worker operates machinery on a large farm.
+- Contract jobs pay realistic machine-rate style pay (e.g. ploughing €80–110/ha, harvesting €130–170/ha, transport €/t·km), limited to ≈ 2–4 new offers per game day and max 3 active.
+- Crop margins: with own machinery a well-run hectare of cereals should net ≈ €500–900/ha/yr before land cost; roots/rapeseed higher risk/higher margin. Market saturation should punish dumping at one buyer but splitting sales across buyers/days must be viable.
+- Fix all "should fix" items in docs/reviews/simulation-r1.md (negative loan rate, spot market accepting everything, buyParcel on non-sale land, reputation too fast, jobs without location, board clipping/labels).

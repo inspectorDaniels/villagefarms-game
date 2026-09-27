@@ -96,7 +96,7 @@ export function createSprites(art, palette) {
   // ---------- soil clod ----------
   function clod(variant) {
     return reg(`clod:${variant}`, 32, 32, (g, w, h, rng) => {
-      const c = [palette.soil.ploughed, palette.soil.moist, palette.soil.dry][variant % 3];
+      const c = [palette.soil.dry, palette.soil.clay, palette.soil.moist][variant % 3];
       art.blobPath(g, w / 2, h / 2, w * 0.36, rng, 0.22, 6);
       g.fillStyle = c; g.fill();
       g.save(); g.clip();
@@ -171,8 +171,10 @@ export function createSprites(art, palette) {
   function crown(variant) {
     return reg(`crown:${variant}`, 32, 32, (g, w, h, rng) => {
       const cx = w / 2, cy = h / 2;
-      g.strokeStyle = 'rgba(230,240,240,0.55)'; g.lineWidth = 1.4;
+      g.strokeStyle = 'rgba(230,240,240,0.6)'; g.lineWidth = 1.4;
       g.beginPath(); g.ellipse(cx, cy, 7, 6, 0, 0, TAU); g.stroke();
+      g.strokeStyle = 'rgba(220,234,236,0.3)'; g.lineWidth = 1;
+      g.beginPath(); g.ellipse(cx, cy, 13, 11.5, 0, 0, TAU); g.stroke();
       const n = 7 + variant;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * TAU + rng.float() * 0.4, r = rng.range(8, 12);
@@ -188,7 +190,8 @@ export function createSprites(art, palette) {
       const [r, gg, b] = art.hexToRgb(color);
       const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
       gr.addColorStop(0, `rgba(255,255,235,1)`);
-      gr.addColorStop(0.1, `rgba(${r},${gg},${b},0.9)`);
+      gr.addColorStop(0.06, `rgba(250,255,220,1)`);
+      gr.addColorStop(0.12, `rgba(${r},${gg},${b},0.85)`);
       gr.addColorStop(0.35, `rgba(${r},${gg},${b},0.28)`);
       gr.addColorStop(1, `rgba(${r},${gg},${b},0)`);
       g.fillStyle = gr; g.fillRect(0, 0, w, h);
@@ -339,29 +342,31 @@ export function createSprites(art, palette) {
       const r = w * 0.4;
       // darkened wet soil halo
       const halo = g.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 1.25);
-      halo.addColorStop(0, 'rgba(40,30,22,0.55)'); halo.addColorStop(1, 'rgba(40,30,22,0)');
+      halo.addColorStop(0, 'rgba(38,28,18,0.75)'); halo.addColorStop(1, 'rgba(40,30,22,0)');
       g.fillStyle = halo; g.fillRect(0, 0, w, w);
       const shape = rng.fork('w');
-      const path = () => art.blobPath(g, cx, cy, r, shape.fork('p'), 0.26, 4);
+      const path = () => art.blobPath(g, cx, cy, r, shape.fork('p'), 0.13, 4);
       path();
-      const gr = g.createRadialGradient(cx - r * 0.15, cy - r * 0.1, r * 0.1, cx, cy, r * 1.05);
-      gr.addColorStop(0, '#b4c6ce');
-      gr.addColorStop(0.55, '#8ea6b2');
-      gr.addColorStop(1, '#4f6674');
+      // flat reflective water: a diagonal sky gradient (no dome shading, so it never reads as a stone)
+      const gr = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+      gr.addColorStop(0, '#34495a');
+      gr.addColorStop(0.5, '#4b6678');
+      gr.addColorStop(0.72, '#6f8ea2');
+      gr.addColorStop(1, '#3b5264');
       g.fillStyle = gr; g.fill();
       g.save(); g.clip();
       // soft cloud reflections + a couple of sky glints
-      art.dabs(g, rng, 14, cx - r, cy - r, r * 2, r * 2, ['#dfe9ec', '#9fb4be', '#c7d6dc'], r * 0.12, r * 0.28, 0.3);
-      g.strokeStyle = 'rgba(250,252,250,0.45)'; g.lineCap = 'round';
+      art.dabs(g, rng, 8, cx - r, cy - r, r * 2, r * 2, ['#9fb8c6', '#7d98a8'], r * 0.12, r * 0.25, 0.3);
+      g.strokeStyle = 'rgba(236,244,246,0.7)'; g.lineCap = 'round';
       for (let i = 0; i < 2; i++) {
         g.lineWidth = rng.range(1.5, 2.5);
         const y = cy - r * 0.25 + i * r * 0.35 + rng.range(-3, 3);
         g.beginPath(); g.moveTo(cx - r * 0.4 + rng.range(-6, 6), y); g.lineTo(cx + r * 0.1 + rng.range(-6, 6), y - 2); g.stroke();
       }
       // water meets mud: soft darker inner edge, no hard outline
-      g.lineWidth = 9; g.strokeStyle = 'rgba(48,40,32,0.28)'; path(); g.stroke();
-      g.lineWidth = 3; g.strokeStyle = 'rgba(40,32,24,0.35)'; path(); g.stroke();
+      g.lineWidth = 4; g.strokeStyle = 'rgba(190,210,214,0.35)'; path(); g.stroke();
       g.restore();
+      path(); g.lineWidth = 1.4; g.strokeStyle = 'rgba(40,30,22,0.55)'; g.stroke();
       g.restore();
     });
   }

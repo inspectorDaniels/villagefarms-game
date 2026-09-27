@@ -11,7 +11,6 @@ export function makeBackdrop({ art, palette, tex, getSeason, river, fields }) {
   const hwAt = (i, k = 0) => river.width / 2 + 1.6 * noise.at(i * 0.04, 1.3) + 0.9 * noise.at(i * 0.11, k * 3.7 + 20);
   const bankL = (k) => offsetPts(rv, fr.tx, fr.ty, (i) => -(hwAt(i, k + 0.5) + k));
   const bankR = (k) => offsetPts(rv, fr.tx, fr.ty, (i) => hwAt(i, k) + k);
-  const band = (k0, k1) => { const a = bankR(k0), b = bankR(k1).reverse(), c = bankL(k0), d = bankL(k1).reverse(); return [a.concat(b), c.concat(d)]; };
   const waterPoly = (k) => bankR(k).concat(bankL(k).reverse());
   const prng = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
 

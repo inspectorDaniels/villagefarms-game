@@ -554,7 +554,6 @@ export async function init(ctx) {
   // internals for the showcase
   inst._internal = { cache, tex, ensure, generate: generateNetwork, setSuppressShadows: (v) => { suppressShadows = v; }, lampsOn, envState };
   internals.set(ctx.id, inst._internal);
-  if (ctx.params.roadsdebug) window.__ROADS = { cache, getD: () => D };
   return inst;
 }
 
@@ -574,12 +573,6 @@ function addPoly(g, pts) {
   const rev = area(pts) < 0, n = pts.length;
   for (let k = 0; k < n; k++) { const p = pts[rev ? n - 1 - k : k]; if (k === 0) g.moveTo(p[0], p[1]); else g.lineTo(p[0], p[1]); }
   g.closePath();
-}
-function prism(g, base, ox0, oy0, ox1, oy1) {
-  const b = base.map(([x, y]) => [x + ox0, y + oy0]);
-  const t = base.map(([x, y]) => [x + ox1, y + oy1]);
-  addPoly(g, b); addPoly(g, t);
-  for (let i = 0, n = base.length; i < n; i++) { const j = (i + 1) % n; addPoly(g, [b[i], b[j], t[j], t[i]]); }
 }
 
 // ======================================================================

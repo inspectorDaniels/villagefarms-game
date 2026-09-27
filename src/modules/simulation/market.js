@@ -1,7 +1,7 @@
 // Market: seasonal price curves × mean-reverting random walk × per-sell-point bias × saturation.
 // Pure logic operating on world.economy; installed onto the shared `sim` object.
-import { hashString } from '../../core/rng.js';
-import { ITEMS, ITEM_ALIASES, CROPS, CONST, YEAR_DAYS } from './data.js';
+import { hashString } from './util.js';
+import { ITEMS, ITEM_ALIASES, CROPS, CONST, YEAR_DAYS, CONSUMABLES } from './data.js';
 
 export const resolveItem = (item) => ITEM_ALIASES[item] || item;
 const mod = (a, n) => ((a % n) + n) % n;
@@ -50,6 +50,13 @@ export function installMarket(sim) {
     const jitter = 1 + (h01(spId + ':' + item + ':' + day) - 0.5) * 0.018;
     return bias * jitter;
   }
+  /** does this buyer take the item? The anonymous spot market takes produce but no consumables. */
+  function accepts(spId, item) {
+    if (CONSUMABLES.includes(item)) return false;
+    if (!spId) return true;
+    const sp = E.sellPoints[spId];
+    return !!sp && (!sp.accepts || sp.accepts.includes(item));
+  }
   function satMult(s) { return 1 - CONST.saturationMaxDrop * (1 - Math.exp(-s)); }
   function satOf(spId, item) { const t = E.market.sat[spId || '_spot']; return (t && t[item]) || 0; }
 
@@ -88,6 +95,8 @@ export function installMarket(sim) {
       item = resolveItem(item);
       if (!ITEMS[item]) return undefined;
       const day = sim.today();
+      if (CONSUMABLES.includes(item)) return refPrice(item, day); // buy price (diesel, fertiliser)
+      if (!accepts(sellPointId, item)) return undefined;          // this buyer doesn't take it
       return refPrice(item, day) * pointMult(sellPointId, item, day) * satMult(satOf(sellPointId, item));
     },
     priceHistory(item) { return (E.priceHistory[resolveItem(item)] || []).slice(); },
@@ -108,7 +117,7 @@ export function installMarket(sim) {
       if (!it || !(qty > 0)) return 0;
       const sp = sellPointId ? E.sellPoints[sellPointId] : null;
       if (sellPointId && !sp) return 0;
-      if (sp && sp.accepts && !sp.accepts.includes(item)) return 0;
+      if (!accepts(sellPointId, item)) return 0;
       if (opts.fromInventory !== false) qty = api.removeInventory(item, qty);
       if (!(qty > 0)) return 0;
       const day = sim.today();

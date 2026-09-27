@@ -18,7 +18,7 @@ const K_PUFF = 0, K_SPRITE = 1, K_LEAF = 2, K_RING = 3, K_GLOW = 4, K_BUTTERFLY 
  * alpha, fadeIn/fadeOut = fraction of life; land = rests on ground once z<=0; shadow = casts shadow.
  */
 export const TYPES = {
-  dust:      { kind: K_PUFF, layer: L_OVER, count: 6, life: [2.0, 3.4], size: [1.1, 1.8], grow: 2.3, speed: [0.5, 1.6], spread: Math.PI, vz: [0.2, 0.7], z0: 0.2, grav: 0, drag: 1.1, wind: 0.8, alpha: 0.62, fadeIn: 0.12, fadeOut: 0.6, color: '#a88b64', spin: 0.4 },
+  dust:      { kind: K_PUFF, layer: L_OVER, count: 6, life: [2.2, 3.6], size: [1.3, 2.0], grow: 2.3, speed: [0.5, 1.6], spread: Math.PI, vz: [0.2, 0.7], z0: 0.2, grav: 0, drag: 1.1, wind: 0.8, alpha: 0.75, fadeIn: 0.1, fadeOut: 0.55, color: '#a88b64', spin: 0.4 },
   exhaust:   { kind: K_PUFF, layer: L_OVER, count: 2, life: [1.4, 2.6], size: [0.4, 0.6], grow: 4.2, speed: [0.5, 1.2], spread: 0.5, vz: [1.0, 1.6], z0: 2.6, grav: 0, drag: 1.2, wind: 0.9, alpha: 0.62, fadeIn: 0.05, fadeOut: 0.75, color: '#555d69', spin: 0.6 },
   chimney:   { kind: K_PUFF, layer: L_OVER, count: 1, life: [4.5, 6.5], size: [0.9, 1.2], grow: 3.8, speed: [0.05, 0.25], spread: Math.PI, vz: [0.8, 1.2], z0: 7, grav: 0, drag: 0.35, wind: 1.0, alpha: 0.62, fadeIn: 0.06, fadeOut: 0.7, color: '#c4c2bc', spin: 0.25, shadow: 0.22 },
   steam:     { kind: K_PUFF, layer: L_OVER, count: 3, life: [1.4, 2.4], size: [0.35, 0.55], grow: 3.2, speed: [0.2, 0.6], spread: Math.PI, vz: [0.6, 1.0], z0: 1, grav: 0, drag: 0.8, wind: 0.8, alpha: 0.42, fadeIn: 0.1, fadeOut: 0.7, color: '#eef1ee', spin: 0.4 },
@@ -28,8 +28,8 @@ export const TYPES = {
   ripple:    { kind: K_RING, layer: L_GROUND, count: 1, life: [0.9, 1.5], size: [0.15, 0.25], grow: 5.0, speed: [0, 0], spread: 0, vz: [0, 0], z0: 0, grav: 0, drag: 0, wind: 0, alpha: 0.6, fadeIn: 0.05, fadeOut: 0.9 },
   leaves:    { kind: K_LEAF, layer: L_OVER, count: 4, life: [9, 16], size: [0.7, 0.9], grow: 1, speed: [0.2, 0.8], spread: Math.PI, vz: [-0.7, -0.4], z0: 5, grav: 0, drag: 1.2, wind: 0.9, alpha: 1, fadeIn: 0.03, fadeOut: 0.25, land: true, spin: 2.5 },
   petals:    { kind: K_LEAF, layer: L_OVER, count: 5, life: [6, 10], size: [0.22, 0.3], grow: 1, speed: [0.2, 0.8], spread: Math.PI, vz: [-0.5, -0.3], z0: 3, grav: 0, drag: 1.2, wind: 1.0, alpha: 1, fadeIn: 0.03, fadeOut: 0.3, land: true, spin: 3 },
-  chaff:     { kind: K_SPRITE, layer: L_OVER, count: 8, life: [1.6, 3.0], size: [0.38, 0.52], grow: 1, speed: [1.0, 3.0], spread: 0.6, vz: [0.8, 2.2], z0: 1.5, grav: 1.6, drag: 1.1, wind: 1.0, alpha: 1, fadeIn: 0.03, fadeOut: 0.3, land: true, spin: 6 },
-  clods:     { kind: K_SPRITE, layer: L_OVER, count: 5, life: [1.8, 3.2], size: [0.14, 0.26], grow: 1, speed: [0.8, 2.2], spread: 0.7, vz: [2.0, 3.8], z0: 0.3, grav: 9.8, drag: 0.2, wind: 0, alpha: 1, fadeIn: 0, fadeOut: 0.35, land: true, bounce: 0.28, spin: 5, shadow: 1 },
+  chaff:     { kind: K_SPRITE, layer: L_OVER, count: 8, life: [1.6, 3.0], size: [0.55, 0.75], grow: 1, speed: [1.0, 3.0], spread: 0.6, vz: [0.8, 2.2], z0: 1.5, grav: 1.6, drag: 1.1, wind: 1.0, alpha: 1, fadeIn: 0.03, fadeOut: 0.3, land: true, spin: 6 },
+  clods:     { kind: K_SPRITE, layer: L_OVER, count: 5, life: [1.8, 3.2], size: [0.14, 0.26], grow: 1, speed: [0.8, 2.2], spread: 0.7, vz: [2.0, 3.8], z0: 0.3, grav: 9.8, drag: 0.2, wind: 0, alpha: 1, fadeIn: 0, fadeOut: 0.35, land: true, bounce: 0.28, spin: 5 },
   sparkle:   { kind: K_SPARKLE, layer: L_GLOW, count: 4, life: [0.5, 1.1], size: [0.3, 0.55], grow: 1, speed: [0, 0.2], spread: Math.PI, vz: [0, 0], z0: 0.3, grav: 0, drag: 1, wind: 0, alpha: 0.9, fadeIn: 0.3, fadeOut: 0.5 },
   fireflies: { kind: K_GLOW, layer: L_GLOW, count: 1, life: [8, 16], size: [0.9, 1.3], grow: 1, speed: [0.2, 0.5], spread: Math.PI, vz: [0, 0], z0: 0.8, grav: 0, drag: 0, wind: 0.15, alpha: 1, fadeIn: 0.15, fadeOut: 0.2, light: true },
   butterflies: { kind: K_BUTTERFLY, layer: L_OVER, count: 1, life: [18, 32], size: [0.62, 0.78], grow: 1, speed: [0.7, 1.3], spread: Math.PI, vz: [0, 0], z0: 1.0, grav: 0, drag: 0, wind: 0.2, alpha: 1, fadeIn: 0.05, fadeOut: 0.08, shadow: 1 },
@@ -306,17 +306,6 @@ export function createParticles({ rng, sprites, season }) {
       g.globalAlpha = a > 1 ? 1 : a;
       g.setTransform(Z * c * sx, Z * sn * sx, -Z * sn * sy, Z * c * sy, E + Z * x, Fy + Z * y);
       g.drawImage(img, -0.5, -0.5, 1, 1);
-      if (t.kind === K_GLOW) {
-        // bright core
-        g.setTransform(Z * 0.22, 0, 0, Z * 0.22, E + Z * x, Fy + Z * y);
-        g.drawImage(img, -0.5, -0.5, 1, 1);
-      } else if (t.crown && u < 0.45) {
-        // rain splash: crown of droplets + fading ring
-        const r2 = s * (1 + u * 3);
-        g.globalAlpha = a * 0.6;
-        g.setTransform(Z * r2, 0, 0, Z * r2 * 0.82, E + Z * x, Fy + Z * y);
-        g.drawImage(list[sprites.ring()], -0.5, -0.5, 1, 1);
-      }
       drawn++;
     }
     g.setTransform(m);
@@ -348,6 +337,8 @@ export function createParticles({ rng, sprites, season }) {
         sx = sy = s; rot = P.rot[i];
         a *= 0.8;
       } else if (t.kind === K_PUFF) {
+        // only the older, larger puffs of a plume cast a (faint) shadow
+        if (u < 0.3 || (i & 1)) continue;
         if (P.grow[i] !== 1) s *= 1 + (P.grow[i] - 1) * (1 - (1 - u) * (1 - u));
         sx = sy = s * 0.9;
         a *= t.shadow;

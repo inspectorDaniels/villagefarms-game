@@ -22,20 +22,27 @@ export function defaultPlan(W, H, T, rng, noise) {
   const N = (x, y) => { nodes.push([+x.toFixed(2), +y.toFixed(2)]); return nodes.length - 1; };
   const E = (i, j, cls, via = [], opts) => edges.push(opts ? [i, j, cls, via, opts] : [i, j, cls, via]);
 
-  // regional: control points every ~85 m with a noise meander
+  const wetNear = (x, y, r) => { let n = 0; for (let dx = -r; dx <= r; dx += 15) for (let dy = -r; dy <= r; dy += 15) if (isWater(x + dx, y + dy)) n++; return n; };
+  // regional: control points every ~85 m with a noise meander; wet points slide along x
   const yMid = H * (0.5 + rng.range(-0.06, 0.06));
   const reg = [];
   const steps = Math.max(4, Math.round(W / 85));
   for (let k = 0; k <= steps; k++) {
     const x = k === 0 ? 2 : k === steps ? W - 2 : (W * k) / steps;
-    let y = yMid + noise.fbm(k * 0.35, 4.2, 2) * H * 0.12;
-    const p = k === 0 || k === steps ? [x, y] : settle(x, y, 1, 0);
+    const y = yMid + noise.fbm(k * 0.35, 4.2, 2) * H * 0.12;
+    let p = [x, y];
+    if (k > 0 && k < steps && cost(x, y) >= 1) {
+      let bc = Infinity;
+      for (const o of [0, 12, -12, 24, -24, 36, -36]) { const c = cost(x + o, y) + Math.abs(o) * 0.2; if (c < bc) { bc = c; p = [x + o, y]; } }
+    }
     reg.push(p);
   }
-  // village hangs north of the regional at ~58% of the width
-  const vk = Math.max(2, Math.min(steps - 2, Math.round(steps * 0.58)));
-  const lk = Math.max(1, Math.min(steps - 1, Math.round(steps * 0.25)));
-  const ek = Math.max(vk + 1, Math.min(steps - 1, Math.round(steps * 0.82)));
+  // choose village / lane junction indices on dry ground
+  const pick = (k0, k1, score) => { let best = k0, bs = Infinity; for (let k = k0; k <= k1; k++) { const sc = score(k); if (sc < bs) { bs = sc; best = k; } } return best; };
+  const vk = pick(Math.max(2, Math.ceil(steps * 0.3)), Math.min(steps - 3, Math.floor(steps * 0.75)),
+    (k) => wetNear(reg[k][0] + 20, reg[k][1] - 80, 120) * 50 + Math.abs(k / steps - 0.58) * 20 + slope(reg[k][0], reg[k][1] - 70) * 30);
+  const lk = pick(1, Math.max(1, vk - 3), (k) => wetNear(reg[k][0] + 20, reg[k][1] + 110, 90) * 50 + Math.abs(k / steps - 0.25) * 10);
+  const ek = pick(Math.min(steps - 1, vk + 2), steps - 1, (k) => wetNear(reg[k][0], reg[k][1] - 110, 90) * 50 + Math.abs(k / steps - 0.82) * 10);
   const ids = reg.map((p, k) => (k === 0 || k === steps || k === vk || k === lk || k === ek || k === vk - 1) ? N(p[0], p[1]) : null);
   let prev = 0, via = [];
   for (let k = 1; k <= steps; k++) {

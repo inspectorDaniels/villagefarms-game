@@ -6,8 +6,8 @@ import { DAY_SECONDS } from '../../core/world.js';
 
 export const ITEM_META = {
   wheat: { name: 'Wheat', unit: 't', icon: 'wheat' },
-  barley: { name: 'Barley', unit: 't', icon: 'wheat' },
-  oats: { name: 'Oats', unit: 't', icon: 'wheat' },
+  barley: { name: 'Barley', unit: 't', icon: 'barley' },
+  oats: { name: 'Oats', unit: 't', icon: 'oats' },
   rapeseed: { name: 'Rapeseed', unit: 't', icon: 'rapeseed' },
   maize: { name: 'Maize', unit: 't', icon: 'maize' },
   potatoes: { name: 'Potatoes', unit: 't', icon: 'potato' },
@@ -138,18 +138,22 @@ function sampleWeather(ctx) {
 export function createData(ctx) {
   let sample = null;
   let sampleEnabled = false;
+  let empty = false;
   const sim = () => {
+    if (empty) return null;
     const s = ctx.modules.get('simulation');
     return s && fn(s, 'money') ? s : null;
   };
   const S = () => {
-    if (!sampleEnabled) return null;
+    if (!sampleEnabled || empty) return null;
     if (!sample) sample = buildSample(ctx);
     return sample;
   };
 
   const D = {
     enableSample() { sampleEnabled = true; },
+    /** showcase only: behave as if no economy exists (demonstrates empty states) */
+    forceEmpty() { empty = true; sampleEnabled = false; },
     get usingSample() { return !sim() && sampleEnabled; },
     get hasEconomy() { return !!sim() || sampleEnabled; },
 

@@ -57,7 +57,10 @@ export function createSim(world, env) {
     const E = world.economy;
     if (E.lastDay == null) { E.lastDay = day; return 0; }
     let n = 0;
-    if (day - E.lastDay > 72) E.lastDay = day - 72;
+    if (day - E.lastDay > 72) {
+      if (env.warn) env.warn(`economy: skipped ${day - E.lastDay - 72} unprocessed day(s) (catch-up is capped at 72)`);
+      E.lastDay = day - 72;
+    }
     while (E.lastDay < day) { sim.processDay(E.lastDay + 1); n++; }
     return n;
   };

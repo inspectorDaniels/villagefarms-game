@@ -129,8 +129,9 @@ function fallbackAmbient(daylight, tod) {
 
 export async function stageShowcase(ctx, api, data, preset, hooks) {
   const sim = ctx.modules.get('simulation');
-  const live = sim && typeof sim.money === 'function';
-  if (!live && preset !== 'empty') data.enableSample();
+  const live = sim && typeof sim.money === 'function' && preset !== 'empty';
+  if (preset === 'empty') data.forceEmpty();
+  else if (!live) data.enableSample();
   else {
     // real simulation present: give it a little land and a couple of buyers to show, via its public API
     try {

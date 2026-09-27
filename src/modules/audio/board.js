@@ -1,10 +1,10 @@
 // Showcase "sound board": renders every synthesized sound with an OfflineAudioContext, analyses it
 // (peak, RMS, centroid, autocorrelation f0, STFT) and paints waveform + log-frequency spectrogram cards
 // in the game's paper-and-ink style. A live mixer panel shows director levels and real bus meters.
-import { resources, gain, clamp } from './synth.js';
+import { resources, gain, filt, clamp } from './synth.js';
 import { ONESHOTS } from './oneshots.js';
 import { LOOPS } from './loops.js';
-import { ambienceLevels } from './director.js';
+import { ambienceLevels, muffleCutoff } from './director.js';
 
 const SR = 24000;
 
@@ -12,7 +12,7 @@ const SR = 24000;
 async function render(mk, dur, build) {
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const oac = new OAC(1, Math.ceil(dur * SR), SR);
-  const R = resources(oac, mk);
+  const R = resources(oac, mk, { sync: true });
   const out = gain(oac, 1); out.connect(oac.destination);
   build(oac, out, R);
   const buf = await oac.startRendering();
@@ -24,9 +24,9 @@ function renderShot(mk, id, opts = {}) {
     ONESHOTS[id](ac, out, 0.02, R, o);
   });
 }
-function renderLoop(mk, id, dur, params = {}, script = null) {
+function renderLoop(mk, id, dur, params = {}, script = null, key = id) {
   return render(mk, dur, (ac, out, R) => {
-    const v = LOOPS[id](ac, out, R, { rng: mk('board:' + id), t0: 0, params });
+    const v = LOOPS[id](ac, out, R, { rng: mk('board:' + key), t0: 0, params });
     for (const k of Object.keys(params)) v.set(k, params[k], 0);
     if (script) script(v);
     if (v.tick) v.tick(0, dur);
@@ -222,7 +222,7 @@ const SHOTS = [
 ];
 const LOOPS_SHOWN = [
   ['engine-tractor', 'engine', 2.5, { rpm: 0.35, load: 0.5 }], ['engine-car', 'engine', 2.5, { rpm: 0.3, load: 0.3 }],
-  ['engine-combine', 'engine', 2.5, { rpm: 0.7, load: 0.8 }],
+  ['engine-combine', 'engine', 2.5, { rpm: 0.7, load: 0.8 }], ['engine-tractor', 'engine', 2.5, { rpm: 1, load: 1 }, 'tractor full load'],
   ['river', 'amb', 3, { flow: 0.7 }], ['wind', 'amb', 4, { speed: 0.6 }], ['rain', 'amb', 3, { intensity: 0.7 }],
   ['crickets', 'amb', 3, { intensity: 0.9 }], ['birds', 'amb', 5, { density: 1, season: 'spring' }],
   ['owl', 'amb', 5, { density: 1 }], ['music', 'music', 7, {}],
@@ -275,7 +275,9 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
       const W = weather();
       const lv = ambienceLevels(t0, ctx.clock.season, ctx.clock.yearFrac, W, 0);
       const mixDur = 8;
-      await add({ id: 'mix', key: 'mix', cat: 'amb', title: 'What you hear now', lv0: lv, wide: true }, () => render(mk, mixDur, (ac, out, R) => {
+      const snap = { time: ctx.clock.format(), h: t0, kind: W.kind, cut: muffleCutoff(W) };
+      await add({ id: 'mix', key: 'mix', cat: 'amb', title: 'What you hear now', lv0: lv, snap, wide: true }, () => render(mk, mixDur, (ac, out0, R) => {
+        const out = filt(ac, 'lowpass', snap.cut, 0.5); out.connect(out0); // same fog/snow muffle as the live ambience bus
         const mkL = (id, vol, params) => {
           if (vol <= 0.012) return;
           const g = gain(ac, 0); g.connect(out);
@@ -289,9 +291,9 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
         mkL('owl', amb * (0.55 + 0.45 * lv.owl), { density: lv.owl });
         mkL('crickets', amb * (0.35 + 0.65 * lv.crickets) * (lv.crickets > 0.012 ? 1 : 0), { intensity: lv.crickets });
         mkL('wind', amb * lv.wind, { speed: clamp(W.windSpeed / 15, 0, 1) });
-        mkL('rain', amb * (lv.rain > 0.012 ? 0.5 + 0.5 * lv.rain : 0), { intensity: lv.rain });
+        mkL('rain', amb * Math.min(1, lv.rain * 2.5), { intensity: lv.rain });
         mkL('music', 0.35 * lv.music, {});
-        if (W.storm) { const g = gain(ac, 0.9 * amb); g.connect(out); ONESHOTS.thunder(ac, g, 2.2, R, { rng: mk('mix:thunder'), p: 1, dist: 0.45 }); }
+        if (W.storm > 0.35) { const g = gain(ac, 0.9 * amb); g.connect(out); ONESHOTS.thunder(ac, g, 2.2, R, { rng: mk('mix:thunder'), p: 1, dist: 0.45 }); }
       }));
       const night = preset === 'ambience-night';
       const list = [
@@ -304,7 +306,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
       await add({ id: 'thunder', cat: 'weather' }, () => renderShot(mk, 'thunder', { dur: 6.5, dist: 0.3 }));
     } else {
       for (const [id, cat, dur] of SHOTS) await add({ id, cat }, () => renderShot(mk, id, { dur }));
-      for (const [id, cat, dur, params] of LOOPS_SHOWN) await add({ id, cat, loop: true }, () => renderLoop(mk, id, dur, params));
+      for (const [id, cat, dur, params, title] of LOOPS_SHOWN) await add({ id, cat, loop: true, title, key: title ? id + ':full' : id }, () => renderLoop(mk, id, dur, params, null, title ? id + ':full' : id));
     }
   }
 
@@ -396,8 +398,9 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
     if (mix) {
       const lv = mix.lv0;
       const parts = ['birds', 'crickets', 'owl', 'wind', 'rain', 'music'].filter((k) => lv[k] > 0.012).map((k) => `${k} ${(lv[k] * 100).toFixed(0)}%`);
-      if (weather().storm) parts.push('+ thunder at 2.2 s');
-      card(mix, gx, gy, gw, topH, { big: true, waveH: 36, foot: `director mix at ${ctx.clock.format()}, ${ctx.clock.season}: ${parts.join(' · ')}   (pk ${mix.lv.peakDb.toFixed(1)} dB, rms ${mix.lv.rmsDb.toFixed(0)} dB)` });
+      if (weather().storm > 0.35) parts.push('+ thunder at 2.2 s');
+      if (mix.snap.cut < 17000) parts.push(`muffled ≤${fmtHz(mix.snap.cut)}`);
+      card(mix, gx, gy, gw, topH, { big: true, waveH: 36, foot: `director snapshot at ${mix.snap.time}, ${ctx.clock.season}, ${mix.snap.kind}: ${parts.join(' · ')}   (pk ${mix.lv.peakDb.toFixed(1)} dB, rms ${mix.lv.rmsDb.toFixed(0)} dB)` });
     }
     const cols = 4, rows = 2, cw = (gw - (cols - 1) * 10) / cols, ch = (gh - topH - 10 - (rows - 1) * 10) / rows;
     rest.forEach((it, i) => card(it, gx + (i % cols) * (cw + 10), gy + topH + 10 + Math.floor(i / cols) * (ch + 10), cw, ch));
@@ -417,7 +420,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
   // 24-hour level chart (static part)
   const W0 = weather();
   const chart = { x: sx + 14, y: sy + 330, w: sw - 28, h: 150 };
-  const LAYERS = [['birds', CAT.amb], ['crickets', '#8a8a3a'], ['owl', '#6b5a45'], ['wind', CAT.weather], ['rain', '#2f5d74'], ['music', CAT.music]];
+  const LAYERS = [['birds', CAT.amb], ['crickets', '#9a8a2a'], ['owl', '#6b5a45'], ['wind', '#9aa3a6'], ['rain', '#2f5d74'], ['music', CAT.music]];
   g.fillStyle = pal.ink; g.font = 'bold 14px Georgia, serif';
   g.fillText('Levels over 24 h', chart.x, chart.y - 10);
   g.strokeStyle = art.rgba(pal.ink, 0.35); g.lineWidth = 1;
@@ -429,7 +432,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
   g.fillRect(chart.x, chart.y, sun.sunrise / 24 * chart.w, chart.h);
   g.fillRect(chart.x + sun.sunset / 24 * chart.w, chart.y, (24 - sun.sunset) / 24 * chart.w, chart.h);
   for (const [k, col] of LAYERS) {
-    g.strokeStyle = art.rgba(col, 0.9); g.lineWidth = 1.8; g.beginPath();
+    g.strokeStyle = art.rgba(col, 0.9); g.lineWidth = k === 'wind' ? 2.4 : 1.8; g.setLineDash(k === 'wind' ? [6, 3] : []); g.beginPath();
     for (let i = 0; i <= 96; i++) {
       const hh = i / 4, v = ambienceLevels(hh, ctx.clock.season, ctx.clock.yearFrac, W0, 0)[k];
       const px = chart.x + i / 96 * chart.w, py = chart.y + chart.h - 3 - v * (chart.h - 8);
@@ -437,6 +440,7 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
     }
     g.stroke();
   }
+  g.setLineDash([]);
   g.font = '10px "Segoe UI", system-ui, sans-serif';
   LAYERS.forEach(([k, col], i) => { const lx = chart.x + (i % 3) * 90, ly = chart.y + chart.h + 28 + Math.floor(i / 3) * 14; g.fillStyle = col; g.fillRect(lx, ly - 7, 12, 3); g.fillStyle = pal.inkSoft; g.fillText(k, lx + 16, ly - 3); });
   g.fillText(`${ctx.clock.season}, sunrise ${hm(sun.sunrise)} · sunset ${hm(sun.sunset)}`, chart.x, chart.y + chart.h + 62);
@@ -499,7 +503,12 @@ export async function buildBoard({ ctx, preset, mk, busLevel, weather, state }) 
       y += 20;
       const st = state();
       g2.fillStyle = pal.inkSoft; g2.font = '11px "Segoe UI", system-ui, sans-serif';
-      g2.fillText(`context: ${st.ctxState} · loop voices: ${st.voices}`, sx + 14, y);
+      g2.fillText(`context: ${st.ctxState} · loops ${st.live}/${st.voices} live · bake queue ${st.jobs}`, sx + 14, y);
+      const mixIt = items.find((i) => i.id === 'mix');
+      if (mixIt && Math.abs(ctx.clock.timeOfDay - mixIt.snap.h) > 0.25) {
+        g2.fillStyle = art.rgba(pal.danger, 0.85); g2.font = 'italic 12px Georgia, serif';
+        g2.fillText(`snapshot from ${mixIt.snap.time} — clock is now ${ctx.clock.format()} (live mixer →)`, gx + 200, gy + 18);
+      }
       // 24h cursor
       const px = chart.x + ctx.clock.timeOfDay / 24 * chart.w;
       g2.strokeStyle = art.rgba(pal.danger, 0.8); g2.lineWidth = 1.5;
