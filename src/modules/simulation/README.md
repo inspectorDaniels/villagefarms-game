@@ -87,7 +87,7 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
   - When it is done it emits `economy:contractor-done {booking}`. **The crops module should apply the operation to the parcel's fields on that event.**
   - Completion also counts as field work for CAP.
 - `contractorBookings(status?)`, `cancelContractor(id)`. Cancelling refunds in full before `startDay`; after that it is refused.
-- Prices (€/ha): plough 110, cultivate 65, sow 75, spray 28 (per pass), mow 60, harvest 170, lift 430, bale 55.
+- Prices (€/ha): plough 110, cultivate 65, sow 75, spray 28 (per pass), mow 60, harvest 180, lift 430, bale 55 (minimum charge €80). Contractors bring tier-3 kit and work at the AI rate.
 
 **Field work & CAP (r3)**
 - `recordFieldWork(parcelId, op, {workerId?, hours?})`. Call it whenever a field operation is done on a parcel, by the player, a hand or anything else. It marks the parcel as worked this CAP year. With `workerId` + `hours`, it also logs the hand's paid hours.
@@ -169,28 +169,152 @@ In the harness, dumping 600 t of wheat at one buyer fetched €156/t. Spreading 
 - `jobs:offered | jobs:accepted | jobs:completed | jobs:failed`: a copy of the job.
 - Listens to `clock:day`.
 
-@@BALANCE@@
-## Showcase
-The showcase has no deps. `stage` resets the economy and plays the **builder** strategy on the standard valley, with `ctx.rng('showcase-farmer')`. It runs from 1 March of year 1 to mid-September of **year 5**, the same code the tables above measure.
+## Balance — reproducible, headless (r3)
+```
+node src/modules/simulation/tests/progression.mjs            # defaults: 10 years × 8 seeds, AI_WORK_FACTOR 0.25, ≈ 15 s
+node src/modules/simulation/tests/progression.mjs 10 8 --ai=0.5   # sensitivity: hands/contractors half as fast
+node src/modules/simulation/tests/progression.mjs 10 8 --ai=2     # … twice as fast
+node src/modules/simulation/tests/exploits.mjs               # defaults: 8 seeds
+```
+Every number below comes from those exact commands. Both harnesses import the real `sim.js`, `economy.js`, `market.js`, `land.js`, `jobs.js` and `contractors.js`, and play through the **public API only**:
+- `hireContractor` / `contractorBookings`;
+- `recordFieldWork` / `logWork`;
+- `hireWorker`, `assignJob`, `acceptJob`, `reportProgress`, `tickPresence`;
+- `purchase({finance})`, `buyParcel({mortgage})`, `rentParcel`, `buy` / `sell` / `addInventory`.
 
-The result is painted on the `screen` layer as a cork office board. It is cached into one canvas and rebuilt only when the economy version, the day or the size changes. Each frame adds only a dusk tint and a night darkening with a desk-lamp pool.
+The harness supplies only what the crops module will do in the live game: turning a finished harvest into tonnes. Its yield model is the yield table × soil factor (0.82–1.18) × timeliness (−7 % when sowing or harvest is late) × weather noise (0.86–1.12).
+
+**The world fits the map.** `defineValley` is 81 ha in 37 parcels inside the 1024 m map: fields, a village, two woods, 6 buyers. The player starts with:
+- a 0.6 ha yard (owned) and 1.2 ha rented;
+- €18k;
+- a used 95 hp tractor, a 3 m plough and drill, and a 14 t trailer.
+
+**Time model in the harness:**
+- The player has 14 game hours a day, which is 14 real minutes at 1×. He does jobs at `workRates().player`, so a 0.4 ha plough job takes about 12 real minutes.
+- Hands work 10 game hours a day at `workRates().ai`. A t1 plough covers 0.48 ha per game hour.
+- Farm tasks go first to hands that have the kit. The player takes a task only if his hours are worth less than the contractor's price at €15/h. Everything else is booked with `hireContractor` early enough for its lead time.
+- Crew-sized jobs go to hands with `assignJob`, and the sim works them overnight.
+
+**Strategies:**
+- **jobs**: the player alone. He never hires or invests; contractors farm the starter plot.
+- **contractor**: contract work only. Hires hands and takes crew jobs, no land.
+- **smallfarm**: rents up to 12 ha, contractors do everything, no hands.
+- **renter**: rents what it can finance, and hires hands and machines when the contractor bill or the missed crew jobs would pay for them.
+- **builder**: the renter's rules, plus it buys land on a 75 % mortgage when it can pay the deposit, and buys bigger kit.
+
+### Results (default run, median of 8 seeds)
+
+Net worth by strategy (farmed ha in brackets):
+
+| year | jobs | contractor | smallfarm | renter | builder |
+|---|---|---|---|---|---|
+| 1 | €51k | €51k | €51k | €51k | €51k (1.8 ha) |
+| 2 | €54k | €59k (2 hands) | €59k (11 ha) | €54k (19 ha) | €55k (19 ha, 2 hands) |
+| 4 | €61k | €90k | €82k | €99k (32 ha) | €106k (30 ha, 3.4 owned) |
+| 6 | €75k | €136k | €114k | €170k (42 ha) | €180k (41 ha, 5.9 owned, combine) |
+| 8 | €87k | €183k | €148k | €240k (54 ha) | €273k (49 ha, 10.6 owned, 3 hands) |
+| 10 | €98k | €232k | €179k | €309k (54 ha) | **€405k** (59 ha, 16.2 owned) |
+
+The builder, year by year:
+
+| builder | Y1 | Y2 | Y3 | Y4 | Y6 | Y8 | Y10 |
+|---|---|---|---|---|---|---|---|
+| contract jobs € | 6k | 19k | 29k | 29k | 34k | 36k | 39k |
+| crops + CAP € | 4k | 18k | 42k | 58k | 78k | 108k | 111k |
+| contractors € | 1k | 3k | 5k | 6k | 8k | 11k | 13k |
+| operating net € | 6k | 17k | 27k | 37k | 45k | 60k | 60k |
+
+### What the results show
+- **The player alone earns about €6k a year.** Player-sized jobs pay €110–200 for 8–18 real minutes of driving or walking.
+- **Hands are the scaling mechanism.** A hand costs €150–220 a day worked (€35 idle). The same hand earns €50–220 per game hour on crew jobs (e.g. "Haul 42 t" €420, "Deliver 4 loads" €610), and does 4–5 ha of ploughing a day on the farm.
+  - Pure contracting with 3 hands plateaus at about €37–39k a year of jobs (≈ €27k operating), because offers are limited to 2–4 a day plus about 1.2 per hand, and the job cap is 2 + hands.
+- **Farming on top of contracting doubles the operating result.** At Y8–10 the builder makes €60k operating against €27k for pure contracting, and €405k net worth against €232k.
+- **Owning beats renting:**
+  - builder €405k vs renter €309k at the same crew size;
+  - the same 4 ha field owned on a mortgage instead of rented comes out +€11k after 3 years, +€43k after 10 and +€70k after 15, on 8/8 seeds (`exploits.mjs`).
+- **The contractor service is a real choice.** It costs the builder €3–13k a year. It is used for sugar-beet lifting, baling, and overflow, and before the combine arrives. Late work costs 7 % of yield.
+
+### r3 targets (builder, printed at the end of the default run)
+| target | result |
+|---|---|
+| first hand year 2–3 | median year 2 (2 hands by Y2–3, 3 hands by Y8; 2+ by Y8 in 8/8 seeds) |
+| first owned parcel year 3–4 | median year 3 |
+| combine year 4–6 | median year 5 |
+| 40–60 ha by year 8 | median 50.4 ha, 8/8 in range |
+| net worth €400–600k by year 10 | median €405k; 4/8 in range, range €319–457k |
+
+**Sensitivity to `AI_WORK_FACTOR`.** Same command with `--ai=`:
+
+| factor | builder Y10 net worth | ha at Y8 | combine year | contractor strategy Y10 | renter Y10 |
+|---|---|---|---|---|---|
+| ×0.5 (0.125) | €237k | 41.3 | 7 | €154k | €229k |
+| ×1 (0.25) | €405k | 50.4 | 5 | €232k | €309k |
+| ×2 (0.5) | €443k | 50.4 | 5 | €210k | €357k |
+
+The ranking builder > renter > contractor > smallfarm > jobs holds at all three. At ×0.5 hands do half the work per wage, so the curve roughly halves after year 4.
+
+### Pace in real hours
+One game year is 14.4 real hours at 1×, 4.8 h at 3× and 1.44 h at 10×.
+
+| builder median | game time | real hours at 1× | at 3× |
+|---|---|---|---|
+| first hand | year 2 | ≈ 15–29 h | 5–10 h |
+| first owned parcel | year 3 | ≈ 29–43 h | 10–14 h |
+| combine | year 5 | ≈ 58–72 h | 19–24 h |
+| 50 ha and 3 hands | year 8 | ≈ 100–115 h | 34–38 h |
+| €400k | year 10 | ≈ 144 h | 48 h |
+
+Fast-forwarding does not skip the economy. Rent, wages, interest and upkeep are charged per game day at any speed. CAP needs worked land. Hands work per game day, so 10× only compresses real time.
+
+### 5 ha self-check (brief)
+5 ha of rented winter wheat plus the yard, all field work by contractors, no contract jobs. Over 24 seed-years (years 2–4):
+- operating net per year: mean **+€2,440**, median €2,988, range −€4.0k … +€13.4k;
+- mean per year: sales €9.2k, CAP €2.3k, rent −€2.6k, seed/fertiliser/spray −€1.8k, contractors −€2.5k, overheads −€1.4k.
+
+A 5 ha farm run by contractors is a sideline.
+
+### Exploit probes (`exploits.mjs`, default 8 seeds: 21/21 closed)
+The € effect is money − debt against an identical run without the move.
+
+| probe | median | verdict |
+|---|---|---|
+| r1 CAP flip: rent 15.3 ha on day 26, end the leases on day 28 (even while reporting field work) | −€2,700 | no gain on any seed |
+| CAP flip held a month either side / rent a year and farm nothing | −€4,376 / −€10,084 | no gain |
+| **r2 land-banking**: buy land on a mortgage, never work it | CAP €0 | closed (CAP needs worked land) |
+| **r2 credit bypass**: mortgage a parcel and sell it the same day | −€2,149, debt left €0 | closed (mortgage repaid from the sale) |
+| **r2 credit bypass**: finance a 180 hp tractor and sell it back | −€6,400, debt left €0 | closed |
+| **r2 money mint**: `sell('wheat', 50, …, {fromInventory:false})` with no stock | €0 | closed |
+| **r2 insolvency**: an overdraft of −€150k asks for a loan; then 70 days over the limit | loan refused; blocked; 4/4 machines sold by the bank | closed |
+| land flip next day / held a year unfarmed | −€2,149 / −€7 (best seed +€866) | no gain / a coin flip, loses on average |
+| carry trade: buy 100 t at harvest, sell in spring | −€596 (best seed +€2.2k) | loses on average |
+| contractor booked and cancelled 20× / hand hired and idle a month | €0 / −€1,085 | no gain |
+| dump diesel, −50 % loan rate, combine buy-and-resell, accept-and-fail jobs, hire/fire, buying to-let land, wheat at the dairy | — | refused or no gain |
+| 600 t in one lot vs spread over buyers and days | €156/t vs €166/t | dumping punished, spreading works |
+
+## Showcase
+The showcase has no deps. `stage` resets the economy and plays the **builder** strategy on the standard valley, with `ctx.rng('showcase-farmer')`. It runs from 1 March of year 1 to mid-September of **year 5**, using the same code as the tables above.
+
+The result is painted on the `screen` layer as a cork office board. It is cached and rebuilt only when the economy version, the day or the size changes. Each frame adds only a dusk tint and a night darkening with a desk-lamp pool.
 
 Presets (all day 25 = mid September):
-- `default`: ledger, price sheet ("last three harvests"), valley map, 3 job cards, 12-month P&L.
-- `market`: 6 large commodity charts with seasonal norm, high/low and harvest marks; today's quotes per buyer with glut markers; stored-grain valuation.
-- `jobs`: 9 job cards (offered/accepted/paid/missed), the contract book (client stars, monthly contract income) and the farm card.
-- `land`: a large valley map with legend and scale, plus the land register.
-
-Map labels and ledger memos are never cut mid-word. They shrink slightly to fit, and small neighbour parcels drop their name instead.
+- `default`: ledger, price sheet, valley map, 3 job cards, 12-month P&L.
+- `market`: 6 commodity charts; quotes from all 6 buyers (two lines each); the store valuation.
+- `jobs`: 9 job cards, including crew-sized ones worked by hands; the contract book; the farm card with hands and day rates.
+- `land`: a large valley map and the land register.
 
 ## Known limitations
-- **Brief progression targets missed.** The Y6–8 targets are not met: 50–80 ha, 2–3 hands, net worth ≥ €1M. See the target table above.
-  - Hired hands (€30–38k/yr) only pay off above about 100 ha, so the scripted builder rarely keeps one.
-  - Growth past about 40 ha per person needs a 300 hp tractor.
-- **CAP rules.** CAP pays on land held, whether or not it is cropped. This is like the real basic payment, but it means idle owned land still collects €450/ha. Buying land unfarmed and holding it loses on average (see the probe), but farming it is what pays.
+- **Net worth target only just met.** Year 10 net worth is a median of €405k (4/8 seeds in €400–600k). Outcomes are path-dependent (when land comes up for sale, when hands are hired): the 8-seed range is €319–457k.
+- **The harness farm manager is a heuristic player.** Its hiring and buying rules are tuned to be sensible, not optimal.
+- **Crew jobs out-earn farming per hand-hour.** Hands on crew jobs earn €50–220 per game hour. That is why pure contracting with 3 hands reaches €232k, and why a hand in year 2 is always right.
+  - Farming still doubles the operating result on top of that.
+  - Offers are capped at 2–4 a day plus about 1.2 per hand.
+- **Game-scale economy.** These values deviate from realistic Belgian figures (the brief sets rent at €450–750; I use €450–650):
+  - CAP €450/ha;
+  - seed/fertiliser/spray about 40 % below Belgian averages;
+  - rent €450–650/ha, rising with only half of the land index;
+  - compact combine (used) €92k.
+- **CAP relies on `recordFieldWork`.** Any module or script could call it, so it is trusted input from crops, vehicles and characters.
+- **Delegated jobs are worked abstractly.** The sim works them from the hand's unlogged hours and checks only that a tractor and implement are owned and not over-booked. It does not know where the hand's character physically is. A characters/vehicles AI that drives the hand for real should call `reportProgress` and `logWork`, and leave `assignee` set to a non-worker id.
 - **Harness vs live game.**
-  - The farm manager's yields (soil factor 0.82–1.18 × a random 0.86–1.12) are the harness's own model. In the live game, the crops module will decide real yields from `yieldTable()`.
-  - Presence and progress for jobs must be reported by other modules. This module does not check where the player actually is.
-  - There is no labour-time limit on the player beyond 3 active jobs. The harness does model crew hours.
-- **Year-to-year noise.** Operating P&L swings on small farms depending on when stored grain is sold. The board shows a rolling 12 months.
-- **Market coverage.** The market preset lists only as many buyers as fit above the "In our store" block; the sixth, the potato merchant, is dropped.
+  - The harness supplies harvest tonnes itself. In the live game, crops must turn `economy:contractor-done` and its own field ops into `addInventory` + `recordFieldWork`.
+  - Until the demo defines parcels, live jobs sit at deterministic points inside `world.bounds`, or at a client farm set with `defineClientFarm`.
