@@ -95,7 +95,7 @@ export function installJobs(sim) {
     const sps = Object.values(E().sellPoints || {});
     const farm = clientFarm(client);
     // crew-sized offers become more common with more hands (and with reputation)
-    const crew = T.machine && type !== 'snowClear' && rng.chance(Math.min(0.75, 0.3 + 0.15 * hands() + 0.2 * Math.max(0, J.reputation - 0.5)));
+    const crew = T.machine && type !== 'snowClear' && rng.chance(Math.min(0.75, 0.3 + 0.15 * Math.min(CONST.marketHands, hands()) + 0.2 * Math.max(0, J.reputation - 0.5)));
 
     const job = {
       id: `simulation:job:${J.nextId++}`, type, client: client.name, clientFarm: client.farm,
@@ -143,7 +143,7 @@ export function installJobs(sim) {
     }
     if (km) job.km = +km.toFixed(1);
 
-    const repMult = 0.92 + 0.16 * rec.rep;
+    const repMult = (0.92 + 0.16 * rec.rep) * (crew ? crewPayMult(day) : 1);
     const unitRate = type === 'transport' ? T.rate + T.perTkm * km : T.rate;
     let pay = unitRate * job.amount * repMult * (1 + T.spread * (rng.float() * 2 - 1));
     if (job.op === 'lift') pay *= 1.6;
@@ -185,6 +185,18 @@ export function installJobs(sim) {
     J.reputation = Math.max(0, Math.min(1, delta > 0 ? J.reputation + 0.03 * (1 - J.reputation) : J.reputation - 0.08));
   }
   const activeCap = () => CONST.jobCapBase + hands();
+  const isWorker = (id) => typeof id === 'string' && id.startsWith('simulation:worker:');
+  /** r4: the regional contract market saturates — the more crew work the farm already holds (accepted, or
+   *  finished in the last 2 days), the less neighbours pay for the next crew job (−6 % each, floor −30 %) */
+  function crewPayMult(day) {
+    const c = J.list.filter((j) => j.crew && (j.status === 'accepted' || (j.status === 'completed' && day - j.completedDay <= 2))).length;
+    return Math.max(1 - CONST.crewPayDropMax, 1 - CONST.crewPayDrop * c);
+  }
+  function progress(j, delta) {
+    j.progress = Math.max(0, Math.min(1, j.progress + delta));
+    if (j.progress >= 0.9999) api.completeJob(j.id);
+    return j.progress;
+  }
 
   Object.assign(api, {
     /** filter: status string, {status,type,client,requiresMachine,assignee}, or predicate */
@@ -229,16 +241,16 @@ export function installJobs(sim) {
     reportProgress(id, delta) {
       const j = find(id);
       if (!j || j.status !== 'accepted' || !Number.isFinite(delta)) return j ? j.progress : 0;
-      j.progress = Math.max(0, Math.min(1, j.progress + delta));
-      if (j.progress >= 0.9999) api.completeJob(id);
-      return j.progress;
+      if (isWorker(j.assignee)) return j.progress; // r4: a job delegated to a hand is worked by the sim only
+      return progress(j, delta);
     },
     /** presence jobs: count gameSeconds spent at the job site */
     tickPresence(id, gameSeconds) {
       const j = find(id);
       if (!j || j.status !== 'accepted' || !(gameSeconds > 0)) return j ? j.progress : 0;
+      if (isWorker(j.assignee)) return j.progress;
       const need = (j.unit === 'h' ? j.amount : 2) * 3600;
-      return api.reportProgress(id, gameSeconds / need);
+      return progress(j, gameSeconds / need);
     },
     completeJob(id) {
       const j = find(id);
@@ -266,32 +278,46 @@ export function installJobs(sim) {
     reputation() { return { overall: J.reputation, clients: JSON.parse(JSON.stringify(J.clients)) }; },
   });
 
-  /** hands work their delegated jobs with the hours they did not log yesterday (runs before wages settle) */
-  function workDelegated() {
+  /** r4: hands work their delegated jobs. Daily mode (harness): the hours they did not log on `day`.
+   *  Hourly mode (live game, opts.hours = 1): only while characters.isAvailable(workerId) says they are awake.
+   *  Each job books its machines for that day by category (tractor + implement, or the combine). */
+  function workDelegated(opts = {}) {
+    const day = opts.day != null ? opts.day : sim.today();
     const W = E().workers || [];
-    const tractors = owned('tractor').length;
-    let tractorsUsed = 0;
     for (const w of W) {
+      if (sim.isAvailable && sim.isAvailable(w.id) === false) continue;
       let free = CONST.hoursPerDayHand - (w.hoursToday || 0);
-      for (const j of J.list) {
+      if (opts.hours != null) free = Math.min(free, opts.hours);
+      const mine = J.list.filter((j) => j.status === 'accepted' && j.assignee === w.id).sort((a, b) => a.deadlineDay - b.deadlineDay);
+      for (const j of mine) {
         if (free <= 0.05) break;
-        if (j.status !== 'accepted' || j.assignee !== w.id) continue;
         if (j.requiresMachine) {
-          const needsTractor = j.op !== 'harvest';
-          if (needsTractor && tractorsUsed >= tractors) continue;
-          if (j.needs && j.needs !== 'tractor' && !owned(j.needs).length) continue;
-          if (needsTractor) tractorsUsed++;
+          const cats = [];
+          if (j.op !== 'harvest') cats.push('tractor');
+          if (j.needs && j.needs !== 'tractor') cats.push(j.needs);
+          if (!cats.every((c) => canReserve(c, w.id, day))) continue;
+          cats.forEach((c) => reserve(c, w.id, day));
         }
         const need = workHours(j, 'ai');
         if (!Number.isFinite(need) || need <= 0) continue;
         const h = Math.min(free, need);
         free -= h;
-        api.logWork(w.id, h);
-        const done = h / need * (1 - j.progress);
-        if (j.unit === 'h') api.tickPresence(j.id, h * 3600);
-        else api.reportProgress(j.id, done + 1e-9);
+        api.logWork(w.id, h, 'job');
+        w.delegatedToday = true;
+        if (j.unit === 'h') progress(j, h / Math.max(1e-6, j.amount));
+        else progress(j, (h / need) * (1 - j.progress) + 1e-9);
       }
     }
+  }
+  function canReserve(cat, holder, day) {
+    const R = sim.machineDay(day);
+    return !!R.by[cat + '|' + holder] || (R.used[cat] || 0) < owned(cat).length;
+  }
+  function reserve(cat, holder, day) {
+    const R = sim.machineDay(day);
+    const key = cat + '|' + holder;
+    if (R.by[key]) return;
+    R.used[cat] = (R.used[cat] || 0) + 1; R.by[key] = 1;
   }
 
   function jobsDay(day) {
@@ -308,8 +334,10 @@ export function installJobs(sim) {
     }
     // more hands → the neighbours call you more (each hand ≈ +1.2 offers/day); still a limited market
     const h = hands();
-    let n = rng.weighted([[2, 3], [3, 3], [4, 1.5]]) + (J.reputation > 0.8 && rng.chance(0.5) ? 1 : 0) + Math.floor(h * 1.2 + rng.float());
-    n = Math.min(n, CONST.maxOpenOffers + 2 * h - open);
+    // r4: a finite valley — hands beyond the 3rd bring no extra offers, and the day's total is capped
+    const hm = Math.min(CONST.marketHands, h);
+    let n = rng.weighted([[2, 3], [3, 3], [4, 1.5]]) + (J.reputation > 0.8 && rng.chance(0.5) ? 1 : 0) + Math.floor(hm * 1.2 + rng.float());
+    n = Math.min(n, CONST.maxOffersPerDay, CONST.maxOpenOffers + 2 * hm - open);
     for (let i = 0; i < n; i++) makeOffer(day, rng);
   }
 

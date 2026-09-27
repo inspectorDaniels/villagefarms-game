@@ -143,6 +143,25 @@ Hooks for modules that do not exist yet (every call is guarded, and undefined re
 - `animals`: `world.animals.pens[].trough` and `feed(penId, kg)`.
 - `buildings`: `nearest('farmhouse', x, y)` and `doorOf(id)`.
 
+## Round 2 (r4.5)
+- **Pause:** while `world.time.paused` is set, `update()` skips movement, AI, tools, stamina and jobs. The prompt and portrait bar still refresh, and `frame()` cosmetics still run. The showcase `frozen` flag keeps animating.
+- **Delegated jobs:** every 1 s the module looks for accepted jobs whose `assignee` is a hand's `workerId` (or the character id).
+  - The hand gets a `work` task at the job site. It runs there when the site is far, plays the tool animation without changing the world, and shows "On a job" in the portrait bar.
+  - When the job ends it goes back to its previous task, or runs home.
+  - Presence is not ticked for jobs assigned to a simulation worker, because simulation works those itself.
+  - At night the job waits and the hand sleeps.
+- **Wages (r4.5):** each hired character carries the `workerId` returned by `hireWorker`/`workers()`. Game-hours spent active are logged to it with `simulation.logWork(workerId, hours, kind)` in 0.25 h batches. Kind is `possessed` when the player controls the hand, or `task` for goto/work/driving. Delegated-job hours are not logged here, because simulation logs them.
+- `isAvailable(workerId)` (r4.7): true when the hand exists, is awake and it is not night.
+- **Vehicles:**
+  - F and the prompt use `vehicles.nearest(x, y, 3, {free:true})`.
+  - If `exit()` returns `blocked`, the character stays seated and a toast says "No room to get out". If `exit()` returns nothing, the fallback puts the character 2.2 m behind the vehicle.
+  - While driving, the camera zooms out with speed (down to 20 px/m) and looks up to 14 m ahead. The zoom is restored on exit.
+  - A hand left alone in a vehicle gets out after 30 game minutes, or at night.
+- **Tools:** a tool key pressed during an animation is buffered and applied when the animation ends.
+- **Walking home:** a hand walking home runs when more than 12 m away. Beyond 120 m, with both it and its home off-screen, it goes home at once.
+- **Job prompt:** at a job site, the job line takes priority over the tool prompt.
+- `assignTask` rejects unknown task kinds.
+
 ## World data
 - `world.characters`:
   - `list: [{ id, name, role, x, y, rot, state, vehicleId, task, appearance, tool, stamina, home, workerId, villager, pace, umbrella, …runtime }]`
@@ -177,7 +196,6 @@ Mechanics were checked in the full game with a scripted Puppeteer run: 22 checks
 `node tools/shot.js --out … --keys "KeyD:1500,Tab,KeyE" --extra "only=…,characters"` shows moving, switching and a tilled cell.
 
 ## Known limitations
-- `registry.js` does not list `characters` yet (integrator). Use `?only=…,characters`.
 - Tilled soil on painted `farmyard` can show terrain's edge-band artefact next to the cell. That is a terrain issue, which happens when painted areas overlap.
 - The AI steers directly with a sidestep. There is no pathfinding around large obstacles, and villagers cut across junction corners.
 - Without `crops`, sowing and watering are cosmetic (the `plots` map). Nothing grows.

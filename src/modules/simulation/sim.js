@@ -21,6 +21,8 @@ export function createSim(world, env) {
   sim.today = () => Math.floor(sim.now() / DAY_SECONDS);
   sim.blocked = () => false; // replaced by economy.js
   sim.rates = buildWorkRates(env.aiWorkFactor || AI_WORK_FACTOR);
+  sim.isAvailable = env.isAvailable || null;   // r4: optional characters.isAvailable(workerId)
+  sim.hourlyDelegation = !!env.hourlyDelegation; // live game: hands work delegated jobs hour by hour
 
   installEconomy(sim);
   installMarket(sim);
@@ -50,7 +52,7 @@ export function createSim(world, env) {
     const prevT = sim.virtualT;
     if (prevT == null && day !== sim.today()) sim.virtualT = day * DAY_SECONDS + 60; // stamp catch-up days correctly
     sim.market.stepMarket(day);
-    sim.jobs.workDelegated(day);       // hands work delegated jobs with yesterday's unlogged hours …
+    if (!sim.hourlyDelegation) sim.jobs.workDelegated({ day: day - 1 }); // hands work delegated jobs with yesterday's unlogged hours …
     sim.land.landDay(day);
     sim.contractors.contractorDay(day);
     sim.economy.economyDay(day);       // … before their wages settle

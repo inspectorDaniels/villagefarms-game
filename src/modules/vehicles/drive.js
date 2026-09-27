@@ -72,7 +72,6 @@ export function distToBox(px, py, x, y, rot, w, l) {
 export function createDriver(env) {
   // env: { ctx, W (world.vehicles), mod(id), byId(id), spec(v), onWork(v, imp, info), fx(v, info) }
   const { ctx, mod } = env;
-  const S = { stepN: 0 };
 
   // ---------------------------------------------------------------- surface
   function surfaceAt(x, y) {
@@ -197,11 +196,18 @@ export function createDriver(env) {
       for (const b of boxesAt(imp, p.x, p.y, p.rot)) boxes.push(b);
     }
     if (outOfBounds(boxes)) return { ok: false, bounds: true, poses };
-    // deep water probe at the leading edge (and the body centre)
-    const lead = toWorld(x, y, rot, 0, dirSign >= 0 ? -T.len / 2 - (T.header ? T.header.depth * 0.6 : 0) : T.len / 2);
+    // deep water probes: both corners + centre of the leading edge (rear of the whole rig when reversing)
     const wade = WADE[T.kind] || 0.5;
-    const d1 = waterDepth(lead[0], lead[1]);
-    if (d1 > wade) return { ok: false, water: d1, poses };
+    const probes = [];
+    if (dirSign >= 0) {
+      const fy = -T.len / 2 - (T.header ? T.header.depth * 0.6 : 0), hw = (T.header ? T.header.width : T.wid) / 2 * 0.9;
+      for (const lx of [-hw, 0, hw]) probes.push(toWorld(x, y, rot, lx, fy));
+    } else {
+      const last = poses.length ? poses[poses.length - 1] : null;
+      const U = last ? ALL[last[0].type] : T, p = last ? last[1] : { x, y, rot };
+      for (const lx of [-U.wid * 0.45, 0, U.wid * 0.45]) probes.push(toWorld(p.x, p.y, p.rot, lx, U.len / 2));
+    }
+    for (const q of probes) { const d1 = waterDepth(q[0], q[1]); if (d1 > wade) return { ok: false, water: d1, poses }; }
     const hit = hitsSolid(boxes, ignore);
     if (hit) return { ok: false, hit, poses };
     return { ok: true, poses };
@@ -213,20 +219,23 @@ export function createDriver(env) {
   function step(v, dt) {
     const T = TYPES[v.type];
     if (!T) return;
-    S.stepN++;
     const c = v.ctl || {};
-    const fresh = v.driverId && (v.ctlHold || (env.stepCount() - (v.ctlStep || -99)) <= 3);
+    const age = v.ctlHold ? 0 : env.stepCount() - (v.ctlStep == null ? -1e9 : v.ctlStep);
+    const fresh = v.driverId && age <= 3;
     let thr = fresh ? clamp(+c.throttle || 0, 0, 1) : 0;
-    let brk = fresh ? clamp(+c.brake || 0, 0, 1) : (v.driverId ? 0 : 1);
+    let brk = fresh ? clamp(+c.brake || 0, 0, 1) : 1;      // stale / no driver: hold the brakes
     let str = fresh ? clamp(+c.steer || 0, -1, 1) : 0;
-    const running = !!v.driverId && v.fuel > 0;
+    // engine runs while someone drives it; unattended for > 5 s (driver switched away) it is switched off
+    const running = !!v.driverId && v.fuel > 0 && age <= 300;
     v.engine = running;
     if (!running) thr = 0;
 
     // ---- surface (sampled every few steps or after moving)
-    if (v._sx == null || Math.abs(v.x - v._sx) + Math.abs(v.y - v._sy) > 0.7 || (S.stepN % 12) === 0) {
+    // per-vehicle sample phase (saved with the vehicle, so replays after load() are bit-exact)
+    v.sampleN = ((v.sampleN || 0) + 1) % 12;
+    if (v.sx == null || Math.abs(v.x - v.sx) + Math.abs(v.y - v.sy) > 0.7 || v.sampleN === 0) {
       v.surface = surfaceAt(v.x, v.y);
-      v._sx = v.x; v._sy = v.y;
+      v.sx = v.x; v.sy = v.y;
     }
     const surf = v.surface || 'grass';
     const hp = effectiveHp(v, T);
@@ -259,7 +268,10 @@ export function createDriver(env) {
     // ---- longitudinal
     let sp = v.speed || 0;
     const coast = T.roll + (1 - sf) * 2.5;
-    if (sp > 0.05) {
+    if (!fresh) {
+      // nobody at the controls: parking brake, never reverse
+      sp = sp > 0 ? Math.max(0, sp - T.brake * dt) : Math.min(0, sp + T.brake * dt);
+    } else if (sp > 0.05) {
       if (brk > 0) sp = Math.max(0, sp - T.brake * brk * dt);
       else if (thr > 0 && sp < cap * thr) sp = Math.min(cap * thr, sp + accel * thr * dt);
       else sp = Math.max(thr > 0 ? cap * thr : 0, sp - (sp > cap ? 3.5 + coast : coast) * dt);

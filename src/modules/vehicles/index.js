@@ -17,19 +17,20 @@ export const manifest = {
   namespaces: ['vehicles'],
   api: ['spawn', 'despawn', 'list', 'get', 'nearest', 'enter', 'exit', 'driverOf', 'control', 'attach', 'detach',
     'refuel', 'repair', 'upgrade', 'purchase', 'sell', 'catalog', 'types', 'setImplement', 'setLights', 'setSeed',
-    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder', 'workRate'],
+    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder', 'workRate', 'addFuelPoint'],
   emits: ['vehicles:entered', 'vehicles:exited', 'vehicles:purchased', 'vehicles:worked', 'vehicles:attached',
     'vehicles:detached', 'vehicles:refuelled', 'vehicles:repaired', 'vehicles:sold'],
   listens: [],
 };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-const SAVE_SKIP = new Set(['ctl', 'ctlStep', 'surface', 'cap', 'load', 'blocked', 'blockedBy', 'engine']);
+const SAVE_SKIP = new Set(['ctl', 'ctlStep', 'cap', 'load', 'blocked', 'blockedBy', 'engine']);
+export const EXIT_MAX_SPEED = 1.0; // m/s — faster than this the driver cannot get out
 
 export async function init(ctx) {
   const world = ctx.world;
   const W = world.vehicles;
-  Object.assign(W, { list: [], counter: 0, version: 0 });
+  Object.assign(W, { list: [], counter: 0, version: 0, fuelPoints: [] });
   const byId = new Map();
   let stepCount = 0;
   const mod = (id) => ctx.modules.get(id);
@@ -122,7 +123,7 @@ export async function init(ctx) {
     const polys = boxesNow(v);
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const P of polys) for (const p of P) { x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
-    ctx.spatial.update({ id: v.id, kind: 'vehicle', x0, y0, x1, y1, solid: true, data: { vehicleId: v.id, type: v.type, polys } });
+    ctx.spatial.update({ id: v.id, kind: 'vehicle', x0, y0, x1, y1, polys, solid: true, data: { vehicleId: v.id, type: v.type, polys } });
   }
 
   // ---------------------------------------------------------------- driver & services
@@ -169,6 +170,7 @@ export async function init(ctx) {
     let cells = 0;
     if (crops && crops.work) {
       imp._inField = crops.fieldAt ? !!crops.fieldAt(wx, wy) : true;
+      if (tw.tool === 'harvest' && !canHarvest(imp, crops, cx, cy)) return;
       const r = crops.work(tw.tool, cx, cy, tw.width + 0.2, imp.rot, len + 0.1); // 10 cm overlap each side, like a driver
       if (r && typeof r === 'object') {
         cells = r.cellsChanged || 0;
@@ -192,6 +194,18 @@ export async function init(ctx) {
       imp._evArea = 0; imp._cells = 0;
     }
   }
+  // combines take cereals, oilseed and maize; the root harvester takes beet and potatoes; grass needs a mower
+  const COMBINE_KINDS = new Set(['cereal', 'oilseed', 'maize']);
+  let cropKinds = null;
+  function canHarvest(imp, crops, x, y) {
+    if (!crops.cellAt) return true;
+    const c = crops.cellAt(x, y);
+    if (!c || !c.crop) return false;
+    if (!cropKinds) { const t = crops.crops ? crops.crops() : null; cropKinds = {}; if (t) for (const [k, d] of Object.entries(t)) cropKinds[k] = d.kind; }
+    const kind = cropKinds[c.crop];
+    if (!kind) return false;
+    return ALL[imp.type].header ? COMBINE_KINDS.has(kind) : kind === 'root';
+  }
   // without crops: paint the swept strip into the terrain so the work is still visible
   function fallbackPaint(imp, tw, cx, cy, len) {
     const terr = mod('terrain');
@@ -199,7 +213,7 @@ export async function init(ctx) {
     const type = tw.tool === 'plough' ? 'ploughed' : (tw.tool === 'cultivate' || tw.tool.startsWith('seed')) ? 'soil' : null;
     if (!type) return;
     imp._pa = (imp._pa || 0) + len;
-    if (imp._pa < 2.4) return;
+    if (imp._pa < 9) return; // batched: each paintSurface repaints terrain chunks
     const L = imp._pa + 0.2;
     imp._pa = 0;
     const [wx, wy] = workPoint(imp);
@@ -211,6 +225,7 @@ export async function init(ctx) {
 
   // ---------------------------------------------------------------- core helpers
   function get(id) { return byId.get(id) || null; }
+  function snap(v) { return { ...v, attached: (v.attached || []).slice(), upgrades: { ...(v.upgrades || {}) }, cargo: v.cargo ? { ...v.cargo } : null, ctl: undefined }; }
   function drivable(v) { return !!(v && TYPES[v.type]); }
   function partsOf(v) { return (v.attached || []).map((id) => byId.get(id)).filter(Boolean); }
   function isDark() { const e = world.environment || {}; return (e.daylight == null ? 1 : e.daylight) < 0.35; }
@@ -295,8 +310,7 @@ export async function init(ctx) {
       const [x, y] = toWorld(v.x, v.y, v.rot, sx * (hw + 0.7), 0);
       if (isFree(x, y, 0.35)) return { x: +x.toFixed(3), y: +y.toFixed(3) };
     }
-    const [x, y] = toWorld(v.x, v.y, v.rot, -(hw + 0.7), 0);
-    return { x, y, blocked: true };
+    return null;
   }
   function enter(id, characterId) {
     const v = byId.get(id);
@@ -308,13 +322,18 @@ export async function init(ctx) {
     events.emit('vehicles:entered', { vehicleId: id, characterId, type: v.type });
     return true;
   }
+  function isPlayer(cid) { return !!(world.player && world.player.activeCharacterId === cid); }
   function exit(id) {
     const v = byId.get(id);
     if (!v || !v.driverId) return null;
     const cid = v.driverId;
+    const ui = mod('ui');
+    // must be (nearly) stopped, and there must be somewhere to stand; otherwise the driver stays in
+    if (Math.abs(v.speed) > EXIT_MAX_SPEED) { if (ui && ui.toast && isPlayer(cid)) ui.toast('Stop to get out', { kind: 'warn' }); return null; }
     const pos = exitPosition(id);
+    if (!pos || pos.blocked) { if (ui && ui.toast && isPlayer(cid)) ui.toast('No room to get out here', { kind: 'warn' }); return null; }
     v.driverId = null; v.ctl = null; v.engine = false;
-    if (Math.abs(v.speed) < 3) v.speed = 0;
+    v.speed = 0;
     const a = mod('audio'); if (a && a.play) a.play('door', { x: v.x, y: v.y, volume: 0.6 });
     events.emit('vehicles:exited', { vehicleId: id, characterId: cid, x: pos.x, y: pos.y });
     return pos;
@@ -349,12 +368,13 @@ export async function init(ctx) {
     if (c.throttle != null) v.ctl.throttle = +c.throttle || 0;
     if (c.brake != null) v.ctl.brake = +c.brake || 0;
     if (c.steer != null) v.ctl.steer = +c.steer || 0;
-    v.ctlStep = stepCount;
+    // only driving inputs keep the controls fresh (a lights/implement-only call must not re-arm an old brake)
+    if (c.throttle != null || c.brake != null || c.steer != null) v.ctlStep = stepCount;
     if (c.lights != null) setLights(id, c.lights);
     if (c.implementDown != null) {
       // with nothing to lower, E couples the implement behind you instead
       const hasWork = partsOf(v).some((p) => ALL[p.type].work) || ALL[v.type].header;
-      if (!hasWork && c.implementDown === 'toggle') hitchNearest(id);
+      if (!hasWork && c.implementDown === 'toggle') { if (!partsOf(v).length) hitchNearest(id, { coupleOnly: true }); }
       else setImplement(id, c.implementDown);
     }
     if (c.hitch != null) hitchNearest(id);
@@ -411,7 +431,7 @@ export async function init(ctx) {
     return n > 0;
   }
   /** couple the nearest free implement to the matching hitch, or uncouple the rear one */
-  function hitchNearest(id) {
+  function hitchNearest(id, opts = {}) {
     const v = byId.get(id);
     if (!drivable(v)) return false;
     if (Math.abs(v.speed) > 0.8) return false;
@@ -422,6 +442,7 @@ export async function init(ctx) {
       const I = ALL[cand.type];
       const front = I.mount === 'front';
       if (front ? T.hitchF == null : T.hitchR == null) continue;
+      if (partsOf(v).some((p) => (ALL[p.type].mount === 'front') === front)) continue; // that hitch is taken
       const [hx, hy] = driver.hitchPoint(v, front);
       const [ix, iy] = driver.implementHitch(cand);
       const d = Math.hypot(hx - ix, hy - iy);
@@ -431,15 +452,33 @@ export async function init(ctx) {
       // keep the implement where it stands if nearly aligned; snap otherwise
       return attach(id, best.id);
     }
+    if (opts.coupleOnly) return false;
     const rear = partsOf(v).find((p) => ALL[p.type].mount !== 'front') || partsOf(v)[0];
     if (rear) return detach(id, rear.id) ? 'detached' : false;
     return false;
   }
 
   // ---------------------------------------------------------------- fuel, repair, upgrades
-  function refuel(id, litres) {
+  /** fuel points (pumps) other modules can register; refuelling rules:
+   *  - within FUEL_R of a fuel point: farm diesel stock first, then buy diesel;
+   *  - on the farmyard surface: only from the farm's diesel stock (bought via simulation.buy('diesel'));
+   *  - anywhere else: nothing. opts.anywhere bypasses (scripts/tests). */
+  const FUEL_R = 12;
+  function refuelMode(v) {
+    for (const p of W.fuelPoints || []) if (Math.hypot(p.x - v.x, p.y - v.y) <= (p.r || FUEL_R)) return 'pump';
+    const s = driver.surfaceAt(v.x, v.y);
+    return s === 'farmyard' ? 'yard' : null;
+  }
+  function addFuelPoint(x, y, r = FUEL_R) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+    (W.fuelPoints = W.fuelPoints || []).push({ x, y, r });
+    return true;
+  }
+  function refuel(id, litres, opts = {}) {
     const v = byId.get(id);
     if (!v || !v.tank) return 0;
+    const mode = opts.anywhere ? 'pump' : refuelMode(v);
+    if (!mode) return 0;
     const sim = mod('simulation');
     let need = Math.max(0, Math.min(litres != null ? +litres : Infinity, v.tank - v.fuel));
     need = Math.floor(need * 10) / 10;
@@ -450,7 +489,7 @@ export async function init(ctx) {
     const have = +inv.diesel || 0;
     if (have > 0) got += sim.removeInventory('diesel', Math.min(have, need)) || 0;
     let rest = need - got;
-    if (rest > 0.05) {
+    if (rest > 0.05 && mode === 'pump') {
       const price = +sim.price('diesel') || 1.3;
       const afford = Math.floor(Math.max(0, (sim.money() || 0) / price) * 10) / 10;
       const buy = Math.min(rest, afford);
@@ -597,15 +636,18 @@ export async function init(ctx) {
     const inp = ctx.input;
     if (inp.pressed('KeyH')) hitchNearest(v.id);
     if (inp.pressed('KeyG') && Math.abs(v.speed) < 0.5) {
+      const mode = refuelMode(v);
       const got = refuel(v.id);
       const ui = mod('ui');
-      if (ui && ui.toast) ui.toast(got > 0 ? `Refuelled ${got.toFixed(0)} L diesel` : 'Could not refuel (tank full or no money)', { kind: got > 0 ? 'info' : 'warn', icon: 'diesel' });
+      const why = !mode ? 'Drive to a fuel point or the farmyard to refuel' : mode === 'yard' ? 'No diesel in the farm tank (buy diesel first)' : 'Tank full or no money';
+      if (ui && ui.toast) ui.toast(got > 0 ? `Refuelled ${got.toFixed(0)} L diesel` : why, { kind: got > 0 ? 'info' : 'warn', icon: 'diesel' });
     }
     if (inp.pressed('KeyU') && ALL[v.type].header) v.unloading = !v.unloading;
   }
 
   // ---------------------------------------------------------------- update
   function update(dt) {
+    if (world.time && world.time.paused) return; // user pause: nothing drives, burns or works
     stepCount++;
     playerKeys();
     for (let i = 0; i < W.list.length; i++) {
@@ -628,6 +670,7 @@ export async function init(ctx) {
   function save() {
     return {
       counter: W.counter,
+      fuelPoints: (W.fuelPoints || []).map((p) => ({ ...p })),
       list: W.list.map((v) => {
         const o = {};
         for (const [k, val] of Object.entries(v)) if (!SAVE_SKIP.has(k) && k[0] !== '_') o[k] = val && typeof val === 'object' ? JSON.parse(JSON.stringify(val)) : val;
@@ -640,6 +683,7 @@ export async function init(ctx) {
     for (const v of W.list) { ctx.spatial.remove(v.id); if (render) render.release(v); }
     W.list = d.list.map((v) => ({ ...v, attached: (v.attached || []).slice(), upgrades: { ...(v.upgrades || {}) }, cargo: v.cargo ? { ...v.cargo } : null }));
     W.counter = d.counter || W.list.length;
+    if (Array.isArray(d.fuelPoints)) W.fuelPoints = d.fuelPoints.map((p) => ({ ...p }));
     byId.clear();
     for (const v of W.list) byId.set(v.id, v);
     for (const v of W.list) moved(v);
@@ -649,7 +693,9 @@ export async function init(ctx) {
   const api = {
     spawn, despawn, get, nearest, enter, exit, control, attach, detach, refuel, repair, upgrade, purchase, sell, catalog,
     setImplement, setLights, unload, hitchNearest, exitPosition, workRate,
-    list: (filter) => (filter ? W.list.filter((v) => (typeof filter === 'function' ? filter(v) : Object.entries(filter).every(([k, val]) => v[k] === val))) : W.list.slice()),
+    /** copies (read-only snapshots); use get(id) for the live record */
+    list: (filter) => (filter ? W.list.filter((v) => (typeof filter === 'function' ? filter(v) : Object.entries(filter).every(([k, val]) => v[k] === val))) : W.list).map(snap),
+    addFuelPoint,
     driverOf: (id) => { const v = byId.get(id); return v ? v.driverId || null : null; },
     types: typesApi,
     setSeed: (id, crop) => { const v = byId.get(id); if (!v) return false; v.seed = String(crop); for (const p of partsOf(v)) p.seed = v.seed; return true; },

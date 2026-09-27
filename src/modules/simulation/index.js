@@ -28,13 +28,13 @@ export const manifest = {
     // jobs
     'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation', 'assignJob', 'activeJobCap', 'defineClientFarm',
     // workers
-    'hireWorker', 'fireWorker', 'workers', 'logWork',
+    'hireWorker', 'fireWorker', 'workers', 'logWork', 'reserveMachine', 'machinesFree', 'capShare',
     // time helper
     'today',
   ],
-  emits: ['economy:transaction', 'economy:price-changed', 'economy:bankrupt-warning', 'economy:contractor-done', 'economy:asset-seized', 'land:parcel-changed',
+  emits: ['economy:transaction', 'economy:price-changed', 'economy:bankrupt-warning', 'economy:contractor-done', 'economy:asset-seized', 'economy:hands-laid-off', 'land:parcel-changed',
     'jobs:offered', 'jobs:accepted', 'jobs:completed', 'jobs:failed'],
-  listens: ['clock:day'],
+  listens: ['clock:day', 'clock:hour', 'crops:worked'],
 };
 
 const INSTANCES = new WeakMap(); // ctx → { sim, view }
@@ -45,6 +45,13 @@ export async function init(ctx) {
     emit: (type, payload) => ctx.events.emit(type, payload),
     clockT: () => ctx.clock.t,
     warn: (msg) => ctx.warn(msg),
+    hourlyDelegation: true,
+    isAvailable: (workerId) => {
+      const ch = ctx.modules.get('characters');
+      if (!ch || typeof ch.isAvailable !== 'function') return true;
+      const r = ch.isAvailable(workerId);
+      return r !== false; // undefined (error / unknown) counts as available
+    },
   });
   sim.reset(sim.today(), { historyDays: YEAR_DAYS });
   const inst = { sim, view: null };
@@ -52,6 +59,13 @@ export async function init(ctx) {
 
   const catchUp = () => { if (sim.today() !== ctx.world.economy.lastDay) sim.catchUp(sim.today()); };
   ctx.events.on('clock:day', catchUp);
+  // r4: CAP on the worked share — crops reports every worked area
+  ctx.events.on('crops:worked', (e) => sim.onCropsWorked(e));
+  // r4: delegated jobs are worked in daylight working hours, one game hour at a time
+  ctx.events.on('clock:hour', () => {
+    const h = ctx.clock.hour;
+    if (h >= 7 && h < 17) { catchUp(); sim.jobs.workDelegated({ hours: 1 }); }
+  });
 
   const api = { ...sim.api, today: () => sim.today() };
   return {

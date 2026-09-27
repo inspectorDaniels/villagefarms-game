@@ -274,7 +274,15 @@ export function buildDerived(roads, noise) {
     }
   }
 
-  return { nodeById, edgeById, adj, chains, junctions, crossings, grid, CELL, deg };
+  // grid extents (cells) — bounds every ring search
+  let gx0 = Infinity, gy0 = Infinity, gx1 = -Infinity, gy1 = -Infinity;
+  for (const k of grid.keys()) {
+    const c = k.indexOf(',');
+    const gx = +k.slice(0, c), gy = +k.slice(c + 1);
+    if (gx < gx0) gx0 = gx; if (gx > gx1) gx1 = gx; if (gy < gy0) gy0 = gy; if (gy > gy1) gy1 = gy;
+  }
+  const gext = grid.size ? { gx0, gy0, gx1, gy1 } : null;
+  return { nodeById, edgeById, adj, chains, junctions, crossings, grid, CELL, deg, gext };
 }
 
 /** corner curve between arm i and arm i+1 at offset k (0 = carriageway edge, >0 away from road) */
@@ -325,8 +333,12 @@ export function junctionPoly(J, k) {
   return out;
 }
 
-/** nearest point on the network: {edgeId, x, y, t (0..1 along edge a→b), dist, seg} */
+/** nearest point on the network: {edgeId, x, y, t (0..1 along edge a→b), dist, seg} or null.
+ *  Bounded: non-finite input → null; the ring search is clamped to the grid extents and maxR. */
 export function nearestOnNetwork(D, x, y, filter, maxR = 4096) {
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !D || !D.gext) return null;
+  const { gx0, gy0, gx1, gy1 } = D.gext;
+  const C = D.CELL;
   let best = null;
   const tryEdge = (e, i) => {
     if (filter && !filter(e)) return;
@@ -334,17 +346,25 @@ export function nearestOnNetwork(D, x, y, filter, maxR = 4096) {
     const r = nearestOnSeg(x, y, a[0], a[1], b[0], b[1]);
     if (!best || r.d < best.dist) best = { edgeId: e.id, x: r.x, y: r.y, dist: r.d, seg: i, u: r.t, e };
   };
-  const cx = Math.floor(x / D.CELL), cy = Math.floor(y / D.CELL);
-  for (let ring = 0; ring * D.CELL < maxR + D.CELL; ring++) {
-    for (let gx = cx - ring; gx <= cx + ring; gx++) for (let gy = cy - ring; gy <= cy + ring; gy++) {
-      if (Math.max(Math.abs(gx - cx), Math.abs(gy - cy)) !== ring) continue;
-      const l = D.grid.get(gx + ',' + gy);
-      if (l) for (const [e, i] of l) tryEdge(e, i);
+  const visit = (gx, gy) => { const l = D.grid.get(gx + ',' + gy); if (l) for (const it of l) tryEdge(it[0], it[1]); };
+  const cx = Math.floor(x / C), cy = Math.floor(y / C);
+  // first ring that can contain any cell, last ring that can
+  const r0 = Math.max(0, gx0 - cx, cx - gx1, gy0 - cy, cy - gy1);
+  const r1 = Math.min(Math.max(cx - gx0, gx1 - cx, cy - gy0, gy1 - cy), Math.ceil(maxR / C) + 1);
+  if (r0 > r1 || (r0 - 1) * C > maxR) return null;
+  for (let ring = r0; ring <= r1; ring++) {
+    if (ring === 0) visit(cx, cy);
+    else {
+      const xa = Math.max(cx - ring, gx0), xb = Math.min(cx + ring, gx1);
+      const ya = Math.max(cy - ring + 1, gy0), yb = Math.min(cy + ring - 1, gy1);
+      if (cy - ring >= gy0 && cy - ring <= gy1) for (let gx = xa; gx <= xb; gx++) visit(gx, cy - ring);
+      if (cy + ring >= gy0 && cy + ring <= gy1) for (let gx = xa; gx <= xb; gx++) visit(gx, cy + ring);
+      if (cx - ring >= gx0 && cx - ring <= gx1) for (let gy = ya; gy <= yb; gy++) visit(cx - ring, gy);
+      if (cx + ring >= gx0 && cx + ring <= gx1) for (let gy = ya; gy <= yb; gy++) visit(cx + ring, gy);
     }
-    if (best && best.dist < ring * D.CELL) break;
-    if (ring > 70 && !best) break;
+    if (best && best.dist < ring * C) break;
   }
-  if (!best) return null;
+  if (!best || best.dist > maxR + C) return null;
   const e = best.e;
   let s = 0;
   for (let i = 0; i < best.seg; i++) s += dist(e.points[i], e.points[i + 1]);

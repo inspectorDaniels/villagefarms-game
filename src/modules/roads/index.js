@@ -1,5 +1,5 @@
 // roads — road graph, painted road rendering (chunk cached), bridges, street lights, pathfinding.
-import { CLASSES, buildDerived, nearestOnNetwork, outerHalf } from './network.js';
+import { CLASSES, buildDerived, nearestOnNetwork, outerHalf, junctionPoly } from './network.js';
 import { buildDecals, makePainter, wingWalls } from './paint.js';
 import { makeTextures } from './textures.js';
 import { ChunkCache } from './chunks.js';
@@ -14,7 +14,7 @@ export const manifest = {
   optionalDeps: ['terrain', 'environment'],
   namespaces: ['roads'],
   api: ['addNode', 'addEdge', 'removeEdge', 'generateNetwork', 'nearest', 'roadAt', 'pathfind', 'laneCurve',
-    'edges', 'nodes', 'edgesInRect', 'junctions', 'drawMinimap', 'classes', 'lights'],
+    'edges', 'nodes', 'edgesInRect', 'junctions', 'junctionInfo', 'surfaceAt', 'drawMinimap', 'classes', 'lights'],
   emits: ['roads:changed'],
   listens: [],
 };
@@ -45,27 +45,34 @@ export async function init(ctx) {
   const debug = { render: ctx.params && (ctx.params.roadsfx === '0' || ctx.params.roadsfx === 0) ? false : true, stats: () => cache.stats() };
   Object.defineProperty(roads, 'debug', { value: debug, enumerable: false, configurable: true, writable: true });
   const warned = new Set();
-  const warnOnce = (key, msg) => { if (warned.has(key)) return; warned.add(key); ctx.warn('roads: ' + msg); };
+  const warnOnce = (key, msg) => { if (warned.has(key)) return; warned.add(key); ctx.warn(msg); };
   const fin = Number.isFinite;
 
   // ------------------------------------------------------------ graph editing
   const nodeIndex = () => new Map(roads.nodes.map((n) => [n.id, n]));
   function addNode(x, y) {
+    x = +x; y = +y;
+    if (!fin(x) || !fin(y)) { warnOnce('addNode', `addNode: non-finite coordinates (${x}, ${y}) rejected`); return null; }
     const id = 'roads:' + (++counter);
     roads.nodes.push({ id, x: +x, y: +y });
     dirty = true;
     return id;
   }
-  function addEdge(a, b, opts = {}) {
+  const cleanVia = (via) => (Array.isArray(via) ? via : [])
+    .map((p) => (Array.isArray(p) ? [+p[0], +p[1]] : p && typeof p === 'object' ? [+p.x, +p.y] : null))
+    .filter((p) => p && fin(p[0]) && fin(p[1]));
+  function addEdge(a, b, opts) {
+    if (!opts || typeof opts !== 'object') opts = {};
     const idx = nodeIndex();
-    if (!idx.has(a) || !idx.has(b)) throw new Error(`addEdge: unknown node ${idx.has(a) ? b : a}`);
-    if (a === b) throw new Error('addEdge: a === b');
+    if (!idx.has(a) || !idx.has(b)) { warnOnce('addEdge:unknown', `addEdge: unknown node ${idx.has(a) ? b : a} (returns null)`); return null; }
+    if (a === b) { warnOnce('addEdge:self', 'addEdge: self-loop a === b rejected (returns null)'); return null; }
+    if (opts.class != null && !CLASSES[opts.class]) warnOnce('addEdge:class:' + opts.class, `addEdge: unknown class '${opts.class}', using 'lane'`);
     const cls = CLASSES[opts.class] ? opts.class : 'lane';
     const spec = CLASSES[cls];
     const id = 'roads:' + (++counter);
     roads.edges.push({
       id, a, b, class: cls, width: spec.width, lanes: spec.lanes, speed: spec.speed,
-      bridge: !!opts.bridge, via: (opts.via || []).map((p) => [+p[0], +p[1]]), points: [], length: 0,
+      bridge: !!opts.bridge, via: cleanVia(opts.via), points: [], length: 0,
     });
     dirty = true;
     return id;
@@ -82,7 +89,7 @@ export async function init(ctx) {
     const ids = plan.nodes.map(([x, y]) => addNode(x, y));
     for (const e of plan.edges) {
       const [i, j, cls, via, opts] = e;
-      addEdge(ids[i], ids[j], Object.assign({ class: cls, via: via || [] }, opts || {}));
+      addEdge(ids[i], ids[j], Object.assign({}, opts || {}, { class: cls, via: via || [] }));
     }
     return ids;
   }
@@ -150,73 +157,195 @@ export async function init(ctx) {
     ensure();
     return made;
   }
+  /** validate a plan without touching the network → error string or null */
+  function planError(plan) {
+    if (!plan || typeof plan !== 'object') return 'plan must be an object';
+    if (!Array.isArray(plan.nodes)) return 'plan.nodes must be an array';
+    if (plan.edges != null && !Array.isArray(plan.edges)) return 'plan.edges must be an array';
+    for (let i = 0; i < plan.nodes.length; i++) {
+      const n = plan.nodes[i];
+      const x = Array.isArray(n) ? +n[0] : n && +n.x, y = Array.isArray(n) ? +n[1] : n && +n.y;
+      if (!fin(x) || !fin(y)) return `plan.nodes[${i}] is not a finite [x,y]`;
+    }
+    const N = plan.nodes.length;
+    for (let k = 0; k < (plan.edges || []).length; k++) {
+      const e = plan.edges[k];
+      if (!Array.isArray(e)) return `plan.edges[${k}] must be [i, j, class, via?, opts?]`;
+      const [i, j] = e;
+      if (!Number.isInteger(i) || !Number.isInteger(j) || i < 0 || j < 0 || i >= N || j >= N) return `plan.edges[${k}] node index out of range`;
+      if (i === j) return `plan.edges[${k}] is a self-loop`;
+    }
+    return null;
+  }
+  function snapshot() { return { counter, nodes: roads.nodes.slice(), edges: roads.edges.slice() }; }
+  function restore(sn) {
+    roads.nodes.length = 0; roads.edges.length = 0;
+    roads.nodes.push(...sn.nodes); roads.edges.push(...sn.edges);
+    counter = sn.counter; dirty = true;
+  }
   function generateNetwork(plan) {
-    clear();
-    counter = 0;
-    if (plan && Array.isArray(plan.nodes)) {
-      buildPlan(plan);
-      ensure();
-    } else {
-      const T = ctx.modules.get('terrain');
-      const p = defaultPlan(world.bounds.w, world.bounds.h, T, ctx.rng('generate'), ctx.noise('generate'));
-      buildPlan(p);
-      ensure();
-      placeBridges();
+    const usePlan = plan != null && !(typeof plan === 'object' && !Array.isArray(plan) && plan.nodes === undefined);
+    if (usePlan) {
+      const err = planError(plan);
+      if (err) { warnOnce('plan:' + err, `generateNetwork: invalid plan (${err}); network unchanged`); return null; }
+    }
+    const sn = snapshot();
+    try {
+      clear();
+      counter = 0;
+      if (usePlan) {
+        const nodes = plan.nodes.map((n) => (Array.isArray(n) ? n : [n.x, n.y]));
+        buildPlan({ nodes, edges: (plan.edges || []).map((e) => [e[0], e[1], e[2], cleanVia(e[3]), e[4] && typeof e[4] === 'object' ? e[4] : null]) });
+        ensure();
+      } else {
+        const T = ctx.modules.get('terrain');
+        const p = defaultPlan(world.bounds.w, world.bounds.h, T, ctx.rng('generate'), ctx.noise('generate'));
+        buildPlan(p);
+        ensure();
+        placeBridges();
+      }
+    } catch (err) {
+      restore(sn);
+      try { ensure(); } catch (e2) { /* keep going: old network was valid before */ }
+      warnOnce('gen:' + (err && err.message), `generateNetwork failed (${err && err.message}); previous network kept`);
+      return null;
     }
     return { nodes: roads.nodes.length, edges: roads.edges.length, version: roads.version };
   }
 
   // ------------------------------------------------------------ queries
-  const P = (p) => (Array.isArray(p) ? { x: +p[0], y: +p[1] } : { x: +p.x, y: +p.y });
+  /** {x,y} | [x,y] → {x,y} with finite numbers, or null */
+  const P = (p) => {
+    if (!p || typeof p !== 'object') return null;
+    const x = Array.isArray(p) ? +p[0] : +p.x, y = Array.isArray(p) ? +p[1] : +p.y;
+    return fin(x) && fin(y) ? { x, y } : null;
+  };
+  const hasNet = () => D && D.grid && D.grid.size > 0;
   function nearest(x, y) {
+    x = +x; y = +y;
+    if (!fin(x) || !fin(y)) { warnOnce('nearest:nf', 'nearest: non-finite coordinates → null'); return null; }
     ensure();
+    if (!hasNet()) return null;
     const r = nearestOnNetwork(D, x, y);
     if (!r) return null;
     return { edgeId: r.edgeId, x: r.x, y: r.y, t: r.t, dist: r.dist };
   }
+  function junctionAt(x, y) {
+    for (const J of D.junctions) {
+      if (x < J.bbox.x0 || x > J.bbox.x1 || y < J.bbox.y0 || y > J.bbox.y1) continue;
+      if (pointInPoly(x, y, J.poly)) return J;
+    }
+    return null;
+  }
   function roadAt(x, y) {
+    x = +x; y = +y;
+    if (!fin(x) || !fin(y)) { warnOnce('roadAt:nf', 'roadAt: non-finite coordinates → null'); return null; }
     ensure();
+    if (!hasNet()) return null;
     const r = nearestOnNetwork(D, x, y, null, 24);
     if (r) {
       const e = D.edgeById.get(r.edgeId);
       if (r.dist <= e.width / 2 + 0.05) return e.class;
     }
-    for (const J of D.junctions) {
-      if (x < J.bbox.x0 || x > J.bbox.x1 || y < J.bbox.y0 || y > J.bbox.y1) continue;
-      if (pointInPoly(x, y, J.poly)) return J.cls;
-    }
-    return null;
+    const J = junctionAt(x, y);
+    return J ? J.cls : null;
   }
+  /** outer (footway) polygon around kerbed junction corners, cached per junction */
+  function junctionOuter(J) {
+    if (J.outerPoly !== undefined) return J.outerPoly;
+    const kW = CLASSES.village.kerbW, pave = CLASSES.village.pave;
+    const kerbCorner = (c) => J.degree > 2 && c.type === 'fillet' && (CLASSES[J.arms[c.i].cls].kerb || CLASSES[J.arms[c.j].cls].kerb);
+    J.outerPoly = J.corners.some(kerbCorner) ? junctionPoly(J, (c) => (kerbCorner(c) ? kW + pave : 0)) : null;
+    return J.outerPoly;
+  }
+  /** surface under a point: {class, part:'carriageway'|'kerb'|'pavement'|'verge', bridge, edgeId|null, node|null} or null */
+  function surfaceAt(x, y) {
+    x = +x; y = +y;
+    if (!fin(x) || !fin(y)) { warnOnce('surfaceAt:nf', 'surfaceAt: non-finite coordinates → null'); return null; }
+    ensure();
+    if (!hasNet()) return null;
+    const J = junctionAt(x, y);
+    if (J) return { class: J.cls, part: 'carriageway', bridge: false, edgeId: null, node: J.node };
+    const r = nearestOnNetwork(D, x, y, null, 24);
+    let best = null;
+    if (r) {
+      const e = D.edgeById.get(r.edgeId);
+      const spec = CLASSES[e.class] || CLASSES.lane;
+      const hw = e.width / 2, d = r.dist;
+      let part = null;
+      if (d <= hw + 0.05) part = 'carriageway';
+      else if (spec.kerb && d <= hw + spec.kerbW) part = 'kerb';
+      else if (spec.kerb && d <= hw + spec.kerbW + spec.pave) part = 'pavement';
+      else if (!spec.kerb && d <= hw + 0.6) part = 'verge';
+      if (part) best = { class: e.class, part, bridge: !!e.bridge && part !== 'verge', edgeId: e.id, node: null };
+    }
+    if (best && best.part === 'carriageway') return best;
+    for (const Jn of D.junctions) {
+      if (x < Jn.bbox.x0 - 3 || x > Jn.bbox.x1 + 3 || y < Jn.bbox.y0 - 3 || y > Jn.bbox.y1 + 3) continue;
+      const op = junctionOuter(Jn);
+      if (op && pointInPoly(x, y, op)) return { class: 'village', part: 'pavement', bridge: false, edgeId: null, node: Jn.node };
+    }
+    return best;
+  }
+  /** lane offset (m, to the right of travel) used by laneCurve and pathfind({lane:true}) */
+  const laneOffset = (e) => ((e.lanes || 1) >= 2 ? e.width / 4 : 0);
   function edgePart(e, s0, s1) {
     const cum = cumLengths(e.points);
     const out = [];
     const fwd = s1 >= s0;
     const a = Math.min(s0, s1), b = Math.max(s0, s1);
     const pa = sampleAt(e.points, cum, a);
-    out.push({ x: pa.x, y: pa.y });
-    for (let i = 0; i < e.points.length; i++) if (cum[i] > a + 0.05 && cum[i] < b - 0.05) out.push({ x: e.points[i][0], y: e.points[i][1] });
+    out.push({ x: pa.x, y: pa.y, edgeId: e.id });
+    for (let i = 0; i < e.points.length; i++) if (cum[i] > a + 0.05 && cum[i] < b - 0.05) out.push({ x: e.points[i][0], y: e.points[i][1], edgeId: e.id });
     const pb = sampleAt(e.points, cum, b);
-    out.push({ x: pb.x, y: pb.y });
+    out.push({ x: pb.x, y: pb.y, edgeId: e.id });
+    const L = e.length || cum[cum.length - 1];
+    if (a <= 0.01) out[0].node = e.a;
+    if (b >= L - 0.01) out[out.length - 1].node = e.b;
     return fwd ? out : out.reverse();
   }
-  function pathfind(from, to, opts = {}) {
-    ensure();
+  /** offset one edge part (already in travel order) to the right-hand lane of that edge */
+  function laneShift(part, e) {
+    const off = laneOffset(e);
+    if (!off || part.length < 2) return part;
+    const arr = part.map((p) => [p.x, p.y]);
+    const fr = frames(arr);
+    return offsetPts(arr, fr.tx, fr.ty, off).map(([x, y], i) => Object.assign({}, part[i], { x, y }));
+  }
+  function classFilter(c) {
+    if (c == null) return null;
+    let list = null;
+    if (typeof c === 'string') list = [c];
+    else if (Array.isArray(c)) list = c;
+    else if (c instanceof Set) list = [...c];
+    if (!list) { warnOnce('classes:type', 'pathfind: opts.classes must be a class name or an array; ignored'); return null; }
+    return new Set(list.map(String));
+  }
+  /**
+   * pathfind(from, to, {classes?, lane?}) → [{x, y, edgeId, node?}] or null.
+   * Each point carries the edge it lies on; points exactly on a graph node also carry `node`.
+   */
+  function pathfind(from, to, opts) {
+    if (!opts || typeof opts !== 'object') opts = {};
     const A = P(from), B = P(to);
-    const allowed = opts.classes ? new Set(opts.classes) : null;
+    if (!A || !B) { warnOnce('pathfind:args', 'pathfind: from/to must be finite {x,y} or [x,y] → null'); return null; }
+    ensure();
+    if (!hasNet()) return null;
+    const allowed = classFilter(opts.classes);
     const ok = (e) => !allowed || allowed.has(e.class);
     const sa = nearestOnNetwork(D, A.x, A.y, ok), sb = nearestOnNetwork(D, B.x, B.y, ok);
     if (!sa || !sb) return null;
     const ea = D.edgeById.get(sa.edgeId), eb = D.edgeById.get(sb.edgeId);
     const cost = (e, len) => len / (e.speed || 10);
-    let result = null;
-    if (ea === eb) {
-      result = edgePart(ea, sa.s, sb.s);
+    const parts = [];   // [{pts, e}]
+    if (ea === eb && ea.a !== ea.b) {
+      // same edge: direct, unless going round via the graph is shorter (never for a simple edge)
+      parts.push({ pts: edgePart(ea, sa.s, sb.s), e: ea });
     } else {
-      // A* from virtual start over nodes
       const vmax = 22.2;
       const g = new Map(), came = new Map(), open = new Set();
       const h = (id) => { const n = D.nodeById.get(id); return Math.hypot(n.x - sb.x, n.y - sb.y) / vmax; };
-      const push = (id, cst, from) => { if (!g.has(id) || cst < g.get(id)) { g.set(id, cst); came.set(id, from); open.add(id); } };
+      const push = (id, cst, fromRec) => { if (!g.has(id) || cst < g.get(id)) { g.set(id, cst); came.set(id, fromRec); open.add(id); } };
       push(ea.a, cost(ea, sa.s), { start: true, s: sa.s, toS: 0 });
       push(ea.b, cost(ea, ea.length - sa.s), { start: true, s: sa.s, toS: ea.length });
       const goal = new Map([[eb.a, sb.s], [eb.b, eb.length - sb.s]]);
@@ -225,7 +354,7 @@ export async function init(ctx) {
       while (open.size && guard++ < 20000) {
         let cur = null, cf = Infinity;
         for (const id of open) { const f = g.get(id) + h(id); if (f < cf) { cf = f; cur = id; } }
-        if (cf >= bestCost) break;
+        if (cur === null || cf >= bestCost) break;
         open.delete(cur);
         if (goal.has(cur)) {
           const tot = g.get(cur) + cost(eb, goal.get(cur));
@@ -246,40 +375,139 @@ export async function init(ctx) {
         chain.unshift({ edge: c.edge, from: c.fromNode, to: n });
         n = c.fromNode;
       }
-      const pts = [];
-      const add = (arr) => { for (const p of arr) { const l = pts[pts.length - 1]; if (!l || Math.hypot(l.x - p.x, l.y - p.y) > 0.05) pts.push(p); } };
       const st = chain[0].start;
-      add(edgePart(ea, sa.s, st.toS));
+      if (!st) return null;
+      parts.push({ pts: edgePart(ea, sa.s, st.toS), e: ea });
       for (const c of chain.slice(1)) {
         const fwd = c.edge.a === c.from;
-        add(edgePart(c.edge, fwd ? 0 : c.edge.length, fwd ? c.edge.length : 0));
+        parts.push({ pts: edgePart(c.edge, fwd ? 0 : c.edge.length, fwd ? c.edge.length : 0), e: c.edge });
       }
-      add(edgePart(eb, bestEnd === eb.a ? 0 : eb.length, sb.s));
-      result = pts;
+      parts.push({ pts: edgePart(eb, bestEnd === eb.a ? 0 : eb.length, sb.s), e: eb });
     }
-    if (opts.lane) {
-      // shift to the right-hand lane
-      const arr = result.map((p) => [p.x, p.y]);
-      const fr = frames(arr);
-      return offsetPts(arr, fr.tx, fr.ty, 1.6).map(([x, y]) => ({ x, y }));
+    const pts = [];
+    for (const part of parts) {
+      const arr = opts.lane ? laneShift(part.pts, part.e) : part.pts;
+      for (const p of arr) {
+        const l = pts[pts.length - 1];
+        if (!l || Math.hypot(l.x - p.x, l.y - p.y) > 0.05) pts.push(p);
+        else if (p.node && !l.node) l.node = p.node;
+      }
     }
-    return result;
+    return pts;
   }
   function laneCurve(edgeId, forward = true) {
     ensure();
     const e = D.edgeById.get(edgeId);
-    if (!e) return null;
+    if (!e || !e.points || e.points.length < 2) return null;
     const pts = forward ? e.points.slice() : e.points.slice().reverse();
     const fr = frames(pts);
-    const off = e.lanes >= 2 ? e.width / 4 : 0;
-    return offsetPts(pts, fr.tx, fr.ty, off).map(([x, y]) => [+x.toFixed(3), +y.toFixed(3)]);
+    return offsetPts(pts, fr.tx, fr.ty, laneOffset(e)).map(([x, y]) => [+x.toFixed(3), +y.toFixed(3)]);
   }
   function edgesInRect(x0, y0, x1, y1) {
+    x0 = +x0; y0 = +y0; x1 = +x1; y1 = +y1;
+    if ([x0, y0, x1, y1].some((v) => Number.isNaN(v))) { warnOnce('edgesInRect:nan', 'edgesInRect: NaN rect → []'); return []; }
     ensure();
-    return roads.edges.filter((e) => e.bbox && bboxHit(e.bbox, Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)));
+    const snap = snapEdges();
+    return snap.list.filter((e, i) => { const b = roads.edges[i] && roads.edges[i].bbox; return b && bboxHit(b, Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)); });
   }
   function junctions() { ensure(); return D.junctions.filter((J) => J.degree >= 3).map((J) => J.node); }
+
+  /**
+   * junctionInfo(nodeId) → { node, x, y, degree, rule, through:[edgeId,edgeId]|null, poly, arms:[...] } or null.
+   * rule: 'major-road' (one road has priority, the others give way) | 'right-before-left' (all arms equal)
+   *       | 'none' (dead end / plain continuation).
+   * arms are sorted clockwise on screen (y-down angle); each arm:
+   *   { edgeId, end:'a'|'b' (which end of that edge is at the node), class, lanes, width,
+   *     dir:[dx,dy] (unit, pointing AWAY from the junction), angle, priority:'major'|'minor',
+   *     control:'giveway'|'none' (give-way teeth painted), setback (m from node to the arm's mouth),
+   *     stopLine:{ x, y, a:[x,y], b:[x,y], s (m from node), edgeS (m along edge.points a→b) },
+   *     entry:{ x, y, edgeS } — inbound right-hand lane point at the stop line (where an arriving car waits),
+   *     exit:{ x, y, edgeS }  — outbound right-hand lane point at the mouth (where a car leaves onto this arm) }
+   * Lane points lie on laneCurve(edgeId, …) of the arm's edge (same right-hand offset).
+   */
+  function junctionInfo(nodeId) {
+    ensure();
+    const node = D.nodeById.get(nodeId);
+    if (!node) return null;
+    if (!D.jinfo) D.jinfo = new Map();
+    if (D.jinfo.has(nodeId)) return clone(D.jinfo.get(nodeId));
+    const J = D.junctions.find((j) => j.node === nodeId);
+    const arms = [];
+    const mk = (e, end, setback, priority, control) => {
+      const L = e.length || 0;
+      const fromNode = (s) => Math.max(0, Math.min(L, end === 'a' ? s : L - s));
+      const cum = cumLengths(e.points);
+      const at = (s) => sampleAt(e.points, cum, fromNode(s));
+      // tangent pointing away from the node
+      const q = at(Math.min(setback + 0.5, L * 0.5)), q0 = at(0);
+      let d = [q.x - q0.x, q.y - q0.y]; const dl = Math.hypot(d[0], d[1]) || 1; d = [d[0] / dl, d[1] / dl];
+      const off = laneOffset(e), hw = e.width / 2;
+      const sStop = Math.min(setback + (control === 'giveway' ? 0.95 : 0.4), L * 0.5);
+      const ps = at(sStop);
+      let ax = end === 'a' ? ps.tx : -ps.tx, ay = end === 'a' ? ps.ty : -ps.ty;   // away from node
+      // inbound travel = -away; its right-hand normal (y-down) = (ay, -ax)
+      const nIn = [ay, -ax], nOut = [-ay, ax];
+      const lanes = e.lanes || 1;
+      const entry = { x: +(ps.x + nIn[0] * off).toFixed(3), y: +(ps.y + nIn[1] * off).toFixed(3), edgeS: +fromNode(sStop).toFixed(3) };
+      const pm = at(Math.min(setback, L * 0.5));
+      let bx = end === 'a' ? pm.tx : -pm.tx, by = end === 'a' ? pm.ty : -pm.ty;
+      const exit = { x: +(pm.x - by * off).toFixed(3), y: +(pm.y + bx * off).toFixed(3), edgeS: +fromNode(Math.min(setback, L * 0.5)).toFixed(3) };
+      const la = lanes >= 2 ? 0 : -hw, lb = hw;
+      const stopLine = {
+        x: entry.x, y: entry.y, s: +sStop.toFixed(3), edgeS: entry.edgeS,
+        a: [+(ps.x + nIn[0] * la).toFixed(3), +(ps.y + nIn[1] * la).toFixed(3)],
+        b: [+(ps.x + nIn[0] * lb).toFixed(3), +(ps.y + nIn[1] * lb).toFixed(3)],
+      };
+      void nOut;
+      arms.push({ edgeId: e.id, end, class: e.class, lanes, width: e.width, dir: [+d[0].toFixed(4), +d[1].toFixed(4)], angle: +Math.atan2(d[1], d[0]).toFixed(4),
+        priority, control, setback: +setback.toFixed(3), stopLine, entry, exit });
+    };
+    let rule = 'none', through = null;
+    if (J) {
+      const majors = J.arms.filter((a) => a.rank === J.maxRank);
+      const hasMajorRoad = J.degree >= 3 && majors.length < J.arms.length && majors.length <= 2;
+      rule = J.degree >= 3 ? (hasMajorRoad ? 'major-road' : 'right-before-left') : 'none';
+      for (const a of J.arms) {
+        const seq = a.ch.seq;
+        const it = a.atStart ? seq[0] : seq[seq.length - 1];
+        const e = it.e;
+        const end = e.a === nodeId ? 'a' : 'b';
+        const painted = a.minor && (a.cls === 'village' || a.cls === 'regional');
+        const priority = rule === 'major-road' ? (a.rank === J.maxRank ? 'major' : 'minor') : rule === 'right-before-left' ? 'minor' : 'major';
+        mk(e, end, a.s || 0, priority, painted ? 'giveway' : 'none');
+      }
+      if (J.through) through = J.through.map((a) => { const seq = a.ch.seq; return (a.atStart ? seq[0] : seq[seq.length - 1]).e.id; });
+    } else {
+      for (const { e, end } of D.adj.get(nodeId) || []) mk(e, end, 0, 'major', 'none');
+    }
+    arms.sort((p, q) => p.angle - q.angle);
+    const info = { node: nodeId, x: node.x, y: node.y, degree: arms.length, rule, through,
+      poly: J ? J.poly.map((p) => [+p[0].toFixed(3), +p[1].toFixed(3)]) : null, arms };
+    D.jinfo.set(nodeId, info);
+    return clone(info);
+  }
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+
+  /** read-only snapshots of edges/nodes (frozen, rebuilt once per network version) */
+  function deepFreeze(o) { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const k of Object.keys(o)) deepFreeze(o[k]); } return o; }
+  let snapE = null, snapN = null;
+  function snapEdges() {
+    if (!snapE || snapE.version !== roads.version) {
+      snapE = { version: roads.version, list: roads.edges.map((e) => deepFreeze({
+        id: e.id, a: e.a, b: e.b, class: e.class, width: e.width, lanes: e.lanes, speed: e.speed, bridge: !!e.bridge,
+        via: (e.via || []).map((p) => [p[0], p[1]]), points: (e.points || []).map((p) => [p[0], p[1]]), length: e.length,
+        bbox: e.bbox ? { ...e.bbox } : null })) };
+    }
+    return snapE;
+  }
+  function snapNodes() {
+    if (!snapN || snapN.version !== roads.version) snapN = { version: roads.version, list: roads.nodes.map((n) => deepFreeze({ id: n.id, x: n.x, y: n.y })) };
+    return snapN;
+  }
   function drawMinimap(g, scale = 1) {
+    if (!g || typeof g.beginPath !== 'function' || typeof g.stroke !== 'function') { warnOnce('minimap:g', 'drawMinimap: no 2D context given → false'); return false; }
+    scale = +scale;
+    if (!fin(scale) || scale <= 0) scale = 1;
     ensure();
     const col = { track: palette.soil.dry, lane: palette.gravel[2], village: '#8e8a84', regional: '#4a4c50' };
     g.save();
@@ -301,10 +529,12 @@ export async function init(ctx) {
 
   // ------------------------------------------------------------ rendering
   ctx.renderer.addLayer('ground-overlay', (g, view) => {
+    if (!debug.render) return;
     ensure();
+    if (!D.chains.length) return;
     const k = envState(); const key = k.season + ':' + k.snow;
     if (key !== lastEnvKey) { if (lastEnvKey) cache.clear(); lastEnvKey = key; }
-    cache.draw(g, view, cache.map.size ? 1 : 3);
+    cache.draw(g, view);
   }, 10);
 
   const chainPath = (ch) => {
@@ -314,7 +544,7 @@ export async function init(ctx) {
   };
   // wet sheen + puddle reflections (dynamic)
   ctx.renderer.addLayer('ground-detail', (g, view) => {
-    if (!D) return;
+    if (!D || !debug.render) return;
     const wet = envState().wet;
     if (wet < 0.04) return;
     for (const ch of D.chains) {
@@ -381,7 +611,7 @@ export async function init(ctx) {
   let suppressShadows = false;
 
   ctx.renderer.addCollector((view, F) => {
-    if (!D) return;
+    if (!D || !debug.render) return;
     const pad = 16;
     const lights = roads.lights;
     for (let i = 0; i < lights.length; i++) {
@@ -512,7 +742,7 @@ export async function init(ctx) {
 
   // lamp lens glow (additive), plus wet-road reflections of lamps
   ctx.renderer.addLayer('glow', (g, view) => {
-    if (!D) return;
+    if (!D || !debug.render) return;
     const wet = envState().wet;
     const lights = roads.lights;
     g.globalCompositeOperation = 'lighter';
@@ -534,11 +764,11 @@ export async function init(ctx) {
   // ------------------------------------------------------------ api
   const api = {
     addNode, addEdge, removeEdge, generateNetwork, nearest, roadAt, pathfind, laneCurve,
-    edges: () => { ensure(); return roads.edges; },
-    nodes: () => { ensure(); return roads.nodes; },
-    edgesInRect, junctions, drawMinimap,
+    edges: () => { ensure(); return snapEdges().list.slice(); },
+    nodes: () => { ensure(); return snapNodes().list.slice(); },
+    edgesInRect, junctions, junctionInfo, surfaceAt, drawMinimap,
     classes: () => JSON.parse(JSON.stringify(CLASSES)),
-    lights: () => { ensure(); return roads.lights; },
+    lights: () => { ensure(); return roads.lights.map((l) => ({ ...l })); },
   };
   const inst = {
     api,
@@ -548,14 +778,23 @@ export async function init(ctx) {
     },
     load(d) {
       if (!d || !Array.isArray(d.nodes)) return;
-      clear();
-      counter = d.counter || 0;
-      for (const n of d.nodes) roads.nodes.push({ id: n.id, x: n.x, y: n.y });
-      for (const e of d.edges) {
-        const spec = CLASSES[e.class] || CLASSES.lane;
-        roads.edges.push({ id: e.id, a: e.a, b: e.b, class: e.class, width: spec.width, lanes: spec.lanes, speed: spec.speed, bridge: !!e.bridge, via: e.via || [], points: [], length: 0 });
+      const sn = snapshot();
+      try {
+        clear();
+        counter = fin(+d.counter) ? +d.counter : 0;
+        const ids = new Set();
+        for (const n of d.nodes) if (n && typeof n.id === 'string' && fin(+n.x) && fin(+n.y) && !ids.has(n.id)) { ids.add(n.id); roads.nodes.push({ id: n.id, x: +n.x, y: +n.y }); }
+        for (const e of Array.isArray(d.edges) ? d.edges : []) {
+          if (!e || !ids.has(e.a) || !ids.has(e.b) || e.a === e.b) continue;
+          const cls = CLASSES[e.class] ? e.class : 'lane';
+          const spec = CLASSES[cls];
+          roads.edges.push({ id: e.id, a: e.a, b: e.b, class: cls, width: spec.width, lanes: spec.lanes, speed: spec.speed, bridge: !!e.bridge, via: cleanVia(e.via), points: [], length: 0 });
+        }
+        dirty = true; ensure();
+      } catch (err) {
+        restore(sn); ensure();
+        warnOnce('load', `load failed (${err && err.message}); previous network kept`);
       }
-      dirty = true; ensure();
     },
     dispose() { cache.clear(); },
   };
@@ -636,11 +875,11 @@ export const showcase = {
     const envOK = !!(envApi && typeof envApi.getSun === 'function');
     // own backdrop (terrain optional → always paint a small valley so the showcase is self-contained)
     const bd = makeBackdrop({ art: ctx.art, palette: ctx.palette, tex: self.tex, getSeason: () => ctx.clock.season, river: RIVER, fields: FIELDS });
-    const bdCache = new ChunkCache(bd.paint, { maxBytes: 120 * 1048576 });
+    const bdCache = new ChunkCache(bd.paint, { maxBytes: 64 * 1048576, stepBudget: [1, 3] });
     let bdSeason = ctx.clock.season;
     ctx.renderer.addLayer('ground', (g, view) => {
       if (ctx.clock.season !== bdSeason) { bdSeason = ctx.clock.season; bdCache.clear(); }
-      bdCache.draw(g, view, bdCache.map.size ? 1 : 4);
+      bdCache.draw(g, view);
     }, -5);
     // network
     self.generate(SHOWCASE_PLAN);

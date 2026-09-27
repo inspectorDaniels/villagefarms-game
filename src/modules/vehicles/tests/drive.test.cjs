@@ -171,7 +171,8 @@ const ONLY = process.env.ONLY || 'terrain,environment,roads,simulation,crops,eff
     // ---- 8. economy: refuel, repair, purchase
     const m0 = SIM.money();
     v.wear = Math.max(v.wear, 0.2);
-    const got = V.refuel(trac);
+    check('refuel refused in the open field', V.refuel(trac) === 0);
+    const got = V.refuel(trac, null, { anywhere: true });
     const m1 = SIM.money();
     out.nums.refuel = { litres: got, paid: r2(m0 - m1), perL: r2((m0 - m1) / Math.max(1, got)), dieselQuote: r2(SIM.price('diesel')) };
     check('refuel charges diesel via simulation', got > 0 && m1 < m0 && Math.abs(v.fuel - 260) < 0.2, out.nums.refuel);
@@ -221,6 +222,102 @@ const ONLY = process.env.ONLY || 'terrain,environment,roads,simulation,crops,eff
     inst.load(JSON.parse(snap));
     check('save/load roundtrip', V.list().length === n0 && V.get(tr).hitchedTo === tt && JSON.stringify(inst.save()) === snap, { n: n0 });
 
+
+    // ---- r2 must-fixes
+    {
+      // pause: nothing moves, burns or works
+      const id = V.spawn('tractor_t2', site.x + 8, site.y - 20, toWater + Math.PI, { fuel: 100 });
+      V.enter(id, 'test:pause');
+      const q = V.get(id);
+      for (let i = 0; i < 60; i++) { V.control(id, { throttle: 1 }); step(1); }
+      const p0 = [q.x, q.y, q.fuel];
+      G.world.time.paused = true;
+      for (let i = 0; i < 300; i++) { V.control(id, { throttle: 1 }); step(1); }
+      const same = q.x === p0[0] && q.y === p0[1] && q.fuel === p0[2];
+      G.world.time.paused = false;
+      check('pause: no movement or fuel burn', same, { moved: r2(Math.hypot(q.x - p0[0], q.y - p0[1])) });
+      // exit at speed refused
+      for (let i = 0; i < 120; i++) { V.control(id, { throttle: 1 }); step(1); }
+      const sp = q.speed;
+      const r = V.exit(id);
+      check('exit refused above 1 m/s (driver kept)', r === null && V.driverOf(id) === 'test:pause' && sp > 1, { speed: r2(sp) });
+      for (let i = 0; i < 180; i++) { V.control(id, { brake: 1 }); step(1); if (Math.abs(q.speed) < 0.2) break; }
+      // boxed in by trailers on every side → no free spot → null, driver kept
+      const box = [];
+      const fw2 = [Math.sin(q.rot), -Math.cos(q.rot)], rt2 = [Math.cos(q.rot), Math.sin(q.rot)];
+      const cells = [];
+      for (const a of [-8, -6, -4, -2.45, 2.45, 4, 6, 8]) for (const b of [-9, -5, -1, 3, 7]) cells.push([a, b]);
+      for (const b of [-9, -5.4, 5.4, 9]) cells.push([0, b]);
+      for (const [a, b] of cells) box.push(V.spawn('trailer_flat', q.x + rt2[0] * a + fw2[0] * b, q.y + rt2[1] * a + fw2[1] * b, q.rot));
+      const ep = V.exitPosition(id); const nexit = { exitPos: ep, local: ep && [r2((ep.x - q.x) * rt2[0] + (ep.y - q.y) * rt2[1]), r2((ep.x - q.x) * fw2[0] + (ep.y - q.y) * fw2[1])], n: box.length, near: ep && V.list().filter((u) => Math.hypot(u.x - ep.x, u.y - ep.y) < 4).map((u) => [u.type, r2(u.x - ep.x), r2(u.y - ep.y), r2(u.rot)]) };
+      const r3 = V.exit(id);
+      check('exit with no free spot → null, driver kept', r3 === null && V.driverOf(id) === 'test:pause', nexit);
+      for (const b of box) V.despawn(b);
+      // unattended driver: engine switches off after 5 s without control
+      for (let i = 0; i < 400; i++) step(1);
+      const f1 = q.fuel; for (let i = 0; i < 300; i++) step(1);
+      check('unattended vehicle: engine off, no burn', q.engine === false && q.fuel === f1);
+      // E must not uncouple a trailer (H does)
+      const tr2 = V.spawn('trailer_grain', 0, 0, 0); V.attach(id, tr2);
+      V.control(id, { implementDown: 'toggle' }); step(1);
+      const still = V.get(id).attached.includes(tr2);
+      const hr = V.hitchNearest(id);
+      check('E keeps the trailer; H uncouples it', still && !V.get(id).attached.includes(tr2), { still, hr, speed: r2(V.get(id).speed) });
+      V.despawn(tr2); V.exit(id); V.despawn(id);
+      // spatial item carries the oriented polys
+      const pv = V.spawn('tractor_t1', site.x - 12, site.y - 20, 0.7);
+      const item = G.engine.instances.find((i) => i.id === 'vehicles').ctx.spatial.get(pv);
+      check('spatial item has polys (oriented collider)', item && Array.isArray(item.polys) && item.polys.length >= 1);
+      // nearest free
+      V.enter(pv, 'test:occ');
+      check('nearest({free:true}) skips occupied', V.nearest(site.x - 12, site.y - 20, 3, { free: true }) === null && !!V.nearest(site.x - 12, site.y - 20, 3));
+      V.exit(pv); V.despawn(pv);
+      // list() returns copies
+      const L = V.list(); L[0].x = -999;
+      check('list() returns copies', V.get(L[0].id).x !== -999);
+    }
+    // harvest by crop kind: combine takes wheat, not beet; root harvester takes beet, not wheat
+    if (C && C.createField) {
+      let hx0 = null, hy0 = null;
+      for (let k = 0; k < 900 && hx0 == null; k++) {
+        const x = 120 + (k % 30) * 26, y = 120 + Math.floor(k / 30) * 26; let ok = true;
+        for (let i = -2; i <= 40 && ok; i += 3) for (let j = -2; j <= 64 && ok; j += 3) if (T.waterDepthAt(x + i, y + j) > 0 || V.list().some((u) => Math.hypot(u.x - x - i, u.y - y - j) < 6)) ok = false;
+        if (ok) { hx0 = x; hy0 = y; }
+      }
+      const mk = (x0, crop) => { const f = C.createField([[x0, hy0], [x0 + 14, hy0], [x0 + 14, hy0 + 40], [x0, hy0 + 40]], { state: 'stubble' }); C.plantAll(f, crop, 'ripe'); return f; };
+      const fw = mk(hx0, 'wheat'), fb = mk(hx0 + 20, 'sugarBeet');
+      const hvDbg = [];
+      const run = (vtype, impType, x0) => {
+        const id = V.spawn(vtype, x0 + 7, hy0 + 48, 0, { fuel: 300 });
+        let host = id;
+        if (impType) { host = V.spawn(impType, 0, 0, 0); V.attach(id, host); }
+        V.enter(id, 'test:h'); V.setImplement(id, true);
+        for (let i = 0; i < 900; i++) { V.control(id, { throttle: 1 }); step(1); }
+        const kg = (V.get(host).cargo || {}).kg || 0; const q = V.get(id); hvDbg.push({ vtype, odo: r2(q.odo), blocked: q.blocked, by: q.blockedBy, y: r2(q.y - hy0), cell: C.cellAt(q.x, hy0 + 20), lowered: V.get(host).lowered }); q.speed = 0; V.exit(id); V.despawn(id); if (host !== id) V.despawn(host); return r2(kg);
+      };
+      const hv = { combineWheat: run('combine_s', null, hx0), combineBeet: run('combine_s', null, hx0 + 20) };
+      // fresh fields for the lifter (the combine passes above did not touch beet)
+      hv.lifterBeet = run('tractor_t3', 'root_harvester', hx0 + 20);
+      hv.lifterWheat = run('tractor_t3', 'root_harvester', hx0);
+      hv.dbg = hvDbg;
+      hv.stats = { wheat: C.stats(fw).counts, beet: C.stats(fb).counts };
+      out.nums.harvest = hv;
+      check('combine harvests wheat but not beet; lifter the reverse', hv.combineWheat > 0 && hv.combineBeet === 0 && hv.lifterBeet > 0 && hv.lifterWheat === 0, hv);
+    }
+    // save/load bit-exact replay
+    {
+      const inst2 = G.engine.instances.find((i) => i.id === 'vehicles').inst;
+      const id = V.spawn('tractor_t2', site.x + 20, site.y - 40, 1.0, { fuel: 100 });
+      V.enter(id, 'test:sl');
+      for (let i = 0; i < 77; i++) { V.control(id, { throttle: 1, steer: Math.sin(i / 20) }); step(1); }
+      const saved = JSON.stringify(inst2.save());
+      const drive = () => { for (let i = 0; i < 400; i++) { V.control(id, { throttle: 1, steer: Math.sin(i / 30) }); step(1); } const q = V.get(id); return [q.x, q.y, q.rot, q.fuel].map((n) => n.toFixed(10)).join(','); };
+      const a1 = drive();
+      inst2.load(JSON.parse(saved));
+      const a2 = drive();
+      check('save/load mid-drive replays bit-exact', a1 === a2, { a1, a2 });
+      V.exit(id); V.get(id).speed = 0;
+    }
     // ---- 12. perf: 8 moving rigs, measured over 600 steps
     const rigs = [];
     for (let k = 0; k < 8; k++) {

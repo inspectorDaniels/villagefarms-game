@@ -15,13 +15,15 @@ export const manifest = {
   optionalDeps: ['terrain', 'environment', 'roads', 'simulation', 'ui', 'audio', 'effects', 'vehicles', 'crops', 'animals', 'buildings'],
   namespaces: ['characters', 'player'],
   api: ['spawn', 'despawn', 'list', 'get', 'active', 'setActive', 'cycle', 'assignTask', 'positionOf', 'villagers',
-    'setAutoSpawn', 'hire', 'setTool', 'useTool', 'tools'],
+    'setAutoSpawn', 'hire', 'setTool', 'useTool', 'tools', 'isAvailable'],
   emits: ['characters:switched', 'characters:spawned', 'characters:interact', 'characters:despawned'],
   listens: ['jobs:completed', 'jobs:failed', 'vehicles:exited'],
 };
 
 const INSTANCES = new WeakMap();
 const PRESENCE = { shopHelp: 1, villageWork: 1, animalCare: 1 };
+const TASK_KINDS = { goto: 1, idle: 1, follow: 1, work: 1, patrol: 1, sleep: 1, hold: 1 };
+const JOB_TOOL = { animalCare: 'fork', shopHelp: 'hand', villageWork: 'hoe', snowClear: 'fork', deliver: 'hand' };
 const SAVE_FIELDS = ['id', 'name', 'role', 'x', 'y', 'rot', 'state', 'vehicleId', 'task', 'appearance', 'tool', 'stamina', 'home', 'workerId', 'villager', 'pace', 'umbrella'];
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const smooth = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
@@ -101,9 +103,15 @@ export async function init(ctx) {
   }
 
   // ------------------------------------------------------------------ possession / camera
+  let driveZoom = null; // zoom before entering a vehicle (restored on exit)
+  function restoreZoom() { if (driveZoom != null) { zoomBack = driveZoom; driveZoom = null; } }
+  let zoomBack = null;
   function camTarget(c) {
     if (!c) return null;
-    if (c.vehicleId) { const v = vehicleOf(c); if (v) return { x: v.x, y: v.y }; }
+    if (c.vehicleId) {
+      const v = vehicleOf(c);
+      if (v) { const sp = Math.max(0, v.speed || 0), la = Math.min(14, sp * 1.1), a = v.rot || 0; return { x: v.x + Math.sin(a) * la, y: v.y - Math.cos(a) * la }; }
+    }
     return { x: c.x, y: c.y };
   }
   function follow() {
@@ -125,9 +133,9 @@ export async function init(ctx) {
     const prev = active();
     if (prev && prev.id === id) return true;
     W.player.activeCharacterId = id;
-    if (prev) { prev.action = null; prev.task = prev.task && prev.task.kind !== 'sleep' ? prev.task : { kind: 'idle', x: prev.x, y: prev.y, r: 2 }; }
+    if (prev) { prev.action = null; prev.task = prev.task && prev.task.kind !== 'sleep' ? prev.task : { kind: 'idle', x: prev.x, y: prev.y, r: 2 }; if (prev.workerId) flushWork(prev); }
     if (c.state === 'sleeping' || c.state === 'inside') { c.state = 'idle'; if (c.task && c.task.kind === 'sleep') c.task = { kind: 'idle' }; }
-    c.task = { kind: 'idle', x: c.x, y: c.y, r: 2 };
+    if (!(c.task && c.task.delegated)) c.task = { kind: 'idle', x: c.x, y: c.y, r: 2 };
     if (ctx.camera.following || !ctx.params.showcase) {
       const t = camTarget(c);
       const d = t ? Math.hypot(t.x - ctx.camera.x, t.y - ctx.camera.y) : 0;
@@ -157,7 +165,7 @@ export async function init(ctx) {
   function nearVehicle(c) {
     const veh = mod('vehicles');
     if (!veh || !veh.nearest) return null;
-    let v = veh.nearest(c.x, c.y, 3);
+    let v = veh.nearest(c.x, c.y, 3, { free: true });
     if (typeof v === 'string') v = veh.get(v);
     if (!v || typeof v !== 'object' || v.driverId) return null;
     return v;
@@ -166,17 +174,24 @@ export async function init(ctx) {
     const veh = mod('vehicles');
     if (!veh) return false;
     if (c.vehicleId) {
-      const r = veh.exit(c.vehicleId);
       const v = vehicleOf(c);
-      if (r && r.x != null) { c.x = r.x; c.y = r.y; }
-      else if (v) { c.x = v.x - Math.cos(v.rot || 0) * 1.8; c.y = v.y - Math.sin(v.rot || 0) * 1.8; }
-      c.vehicleId = null; c.state = 'idle';
+      const r = veh.exit(c.vehicleId);
+      if (r && r.blocked) {
+        // no free spot next to the machine: stay in the seat
+        if (c.id === W.player.activeCharacterId) { const ui = mod('ui'); if (ui) ui.toast('No room to get out', { kind: 'warn' }); }
+        return false;
+      }
+      if (r && Number.isFinite(r.x)) { c.x = r.x; c.y = r.y; }
+      else if (v) { const d = 2.2, a = v.rot || 0; c.x = v.x - Math.sin(a) * d; c.y = v.y + Math.cos(a) * d; } // behind (rot 0 = north)
+      c.vehicleId = null; c.state = 'idle'; c._vehIdle = 0;
+      if (c.id === W.player.activeCharacterId) restoreZoom();
       return true;
     }
     const v = nearVehicle(c);
     if (!v) return false;
     if (veh.enter(v.id, c.id) === false) return false;
-    c.vehicleId = v.id; c.state = 'driving'; c.action = null; c.walk = 0; c.speed = 0;
+    c.vehicleId = v.id; c.state = 'driving'; c.action = null; c.walk = 0; c.speed = 0; c._vehIdle = 0;
+    if (c.id === W.player.activeCharacterId && driveZoom == null) { driveZoom = ctx.camera.zoom; handover = { x0: ctx.camera.x, y0: ctx.camera.y, t0: now, dur: 0.5 }; }
     return true;
   }
   function vehicleLabel(v) {
@@ -247,7 +262,8 @@ export async function init(ctx) {
       if (!site) continue;
       const here = C.list.filter((c) => farmhand(c) && !c.vehicleId && c.state !== 'sleeping' && c.state !== 'inside' && Math.hypot(c.x - site.x, c.y - site.y) < 7);
       let prog = j.progress || 0;
-      if (here.length && gdt > 0 && sim.tickPresence) {
+      const delegated = j.assignee && String(j.assignee).startsWith('simulation:worker:');
+      if (!delegated && here.length && gdt > 0 && sim.tickPresence) {
         const r = sim.tickPresence(j.id, gdt * Math.min(1.6, 1 + 0.6 * (here.length - 1)));
         if (Number.isFinite(r)) prog = r;
       }
@@ -302,12 +318,12 @@ export async function init(ctx) {
   }
 
   // ------------------------------------------------------------------ tools
-  const S = { motion, onStep, get, active, jobSite, jobSiteNear };
+  const S = { motion, onStep, get, active, jobSite, jobSiteNear, offscreen: (p) => !inView(p.x, p.y, 10) };
   const tools = createTools(ctx, S);
   function setTool(id, toolId) {
     const c = typeof id === 'object' && id ? id : get(id);
     if (!c || !TOOL[toolId]) return false;
-    if (c.action) return false;
+    if (c.action && !c.action.frozen) { c._pendingTool = toolId; if (c.id === W.player.activeCharacterId) { const ui = mod('ui'); if (ui) ui.setActiveTool(toolId); } return true; }
     c.tool = toolId;
     if (c.id === W.player.activeCharacterId) { const ui = mod('ui'); if (ui) ui.setActiveTool(toolId); promptT = 0; }
     return true;
@@ -319,9 +335,9 @@ export async function init(ctx) {
     const tool = c.tool || 'hand';
     const T = TOOL[tool] || TOOL.hand;
     const d = tools.describe(c, tool);
-    if (!d.ok && !o.force && tool === 'hand') return false;
-    if (c.stamina < T.stamina * 0.5 && !o.force) return false;
-    c.action = { tool, t: 0, dur: T.dur, u: 0, fired: false, d, ok: d.ok || !!o.force };
+    if (!d.ok && !o.force && !o.mime && tool === 'hand') return false;
+    if (c.stamina < T.stamina * 0.5 && !o.force && !o.mime) return false;
+    c.action = { tool, t: 0, dur: T.dur, u: 0, fired: false, d, ok: o.mime ? false : (d.ok || !!o.force), mime: !!o.mime };
     c.stamina = Math.max(0, c.stamina - T.stamina);
     c.walk = 0;
     return true;
@@ -336,9 +352,12 @@ export async function init(ctx) {
     if (!a.fired && a.u >= T.impact) {
       a.fired = true;
       if (a.ok) { a.d = tools.describe(c, a.tool); if (a.d.ok || a.tool !== 'hand') tools.apply(c, a.tool, a.d); }
-      else if (a.tool === 'hoe' || a.tool === 'fork') { const fx = mod('effects'); if (fx) fx.emit('dust', a.d.target.fx, a.d.target.fy, { count: 1, size: 0.5, alpha: 0.3 }); }
+      else if (!a.mime && (a.tool === 'hoe' || a.tool === 'fork')) { const fx = mod('effects'); if (fx) fx.emit('dust', a.d.target.fx, a.d.target.fy, { count: 1, size: 0.5, alpha: 0.3 }); }
     }
-    if (a.u >= 1) { c.action = null; c.cool = T.cooldown; }
+    if (a.u >= 1) {
+      c.action = null; c.cool = T.cooldown;
+      if (c._pendingTool) { const t = c._pendingTool; c._pendingTool = null; setTool(c, t); }
+    }
   }
 
   const ai = createAI(ctx, { ...S, useTool, motion, onStep });
@@ -501,7 +520,7 @@ export async function init(ctx) {
         const js = jobSiteNear(c.x, c.y, 7);
         const d = tools.describe(c, c.tool || 'hand');
         c._desc = d;
-        if (d.text) text = d.text;
+        if (d.text && (!js || (d.ok && c.tool === 'hand'))) text = d.text;
         else if (js) {
           const j = presenceJobs().find((q) => { const s = jobSite(q.id); return s && Math.hypot(s.x - c.x, s.y - c.y) < 7; });
           text = j ? `On the job: ${j.title || j.type} (${Math.floor((j.progress || 0) * 100)}%)` : null;
@@ -523,6 +542,7 @@ export async function init(ctx) {
       let icon = st[0], text = st[1];
       if (c.state === 'working') { const T = TOOL[c.tool]; icon = T ? T.icon : 'hand'; text = c.task && c.task.jobId ? 'On a job' : 'Working the ground'; }
       if (c.task && c.task.kind === 'follow' && c.id !== W.player.activeCharacterId) { icon = 'person'; text = 'Following'; }
+      if (c.task && c.task.delegated && c.id !== W.player.activeCharacterId && c.state !== 'sleeping') { icon = 'jobs'; text = 'On a job'; }
       return { id: c.id, name: c.name, ...portraitOf(c.appearance), status: icon, statusText: `${text} · stamina ${Math.round(c.stamina * 100)}%` };
     });
     const sig = JSON.stringify([W.player.activeCharacterId, list.map((l) => [l.id, l.name, l.status, l.statusText.replace(/\d+%$/, (m) => String(Math.round(parseInt(m, 10) / 10)))])]);
@@ -552,9 +572,64 @@ export async function init(ctx) {
   }
 
   // ------------------------------------------------------------------ update
+  /** delegated jobs: a hand whose worker record is the assignee of an accepted job walks there and works */
+  function syncDelegation() {
+    const sim = mod('simulation');
+    const jobs = (sim && sim.jobs && sim.jobs((j) => j.status === 'accepted' && j.assignee)) || [];
+    for (const c of C.list) {
+      if (c.role !== 'hired' || !c.workerId) continue;
+      const j = jobs.find((q) => q.assignee === c.workerId || q.assignee === c.id);
+      const t = c.task || {};
+      if (t.kind === 'sleep' || c.state === 'sleeping' || c.state === 'inside') continue; // night: the job waits until morning
+      if (j) {
+        if (t.jobId === j.id) continue;
+        const site = jobSite(j.id);
+        if (!site) continue;
+        if (!t.delegated) c._preJobTask = t.kind === 'sleep' ? null : t;
+        c.task = { kind: 'work', jobId: j.id, delegated: true, x: site.x, y: site.y, r: 3, tool: JOB_TOOL[j.type] || 'hand', mime: true, pace: 2.2 };
+        c._wp = null; c._wait = 0;
+        if (c.state === 'sleeping' || c.state === 'inside') c.state = 'idle';
+        barT = 0;
+      } else if (t.delegated) {
+        c.task = c._preJobTask && c._preJobTask.kind !== 'hold' ? c._preJobTask : { kind: 'idle' };
+        if (c.task.kind === 'idle') { c.task = { kind: 'goto', x: c.home.x, y: c.home.y, run: true, then: { kind: 'idle' } }; }
+        c._preJobTask = null; barT = 0;
+      }
+    }
+  }
+  /** r4.5: game-hours a hired hand spends active are logged to its worker record (wages from real activity).
+   *  Delegated jobs are NOT logged here: simulation works them abstractly and logs those hours itself. */
+  const LOG_STEP = 0.25; // game hours per logWork call
+  function accrueWork(c, gdt) {
+    if (c.role !== 'hired' || !c.workerId || !(gdt > 0)) return;
+    const t = c.task || {};
+    let kind = null;
+    if (c.id === W.player.activeCharacterId) kind = 'possessed';
+    else if (c.vehicleId) kind = 'task';
+    else if (t.delegated) kind = null;
+    else if (t.kind === 'work' || t.kind === 'goto') kind = 'task';
+    if (!kind || c.state === 'sleeping' || c.state === 'inside') return;
+    c._logAcc = (c._logAcc || 0) + gdt / 3600;
+    c._logKind = kind;
+    if (c._logAcc >= LOG_STEP) flushWork(c);
+  }
+  function flushWork(c) {
+    const sim = mod('simulation');
+    if (c._logAcc > 0 && sim && sim.logWork) sim.logWork(c.workerId, +c._logAcc.toFixed(4), c._logKind || 'task');
+    c._logAcc = 0;
+  }
+
   function update(dt) {
     now += dt;
     if (autoSpawn && !ctx.params.showcase) doAutoSpawn();
+    // user pause (world.time.paused): nothing moves, no work is done. (clock.paused also includes the
+    // showcase `frozen` flag, which must keep animating.)
+    if (W.time.paused) {
+      promptT -= dt; if (promptT <= 0) { promptT = 0.15; ensureToolbar(); updatePrompt(); }
+      barT -= dt; if (barT <= 0) { barT = 0.5; updateBar(); }
+      return;
+    }
+    const gdt = ctx.clock.paused ? 0 : dt * ctx.clock.scale;
     const env = W.environment || {};
     const dark = env.daylight != null ? env.daylight < 0.32 : (ctx.clock.timeOfDay > 20.5 || ctx.clock.timeOfDay < 6);
     if (ctx.input.pressed('switchChar')) cycle();
@@ -567,7 +642,13 @@ export async function init(ctx) {
       } else if (c.id === actId) {
         controlActive(c, dt);
       } else if (c.vehicleId) {
-        const v = vehicleOf(c); if (v) { c.x = v.x; c.y = v.y; c.rot = v.rot || 0; } else { c.vehicleId = null; c.state = 'idle'; }
+        const v = vehicleOf(c);
+        if (v) {
+          c.x = v.x; c.y = v.y; c.rot = v.rot || 0;
+          // a hand left alone in a machine gets out after 30 game minutes, or at night
+          c._vehIdle = (c._vehIdle || 0) + gdt;
+          if ((c._vehIdle > 1800 || isNightNow()) && farmhand(c) && toggleVehicle(c)) { c.task = { kind: 'idle' }; }
+        } else { c.vehicleId = null; c.state = 'idle'; }
       } else if (c.role === 'villager') {
         ai.tickVillager(c, dt, now);
       } else {
@@ -577,6 +658,7 @@ export async function init(ctx) {
       if (c.state === 'sleeping' || c.state === 'inside') recover(c, 0.02);
       else if (!c.action && c.speed < 0.2) recover(c, 0.05);
       else if (!c.action && !c.running) recover(c, 0.018);
+      accrueWork(c, gdt);
       c.lantern = dark && farmhand(c) && !c.vehicleId && c.state !== 'sleeping' && c.state !== 'inside';
     }
     separate(dt);
@@ -590,10 +672,27 @@ export async function init(ctx) {
     barT -= dt; if (barT <= 0) { barT = 0.5; updateBar(); }
     jobT -= dt; if (jobT <= 0) { jobT = 0.5; tickJobs(); }
     syncT -= dt; if (syncT <= 0) { syncT = 2; if (!ctx.params.showcase || C.syncWorkers) syncWorkers(); }
+    delegT -= dt; if (delegT <= 0) { delegT = 1; syncDelegation(); }
   }
+  let delegT = 0;
+  const isNightNow = () => { const h = ctx.clock.timeOfDay; return h >= 21.75 || h < 6; };
 
   // ------------------------------------------------------------------ cosmetic per-frame
   function frame(dt) {
+    if (!ctx.params.showcase) {
+      const a = active();
+      const k = 1 - Math.exp(-dt * 1.5);
+      if (a && a.vehicleId && driveZoom != null) {
+        const v = vehicleOf(a);
+        const sp = v ? Math.abs(v.speed || 0) : 0;
+        const target = Math.max(20, Math.min(driveZoom, driveZoom - sp * 2.2));
+        ctx.camera.set(null, null, ctx.camera.zoom + (target - ctx.camera.zoom) * k);
+      } else if (zoomBack != null) {
+        const z = ctx.camera.zoom + (zoomBack - ctx.camera.zoom) * Math.min(1, k * 2);
+        ctx.camera.set(null, null, z);
+        if (Math.abs(z - zoomBack) < 0.3) zoomBack = null;
+      }
+    }
     const fx = mod('effects');
     if (!fx) return;
     for (const c of C.list) {
@@ -765,7 +864,7 @@ export async function init(ctx) {
     cycle,
     assignTask(id, task) {
       const c = get(id);
-      if (!c || !task || !task.kind) return false;
+      if (!c || !task || !TASK_KINDS[task.kind]) return false;
       c.task = { ...task };
       if (c.state === 'sleeping' || c.state === 'inside') c.state = 'idle';
       if (task.kind === 'follow' && !task.targetId) c.task.targetId = W.player.activeCharacterId;
@@ -781,6 +880,11 @@ export async function init(ctx) {
     setTool: (id, tool) => setTool(id, tool),
     useTool: (id) => useTool(id),
     tools: () => TOOLS.map((t) => ({ ...t })),
+    /** r4.7: is the hand linked to this simulation worker awake and able to take a job? */
+    isAvailable(workerId) {
+      const c = C.list.find((q) => q.workerId === workerId || q.id === workerId);
+      return !!c && c.state !== 'sleeping' && c.state !== 'inside' && !isNightNow();
+    },
   };
 
   const S2 = { ctx, api, spawn, setActive, useTool, setTool, villagers, follow, parts, body, get, C, motion, internal: { get handover() { return handover; } }, setNow: (t) => { now = t; }, simulate: (dt) => update(dt) };

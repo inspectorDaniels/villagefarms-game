@@ -1,5 +1,5 @@
 // Headless progression harness (Node 14+):
-//   node src/modules/simulation/tests/progression.mjs [years=10] [seeds=8] [--ai=1] [--strategies=a,b]
+//   node src/modules/simulation/tests/progression.mjs [years=10] [seeds=8] [--ai=1] [--hands=3] [--strategies=a,b]
 // Runs the real module code (sim.js …) with scripted strategies × seeds on the standard valley (fits the
 // 1024 m map) and prints year-by-year medians [min–max], the r3 target check and the 5 ha self-check.
 // --ai multiplies AI_WORK_FACTOR (0.25) — e.g. --ai=0.5 / --ai=2 for the sensitivity runs in the README.
@@ -16,6 +16,7 @@ const YEARS = Number(pos[0]) || 10;
 const SEEDS = Number(pos[1]) || 8;
 const AI_MULT = Number(flag('ai', 1));
 const ONLY = flag('strategies', null);
+const MAX_HANDS = Number(flag('hands', 0)) || undefined; // cap on hired hands (default 3)
 const START = 6; // 1 March, year 1
 
 function mkSim(seed) {
@@ -29,7 +30,7 @@ function mkSim(seed) {
 export function runOne(strategy, seed, years = YEARS) {
   const sim = mkSim(seed);
   const { ids } = defineValley(sim.api);
-  const mgr = createManager(sim, { strategy, rng: createRng(seed, 'strategy', strategy), ids });
+  const mgr = createManager(sim, { strategy, rng: createRng(seed, 'strategy', strategy), ids, maxHands: MAX_HANDS });
   mgr.setup();
   const rows = [];
   let hP = 0, hJ = 0, cs = 0;
@@ -95,7 +96,7 @@ function main() {
     all[strat] = [];
     for (let i = 0; i < SEEDS; i++) all[strat].push(runOne(strat, 'harvest-' + (i + 1)));
   }
-  console.log(`AI_WORK_FACTOR = ${(AI_WORK_FACTOR * AI_MULT).toFixed(3)} (×${AI_MULT}); ${SEEDS} seeds; valley ${1024} m`);
+  console.log(`AI_WORK_FACTOR = ${(AI_WORK_FACTOR * AI_MULT).toFixed(3)} (×${AI_MULT}); max hands ${MAX_HANDS || 3}; ${SEEDS} seeds; valley 1024 m`);
   for (const strat of Object.keys(all)) {
     console.log(`\n### ${strat} — ${STRATEGY_INFO[strat]}  (${SEEDS} seeds, median [min–max])`);
     console.log('| yr | cash € | net worth € | owned ha | rented ha | hands | t2 tractor | combine | contract jobs € | crops+CAP € | contractors € | wages € | op. net € |');

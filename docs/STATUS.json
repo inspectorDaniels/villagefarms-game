@@ -231,7 +231,7 @@
     },
     "characters": {
       "wave": 2,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -249,7 +249,7 @@
         "Exit ignores blocked result; fallback exit axis wrong",
         "r4.5: link workerId + logWork hours"
       ],
-      "note": "built 2026-09-27: 22/22 scripted full-game mechanics checks (walk/run/stamina, Tab switch, hoe tills, water/sow, deep water blocks, AI goto/follow/sleep, presence job, save/load). msAvg 0.3 game, <=1.0 showcase. Registered in registry (integrator). Gaps: no pathfinding, player cannot sleep, vehicles/crops hooks untested."
+      "note": "r2: pause, delegated jobs (hand walks 381 m to site, On a job), F free vehicle, blocked exit, workerId+logWork (70 game-min possessed -> 1.01 h), isAvailable; 11/11 r2 + 22/22 r1 tests; 0.28 ms game"
     },
     "animals": {
       "wave": 2,

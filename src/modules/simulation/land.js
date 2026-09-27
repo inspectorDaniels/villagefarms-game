@@ -157,6 +157,17 @@ export function installLand(sim) {
     },
     /** CAP state of a parcel this year: worked share 0..1 */
     capShare(id) { const p = find(id); return p ? share(p) : 0; },
+    /** true when the point lies on land the player owns or rents */
+    canUse(x, y) { const p = api.parcelAt(x, y); return !!p && (p.state === 'owned' || p.state === 'rented'); },
+    /** regional land market state */
+    landMarket() {
+      return {
+        index: L.index, indexHistory: L.indexHistory.slice(),
+        forRent: L.parcels.filter((p) => p.state === 'forRent').map((p) => p.id),
+        forSale: L.parcels.filter((p) => p.state === 'forSale').map((p) => p.id),
+        capAccruedHa: L.capHaDays / YEAR_DAYS,
+      };
+    },
   });
 
   function resetCap(p) { p.capDays = 0; p.worked = {}; p.workedSinceCap = false; }

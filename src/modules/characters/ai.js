@@ -130,7 +130,7 @@ export function createAI(ctx, S) {
           const tool = task.tool || ch.tool || 'hoe';
           if (ch.tool !== tool) ch.tool = tool;
           if (ch.stamina > 0.15) {
-            S.useTool(ch, { quiet: false, force: !!task.showcase });
+            S.useTool(ch, { quiet: false, force: !!task.showcase, mime: !!task.mime });
             ch._cool = task.pace || 1.3 + rng.range(0, 0.8);
             if (!task.stay) task._spot = null;
           } else { ch._cool = 3; ch.state = 'resting'; }
@@ -149,7 +149,9 @@ export function createAI(ctx, S) {
         }
         const tx = door ? door.x : home.x, ty = door ? door.y : home.y;
         ch.state = 'walking';
-        const d = steerTo(ch, tx, ty, dt, now, false, 0.4);
+        const far = Math.hypot(tx - ch.x, ty - ch.y);
+        if (far > 120 && S.offscreen && S.offscreen(ch) && S.offscreen({ x: tx, y: ty })) { ch.x = tx; ch.y = ty + 0.01; }
+        const d = steerTo(ch, tx, ty, dt, now, far > 12, 0.4);
         if (d <= 0.4) { ch.state = door ? 'inside' : 'sleeping'; ch.walk = 0; ch.speed = 0; if (!door && ch.home && ch.home.rot != null) ch.rot = ch.home.rot; }
         break;
       }

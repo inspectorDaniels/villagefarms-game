@@ -185,7 +185,7 @@ export function createManager(sim, opts) {
       }
       if (f.stage === 'sown' && doy === (f.crop === 'sugarBeet' ? 10 : 7) && !f.cared) {
         f.cared = true;
-        api.buyInputs(f.crop, ha, ['fertiliser', 'spray']) || api.charge(api.inputCost(f.crop).fertiliser * ha + api.inputCost(f.crop).spray * ha, 'fertiliser', 'Inputs on credit', { force: true });
+        if (!buyInputs(f.crop, ha, ['fertiliser', 'spray'])) f.factor *= 0.8; // unfertilised crop
         newTask(f, p, 'spray', ha * SPRAY_PASSES, d + 8);
       }
       if (f.stage === 'sown' && C.harvestMonths.includes(m) && d > f.sownDay + 6 && !hasTask(f, ['harvest', 'lift'])) {
@@ -200,7 +200,7 @@ export function createManager(sim, opts) {
     if (!f || !p) return;
     if (t.op === 'plough') { newTask(f, p, 'sow', t.ha, Math.max(t.sowBy || t.deadline, sim.today() + 1)).late = late; return; }
     if (t.op === 'sow') {
-      api.buyInputs(f.crop, t.ha, ['seed']) || api.charge(api.inputCost(f.crop).seed * t.ha, 'seed', 'Seed on credit', { force: true });
+      if (!buyInputs(f.crop, t.ha, ['seed'])) return; // no seed money: the field stays fallow this season
       f.stage = 'sown'; f.sownDay = sim.today(); f.factor = late || t.late ? LATE : 1; f.cared = false;
       return;
     }
@@ -221,6 +221,16 @@ export function createManager(sim, opts) {
     f.crop = ROT[f.rot];
   }
 
+  /** buy inputs through the API; short of cash → sell stock, then the credit line (no off-API credit) */
+  function buyInputs(crop, ha, parts) {
+    if (api.buyInputs(crop, ha, parts)) return true;
+    const c = api.inputCost(crop);
+    const need = parts.reduce((t, k) => t + c[k] * ha, 0);
+    for (const item of Object.keys(api.inventory())) if (item !== 'diesel' && item !== 'fertiliser') sales.sellSome(item, 0.5);
+    if (api.money() < need && api.creditLimit() > need) api.takeLoan(Math.max(need, 5000), { months: 12 });
+    return !!api.buyInputs(crop, ha, parts);
+  }
+
   // ---------- contractors (live API) ----------
   function book(t) {
     const q = api.contractorQuote(t.parcelId, t.op, { ha: t.left });
@@ -228,11 +238,20 @@ export function createManager(sim, opts) {
       for (const item of Object.keys(api.inventory())) if (item !== 'diesel' && item !== 'fertiliser') sales.sellSome(item, 0.5);
       if (api.money() < q.price && api.creditLimit() > q.price) api.takeLoan(Math.max(q.price, 5000), { months: 12 });
     }
-    const b = api.hireContractor(t.parcelId, t.op, t.op === 'spray' || t.op === 'bale' || t.left !== t.ha ? { ha: t.left } : {});
-    if (!b) return false;
-    t.booking = b.id; booked.set(b.id, t);
-    M.contractorSpend += b.price;
-    if (hasKitOrCould(t.op)) M.contractorOwnable.push([sim.today(), b.price]);
+    // one booking per pass (a booking covers at most the parcel: spray = 3 passes → 3 bookings)
+    const p = api.parcel(t.parcelId);
+    const full = p ? p.area / 1e4 : t.left;
+    let left = t.left;
+    t.pending = t.pending || 0;
+    while (left > 1e-6) {
+      const ha = Math.min(full, left);
+      const b = api.hireContractor(t.parcelId, t.op, { ha });
+      if (!b) return t.pending > 0;
+      t.booking = b.id; t.pending++; booked.set(b.id, t);
+      M.contractorSpend += b.price;
+      if (hasKitOrCould(t.op)) M.contractorOwnable.push([sim.today(), b.price]);
+      left -= ha;
+    }
     return true;
   }
   const hasKitOrCould = (op) => op !== 'lift' || strat === 'builder' || strat === 'renter';
@@ -241,6 +260,7 @@ export function createManager(sim, opts) {
       const t = booked.get(b.id);
       if (!t) continue;
       booked.delete(b.id);
+      if (--t.pending > 0) continue; // wait for the other passes
       const i = tasks.indexOf(t);
       if (i >= 0) tasks.splice(i, 1);
       finishOp(t, b.doneDay > t.deadline);
@@ -277,8 +297,6 @@ export function createManager(sim, opts) {
   // ---------- daily crew allocation ----------
   function work(d) {
     const H = hands().map((w) => ({ id: w.id, left: HPD }));
-    const inUse = {}; // machine category → units in use today
-    let tractorsFree = owned('tractor').length;
     let playerH = PLAYER_HOURS;
     tasks.sort((a, b) => a.deadline - b.deadline);
     for (const t of tasks) {
@@ -288,12 +306,12 @@ export function createManager(sim, opts) {
       for (const h of H) {
         if (t.left <= 1e-6) break;
         if (h.left <= 0.1) continue;
-        const units = t.op === 'harvest' ? owned('combine').length : Math.min(owned(cat).length, owned('tractor').length);
-        if ((inUse[cat] || 0) >= units) break;
-        if (t.op !== 'harvest' && tractorsFree <= 0) break;
-        inUse[cat] = (inUse[cat] || 0) + 1;
-        if (t.op !== 'harvest') tractorsFree--;
-        const rank = owned('tractor').length - tractorsFree - 1;
+        // r4: machines are booked per day through the API (one tractor per hand, one implement per job)
+        if (t.op !== 'harvest' && !(api.machinesFree('tractor') > 0 || h.tractor)) continue;
+        if (!(api.machinesFree(cat) > 0 || (h.kit && h.kit[cat]))) continue;
+        if (t.op !== 'harvest') { if (!h.tractor) { api.reserveMachine('tractor', h.id); h.tractor = true; h.rank = owned('tractor').length - api.machinesFree('tractor') - 1; } }
+        api.reserveMachine(cat, h.id); (h.kit = h.kit || {})[cat] = true;
+        const rank = h.rank || 0;
         const rate = aiRate(t.op, Math.max(0, rank));
         let hrs = Math.min(h.left, t.left / rate);
         // hauling the harvest home takes trailer time too
@@ -301,7 +319,7 @@ export function createManager(sim, opts) {
         const ha = Math.min(t.left, (t.op === 'harvest' ? hrs / 1.15 : hrs) * rate);
         t.left -= ha; h.left -= hrs;
         M.hFarmHands += hrs;
-        api.recordFieldWork(t.parcelId, t.op, { workerId: h.id, hours: hrs });
+        api.recordFieldWork(t.parcelId, t.op, { workerId: h.id, hours: hrs, areaM2: ha * 1e4 });
         useDiesel(t.op, ha);
       }
     }
@@ -314,7 +332,7 @@ export function createManager(sim, opts) {
       const hrs = Math.min(playerH * 0.6, needH);
       const ha = hrs * playerRate(t.op);
       t.left -= ha; playerH -= hrs; M.hFarmPlayer += hrs;
-      api.recordFieldWork(t.parcelId, t.op);
+      api.recordFieldWork(t.parcelId, t.op, { areaM2: ha * 1e4 });
       useDiesel(t.op, ha);
     }
     // finished or overdue tasks
@@ -488,7 +506,7 @@ export function createManager(sim, opts) {
     const ownKit = (need) => !need || need === 'tractor' || owned(need).length > 0;
     const missedCrew = recent(M.crewSeen.filter((x) => ownKit(x[2])), d) - recent(M.crewTaken, d);
     const demand = recent(M.contractorOwnable, d) + Math.max(0, missedCrew) * 0.8;
-    const maxHands = 3;
+    const maxHands = opts.maxHands || 3;
     const sinceHire = M.lastHire == null ? 99 : d - M.lastHire;
     // hand utilisation over the last 3 months (days with logged work / hand-days)
     const worked = hands().reduce((t, w) => t + (w.daysWorked || 0), 0);
@@ -496,7 +514,9 @@ export function createManager(sim, opts) {
     M.util.push([d, worked, nHands]);
     const old = M.util.find((x) => x[0] >= d - 9) || M.util[0];
     const util = nHands && old[2] === nHands && d > old[0] ? (worked - old[1]) / (nHands * (d - old[0])) : 0;
-    if (util > 0.7 && Math.max(0, missedCrew) > 3000) M.busy = true; else M.busy = false;
+    // busy hands + more to do (crew jobs we miss, or land we could take on) → another hand pays
+    const landWaiting = farming && farmedHa() > 16 + 13 * nHands - 4 && (api.landMarket().forRent.length + api.landMarket().forSale.length) > 0;
+    M.busy = util > 0.6 && (Math.max(0, missedCrew) > 3000 || landWaiting);
     if (nHands < maxHands && (year >= 2 || !farming) && (demand > 6000 + 4000 * nHands || M.busy) && sinceHire >= 15 && cash() > 8000) {
       if (owned('tractor').length >= nHands + 1 || buyMachine('tractor_t1')) { api.hireWorker(); M.lastHire = d; }
     }

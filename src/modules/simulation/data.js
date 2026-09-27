@@ -41,6 +41,10 @@ export const CONST = {
   retainer: 35,               // € per idle game day
   hoursPerDayHand: 10,        // a hand's full working day (game hours) — work.js HOURS_PER_DAY
   jobCapBase: 2,              // active jobs = 2 + hired hands
+  marketHands: 3,             // r4: the valley's offer flow grows with at most 3 hands
+  maxOffersPerDay: 7,         // r4: new offers per day, all kinds
+  crewPayDrop: 0.06,          // r4: crew-job pay −6 % per crew job the farm already holds …
+  crewPayDropMax: 0.3,        // … down to −30 %
   callout: [60, 110],         // € call-out fee on machine jobs (small jobs still pay the trip)
   bulkItems: ['wheat', 'barley', 'oats', 'rapeseed', 'maize'],
   bulkBase: 80,               // t: the old barn, before any grain store is bought
