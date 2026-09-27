@@ -18,6 +18,8 @@ const CHROME_CANDIDATES = [
   'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+  '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+  '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome',
 ].filter(Boolean);
 
 function parseArgs(argv) {
@@ -58,7 +60,8 @@ async function shot(opts) {
     args: ['--headless=new', `--window-size=${W},${H}`, '--hide-scrollbars', '--mute-audio',
       '--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling',
       '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--no-first-run',
-      '--enable-gpu-rasterization', '--ignore-gpu-blocklist'],
+      '--enable-gpu-rasterization', '--ignore-gpu-blocklist',
+      ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : [])],
     defaultViewport: { width: W, height: H, deviceScaleFactor: 1 },
   });
   const log = {
@@ -130,4 +133,6 @@ if (require.main === module) {
   }).catch((e) => { console.error(e); process.exit(3); });
 }
 
-module.exports = { shot, parseArgs };
+module.exports = { findChrome: () => CHROME_CANDIDATES.find((p) => fs.existsSync(p)),
+  chromeArgs: () => ['--headless=new', ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : [])],
+  shot, parseArgs };

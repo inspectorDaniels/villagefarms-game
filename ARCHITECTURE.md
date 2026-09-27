@@ -186,7 +186,9 @@ Frame pipeline (`src/core/renderer.js`):
 1. **collect** — every `addCollector(fn)` is called `fn(view, F)`; it submits:
    * `F.object({ y, draw(g) })` — y-sorted drawables (buildings, trees, vehicles, people…)
    * `F.shadow.box(cx, cy, w, h, rot, height)`, `F.shadow.circle(x, y, r, z0, z1)`,
-     `F.shadow.poly(points, height)`, `F.shadow.custom(fn(g, sun))` — shadow casters
+     `F.shadow.poly(points, height)`, `F.shadow.custom(fn(g, sun))` — shadow casters;
+     `F.shadow.cloud(fn(g, sun, view))` — cloud shadows in their own buffer, composited with
+     `sun.cloudShadowStrength` (fallback `shadowStrength`), masked where object shadows already are
    * `F.light({ x, y, radius, color:[r,g,b], intensity, glow })` — point lights
 2. layers `ground` → `ground-overlay` → `ground-detail`
 3. **shadow pass** (core): casters projected along `sun.dir * height * shadowLen` into a

@@ -51,6 +51,8 @@ export class Renderer {
     this.collectors = [];
     this.shadowCanvas = document.createElement('canvas');
     this.sg = this.shadowCanvas.getContext('2d');
+    this.cloudCanvas = document.createElement('canvas');
+    this.cg = this.cloudCanvas.getContext('2d');
     this.lightCanvas = document.createElement('canvas');
     this.lg = this.lightCanvas.getContext('2d');
     this.lightSprites = new Map();
@@ -73,6 +75,8 @@ export class Renderer {
     this.canvas.height = Math.round(h * this.dpr);
     this.shadowCanvas.width = Math.ceil(this.canvas.width / 2);
     this.shadowCanvas.height = Math.ceil(this.canvas.height / 2);
+    this.cloudCanvas.width = this.shadowCanvas.width;
+    this.cloudCanvas.height = this.shadowCanvas.height;
     this.lightCanvas.width = Math.ceil(this.canvas.width / 2);
     this.lightCanvas.height = Math.ceil(this.canvas.height / 2);
     this.camera.resize(w, h);
@@ -119,6 +123,9 @@ export class Renderer {
         pole(x, y, height, width = 0.15) { R.shadows.push({ t: 'pole', x, y, height, width }); },
         wall(x0, y0, x1, y1, height, thickness = 0.2) { R.shadows.push({ t: 'wall', x0, y0, x1, y1, height, thickness }); },
         custom(fn) { R.shadows.push({ t: 'custom', fn, owner }); },
+        // cloud shadows: own buffer, composited with sun.cloudShadowStrength (falls back to
+        // shadowStrength) and never double-darken where an object shadow already is
+        cloud(fn) { R.shadows.push({ t: 'cloud', fn, owner }); },
       },
     };
     this.frameApis.set(owner, F);
@@ -159,7 +166,7 @@ export class Renderer {
     const dx = sun.dirX * L, dy = sun.dirY * L;
     const px = -sun.dirY, py = sun.dirX; // perpendicular
     sg.beginPath();
-    const customs = [];
+    const customs = [], clouds = [];
     for (const s of this.shadows) {
       switch (s.t) {
         case 'box': {
@@ -205,6 +212,7 @@ export class Renderer {
           break;
         }
         case 'custom': customs.push(s); break;
+        case 'cloud': clouds.push(s); break;
         default: break;
       }
     }
@@ -218,8 +226,29 @@ export class Renderer {
     }
     const g = this.g;
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.globalAlpha = strength;
     g.imageSmoothingEnabled = true;
+    if (clouds.length) {
+      const cg = this.cg;
+      cg.setTransform(1, 0, 0, 1, 0, 0);
+      cg.globalCompositeOperation = 'source-over';
+      cg.clearRect(0, 0, this.cloudCanvas.width, this.cloudCanvas.height);
+      this._worldTransform(cg, this.dpr / 2);
+      cg.fillStyle = palette.shadow;
+      for (const s of clouds) {
+        cg.save();
+        this.health.guard(s.owner, 'shadow cloud', s.fn, null, [cg, sun, view]);
+        cg.restore();
+      }
+      // cut object shadows out of the cloud buffer so the two never stack
+      cg.setTransform(1, 0, 0, 1, 0, 0);
+      cg.globalCompositeOperation = 'destination-out';
+      cg.drawImage(this.shadowCanvas, 0, 0);
+      cg.globalCompositeOperation = 'source-over';
+      const cs = sun.cloudShadowStrength == null ? strength : sun.cloudShadowStrength;
+      g.globalAlpha = Math.max(0, Math.min(1, cs));
+      g.drawImage(this.cloudCanvas, 0, 0, this.canvas.width, this.canvas.height);
+    }
+    g.globalAlpha = strength;
     g.drawImage(this.shadowCanvas, 0, 0, this.canvas.width, this.canvas.height);
     g.globalAlpha = 1;
   }

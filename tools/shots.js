@@ -3,13 +3,12 @@
 // Output: shots/<module>/<tag>/<preset>_<HHMM>.png/.json and a summary.json.
 const fs = require('fs');
 const path = require('path');
-const { shot, parseArgs } = require('./shot.js');
+const { shot, parseArgs, findChrome, chromeArgs } = require('./shot.js');
 const puppeteer = require('puppeteer-core');
 
 async function listPresets(id, port) {
   // read presets by importing the module in a headless page
-  const exe = ['C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find((p) => fs.existsSync(p));
-  const b = await puppeteer.launch({ executablePath: exe, headless: false, args: ['--headless=new'] });
+  const b = await puppeteer.launch({ executablePath: findChrome(), headless: false, args: chromeArgs() });
   try {
     const p = await b.newPage();
     await p.goto(`http://localhost:${port}/tools/blank.html`);
