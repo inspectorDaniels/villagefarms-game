@@ -59,7 +59,7 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "failing",
+      "status": "r3-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -83,7 +83,7 @@
         "README claims don't reproduce (\u224815 ha; exploits default run 13/14)",
         "should: loans left behind on sale, sell fromInventory:false, jobs lack coordinates, CAP on idle land, harness valley > map"
       ],
-      "note": "r2 critic 6/10: engine clean, exploits closed, determinism+save/load byte-identical; progression only proven in a harness that assumes non-existent mechanics. Director Revision r3 written."
+      "note": "r3 builder: time model (work.js), assignJob/crew jobs, contractors API, wages per day worked, insolvency rules, CAP on worked land; builder strategy median: hand y2, owned parcel y3, combine y5, 50 ha y8, \u20ac405k y10 (4/8 seeds in 400-600k); 21/21 exploit probes closed."
     },
     "ui": {
       "wave": 1,
