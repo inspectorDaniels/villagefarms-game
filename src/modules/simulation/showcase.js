@@ -109,7 +109,7 @@ export function createShowcaseView(ctx, sim) {
       tapeAt(g, 612, 462, -0.006, 1130, 800, rng);
       B.quotesCard(g, 1380, 372, 0.02, 350, 640, D, rng);
       pinAt(g, 1380, 372, 0.02, 640, '#b8352b');
-      B.note(g, 1372, 790, -0.04, 300, 118, ['Wheat: sell half off the', 'combine, store the rest —', 'the carry pays by spring.'], rng);
+      B.note(g, 1372, 790, -0.04, 300, 118, ['Wheat: sell a fifth off the', 'combine, store the rest —', 'the carry pays by spring.'], rng);
       pinAt(g, 1372, 790, -0.04, 118, '#3f6b3a');
     } else if (preset === 'jobs') {
       B.titleStrip(g, 600, 56, 0.006, 520, 66, 'Jobs board — Ter Beek & around', `${date} · offers from the neighbours`, rng);

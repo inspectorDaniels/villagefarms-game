@@ -220,9 +220,11 @@ export function createBoard(P, art) {
     P.sheet(g, img, cx, cy, rot, (g) => {
       P.text(g, "Today's quotes", 22, 44, { size: 24, italic: true });
       P.text(g, dayLabel(D.today, true), 22, 66, { size: 13, italic: true, color: INK_SOFT });
+      const inv = Object.entries(D.inventory).filter(([k, q]) => q > 0.05 && ITEMS[k]);
+      const storeTop = inv.length ? h - 60 - 21 * Math.min(3, inv.length) : h - 36; // keep room for the store + note
       let y = 100;
       for (const sp of D.sellPoints) {
-        if (y > h - 40) break;
+        if (y + 20 + 17 * Math.min(3, sp.quotes.length) > storeTop - 18) break;
         drawIcon(P, g, art, sp.id === 'shop' ? 'house' : 'silo', 14, y - 20, 26, rng);
         P.text(g, sp.name, 46, y - 2, { size: 14, bold: true, maxW: w - 60 });
         y += 20;
@@ -230,13 +232,12 @@ export function createBoard(P, art) {
           P.text(g, ITEMS[q.item].name, 50, y, { size: 13, italic: true, color: INK_SOFT });
           P.text(g, priceStr(q.item, q.price), w - 22, y, { size: 13, align: 'right' });
           if (q.sat > 0.02) P.text(g, `glut −${Math.round(q.sat * 100)}%`, w - 120, y, { size: 11, italic: true, color: INK_RED, align: 'right', font: HAND });
-          y += 19;
+          y += 17;
         }
-        y += 16;
+        y += 12;
       }
-      const inv = Object.entries(D.inventory).filter(([k, q]) => q > 0.05 && ITEMS[k]);
       if (inv.length) {
-        y = Math.max(y, h - 150);
+        y = Math.max(y + 18, storeTop);
         P.line(g, 20, y - 18, w - 20, y - 18, rng, { w: 0.9, alpha: 0.5 });
         P.text(g, 'In our store', 22, y + 2, { size: 16, italic: true, bold: true });
         y += 24;
