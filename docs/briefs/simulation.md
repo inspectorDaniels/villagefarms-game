@@ -127,3 +127,12 @@ Assumptions stated by the director; builders tune numbers but keep the model.
    bank offers a restructuring loan once; no infinite blocked state.
 7. Delegated odd jobs require the hand to be awake/available (not sleeping) — simulation checks
    `characters` availability via an optional API `characters.isAvailable(workerId)` if present.
+
+---
+## Revision r4b (director decision on margin, 2026-09-27)
+With contracting capped, the builder path reaches ≈ €300k net worth at year 10 (all other milestones met:
+hand y2, parcel y3, combine y6, 44 ha y8). The €400–600k figure in r3 was a director guess, not a design
+requirement. **Decision:** keep prices/CAP believable (no CAP €750, no +15 % grain) and revise the year-10
+target to **€250–400k** for the builder path, with the ordering builder > renter > smallfarm > contractor > jobs
+required at AI_WORK_FACTOR ×0.5–×2. Any later margin boost must come from gameplay (animals, better
+machines/upgrades, storage timing), not from price inflation.

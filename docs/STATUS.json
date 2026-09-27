@@ -73,7 +73,7 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "failing",
+      "status": "r4-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -103,7 +103,7 @@
         "Wages depend on logWork which nobody calls; hand character not linked to worker (r4.5, characters)",
         "should: contractor-done unhandled (r4.4, crops), infinite insolvency block (r4.6), delegated job while asleep (r4.7)"
       ],
-      "note": "r3 critic 6/10: all r2 must-fixes verified; new: hands dominate via unsaturated contract market; CAP/wages not wired live. Director Revision r4 assigns ownership."
+      "note": "r4: contract market saturates (12 hands -> -\u20ac9k op profit), machine reservation, CAP on worked share via crops:worked, validated recordFieldWork/hireContractor, wages via logWork (live-verified), insolvency end state, 25/25 exploits closed. Builder \u20ac303k y10 -> target revised to \u20ac250-400k (r4b)."
     },
     "ui": {
       "wave": 1,
