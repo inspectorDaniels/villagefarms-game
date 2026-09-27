@@ -404,7 +404,7 @@ export async function init(ctx) {
     const pid = spawn({ role: 'player', name: 'You', x: p.x, y: p.y, rot: 0, tool: 'hoe', sex: 'm', age: 'adult' });
     setActive(pid, true);
     hire({ x: p.x + 2.6, y: p.y + 1.1, rot: -0.6 });
-    if (!ctx.params.cam) ctx.camera.set(p.x, p.y, Math.max(ctx.camera.zoom, 38));
+    if (!ctx.params.cam) ctx.camera.set(p.x, p.y, Math.max(ctx.camera.zoom, 46));
     handover = null;
     follow();
   }
@@ -446,7 +446,8 @@ export async function init(ctx) {
       const side = r.chance(0.5) ? 1 : -1;
       if (edges.length && roads) {
         const e = r.pick(edges);
-        const k = r.int(0, e.points.length - 1);
+        const inside = A ? e.points.map((q, i) => i).filter((i) => { const q = e.points[i]; return q[0] > A.x0 && q[0] < A.x1 && q[1] > A.y0 && q[1] < A.y1; }) : [];
+        const k = inside.length ? r.pick(inside) : r.int(0, e.points.length - 1);
         const p = e.points[k], q = e.points[Math.min(e.points.length - 1, k + 1)], o = e.points[Math.max(0, k - 1)];
         let tx = q[0] - o[0], ty = q[1] - o[1]; const l = Math.hypot(tx, ty) || 1; tx /= l; ty /= l;
         const off = (e.width || 6) / 2 + 0.95;
@@ -657,7 +658,7 @@ export async function init(ctx) {
     const env = W.environment || {};
     const w = env.weather || {};
     const raining = (w.kind === 'rain' || w.kind === 'storm') && (w.intensity == null || w.intensity > 0.15);
-    const live = view.zoom * (view.dpr || 1) >= 34;
+    const live = view.zoom * (view.dpr || 1) * K >= 88;
     const flick = 0.9 + 0.1 * Math.sin(now * 13.7) * Math.sin(now * 7.3);
     for (const c of C.list) {
       if (c.vehicleId || c.state === 'inside') continue;

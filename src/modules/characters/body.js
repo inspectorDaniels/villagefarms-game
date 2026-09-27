@@ -8,7 +8,7 @@ import { SPPM } from './sprites.js';
 import { appKey } from './appearance.js';
 
 const TAU = Math.PI * 2;
-export const CPPM = 48;          // cached frame resolution
+export const CPPM = 72;          // cached frame resolution
 export const WALK_FRAMES = 8;
 /** readability scale: people are drawn ~28 % larger than life so they read next to machines at 24–48 px/m */
 export const K = 1.28;
@@ -28,12 +28,14 @@ export function createBody(art, parts) {
   function img(g, c, x, y, rot = 0, sx = 1, sy = 1) {
     const w = c.width / S, h = c.height / S;
     if (rot || sx !== 1 || sy !== 1) {
-      g.save();
+      // manual transform + inverse (cheaper than save/restore per part)
       g.translate(x, y);
       if (rot) g.rotate(rot);
       if (sx !== 1 || sy !== 1) g.scale(sx, sy);
       g.drawImage(c, -w / 2, -h / 2, w, h);
-      g.restore();
+      if (sx !== 1 || sy !== 1) g.scale(1 / sx, 1 / sy);
+      if (rot) g.rotate(-rot);
+      g.translate(-x, -y);
     } else g.drawImage(c, x - w / 2, y - h / 2, w, h);
   }
 
@@ -42,12 +44,14 @@ export function createBody(art, parts) {
     const c = parts.tool(kind);
     const sp = parts.TOOL_SPECS[kind];
     if (!c || !sp) return;
-    g.save();
+    if (Math.abs(k) < 0.02) k = k < 0 ? -0.02 : 0.02;
     g.translate(gx, gy);
     g.rotate(rot);
     g.scale(wScale, k);
     g.drawImage(c, -sp.w / 2, -(sp.len - sp.grip), sp.w, sp.len);
-    g.restore();
+    g.scale(1 / wScale, 1 / k);
+    g.rotate(-rot);
+    g.translate(-gx, -gy);
   }
 
   // ------------------------------------------------------------------ pose
@@ -276,7 +280,7 @@ export function createBody(art, parts) {
       drawTool(g, tool.kind, tool.gx, tool.gy, tool.rot, tool.k, tool.wScale);
       // the gripping hands sit on top of the shaft
       img(g, parts.hand(a), P.handR.x, P.handR.y, tool.rot, 1, 1);
-      if (P.lockL && P.handL && (tool.k < 0.99 || true) && Math.hypot(P.handL.x - P.handR.x, P.handL.y - P.handR.y) > 0.06) img(g, parts.hand(a), P.handL.x, P.handL.y, tool.rot, -1, 1);
+      if (P.lockL && P.handL && Math.hypot(P.handL.x - P.handR.x, P.handL.y - P.handR.y) > 0.06) img(g, parts.hand(a), P.handL.x, P.handL.y, tool.rot, -1, 1);
     }
     for (const it of P.extra) if (it.kind === 'stick') drawItem(g, it);
     g.restore();

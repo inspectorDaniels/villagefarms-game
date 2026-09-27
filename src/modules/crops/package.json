@@ -1,0 +1,1 @@
+{"type":"module","private":true,"description":"Marks crops .js files as ES modules for headless Node tests. No effect in the browser."}

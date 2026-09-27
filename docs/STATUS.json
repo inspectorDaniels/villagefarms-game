@@ -59,7 +59,7 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "r2-built-unreviewed",
+      "status": "failing",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -68,26 +68,22 @@
           "score": 6,
           "pass": false,
           "review": "docs/reviews/simulation-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/simulation-r2.md"
         }
       ],
       "openIssues": [
-        "**CAP / short-lease exploit (confirmed).** In the showcase valley I rented every `forRent`/`forSale` parcel (15.1 ha) on the day before CAP day (doy 27) and ended every lease the next morning. That paid \u20ac229 of rent and received \u20ac3,548 of CAP for those hectares, a net **+\u20ac3,828 for one day**, repeatable every year.",
-        "`rentParcel` charges nothing up front.",
-        "`endLease` works at any moment with no notice or minimum term.",
-        "CAP pays on `farmedHa()` measured on a single day (`land.js` `landDay`).",
-        "Pay CAP pro rata for the days each parcel was held in the last 36 days, or only on parcels held since before sowing season.",
-        "Give leases a minimum term (e.g. 1 game year, or until after the next harvest).",
-        "Make `endLease` early cost the rest of the term or a notice penalty.",
-        "Charge rent monthly in advance.",
-        "**Progression curve: growing the farm does not pay, and buying land never does.** My measured figures, all per game year:",
-        "**Land.** The rent/price ratio is about 1% (e.g. Lindeveld is \u20ac57.4k/ha to buy and \u20ac566/ha/yr to rent). Buying adds 11.5% duty, never appreciates and resells at 95%. With loans at 4.5%, a mortgaged parcel loses money every year compared with renting it. Owning land exists only to raise the credit limit.",
-        "**Area.** Contractor-farmed rented wheat makes about \u20ac150/ha. With unlimited cash and storage, 20 ha gives mean +\u20ac2.9k and 50 ha gives +\u20ac1.0k. At 50 ha the per-lot saturation (wheat depth 80 t per point) takes most of the margin, and yearly swings reach \u2212\u20ac40k/+\u20ac52k.",
-        "**Jobs.** A greedy player who accepts every offer earns **\u20ac23.2k/yr** from 84 jobs. Farming 5 ha earns under \u20ac1k.",
-        "**Time to buy.** One game year is 14.4 real hours. The cheapest parcel for sale (Bergske, \u20ac131k + duty \u2248 \u20ac146k) takes about 6\u201315 game years of typical cash flow, which is 90\u2013220 real hours. The compact combine (\u20ac145k) pays back through \u20ac165/ha harvest jobs in 20+ years.",
-        "Set a target progression, e.g. \"first owned parcel by year 3\u20134, second tractor by year 2, combine by year 5\".",
-        "Tune to that target, for example:"
+        "Harness assumes contractor service + work rates that don't exist in the live game (see brief Revision r3 1-3)",
+        "Hired hands dead content: wage ~4x real per worked hour, no added job capacity (r3 4)",
+        "Bank lends to insolvent farm; overdraft ignored (r3 5)",
+        "README claims don't reproduce (\u224815 ha; exploits default run 13/14)",
+        "should: loans left behind on sale, sell fromInventory:false, jobs lack coordinates, CAP on idle land, harness valley > map"
       ],
-      "note": "r2 builder done: CAP exploit closed (14/14 probes lose), farming > contracting per hour from ~30 ha, owning > renting over 10y; missed: area targets, hired hands 0-1, net worth 300k@y8 vs 1M target (argued unreachable). Harnesses: tests/progression.mjs, tests/exploits.mjs"
+      "note": "r2 critic 6/10: engine clean, exploits closed, determinism+save/load byte-identical; progression only proven in a harness that assumes non-existent mechanics. Director Revision r3 written."
     },
     "ui": {
       "wave": 1,

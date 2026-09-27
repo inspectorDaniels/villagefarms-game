@@ -10,6 +10,7 @@ const WET_W = new Float32Array(12);
 const CELL = 32;               // version-cell size (m) for dirty tracking
 const CACHE_CAP = 150 * 1048576;
 const PREFETCH_BUDGET = 4000;  // work units per frame for the 1-tile ring around the view
+const SHIM_RES = 8;            // px/m of the water shimmer overlay (cropped to the water bbox)
 
 function cellRng(x, y, salt) {
   let a = (hash2(x, y, salt) * 4294967296) >>> 0;
@@ -126,7 +127,7 @@ export class TileManager {
     if (L >= 8) yield* this.waterDecals(g, tile, look, L);
     g.setTransform(1, 0, 0, 1, 0, 0);
     let shimmer = null;
-    if (L >= 4 && tile.wet) shimmer = yield* this.shimmerJob(tile, look);
+    if (L >= 8 && tile.wet) shimmer = yield* this.shimmerJob(tile, look);
     // commit
     if (tile.canvas) this.bytes -= tile.bytes;
     tile.canvas = out; tile.m = mo; tile.shimmer = shimmer; tile.sig = look.sig; tile.ver = ver;
@@ -270,16 +271,19 @@ export class TileManager {
     yield list.length * 30;
   }
 
+  /**
+   * Water glint/ripple overlay for a wet tile. Both animation frames live side by side in ONE small
+   * canvas cropped to the tile's water bounding box, at ≤ SHIM_RES px/m. The whole-tile, two-canvas,
+   * 16 px/m version cost 20–45 ms/frame on software GPUs (texture thrash + full-tile alpha fill).
+   * Returns { canvas, sx, sy, sw, sh (px in canvas, frame 0 at x=0, frame 1 at x=sw), x, y, w, h (m) }.
+   */
   *shimmerJob(tile, look) {
     const T = this.T, art = this.art, P = this.P, W = T.w;
-    const res = Math.min(tile.level, 16);
+    const res = Math.min(tile.level, SHIM_RES);
     const M = tile.size, pw = M * res;
-    // water mask
-    const mask = art.canvas(pw, pw);
-    const mg = mask.getContext('2d');
-    const img = mg.createImageData(pw, pw);
-    const d = img.data;
-    let any = 0;
+    // 1) water alpha per pixel + bounding box of the wet pixels
+    const alpha = new Uint8Array(pw * pw);
+    let bx0 = pw, by0 = pw, bx1 = -1, by1 = -1;
     for (let j = 0; j < pw; j++) {
       const wy = tile.y + (j + 0.5) / res;
       const fy = Math.min(T.h - 1.001, wy), iy = fy | 0, ty = fy - iy;
@@ -287,24 +291,40 @@ export class TileManager {
         const wx = tile.x + (i + 0.5) / res;
         const fx = Math.min(W - 1.001, wx), ix = fx | 0, tx = fx - ix, o = iy * W + ix;
         const a00 = (1 - tx) * (1 - ty), a10 = tx * (1 - ty), a01 = (1 - tx) * ty, a11 = tx * ty;
-        const h = T.height[o] * a00 + T.height[o + 1] * a10 + T.height[o + W] * a01 + T.height[o + W + 1] * a11;
         const wl = T.waterLevel[o] * a00 + T.waterLevel[o + 1] * a10 + T.waterLevel[o + W] * a01 + T.waterLevel[o + W + 1] * a11;
+        if (wl < NO_WATER + 50) continue;
+        const h = T.height[o] * a00 + T.height[o + 1] * a10 + T.height[o + W] * a01 + T.height[o + W + 1] * a11;
         const dep = wl - h;
-        const a = dep <= 0.04 ? 0 : dep >= 0.3 ? 255 : ((dep - 0.04) / 0.26) * 255;
-        d[(j * pw + i) * 4 + 3] = a;
-        if (a) any++;
+        if (dep <= 0.04) continue;
+        alpha[j * pw + i] = dep >= 0.3 ? 255 : ((dep - 0.04) / 0.26) * 255;
+        if (i < bx0) bx0 = i; if (i > bx1) bx1 = i; if (j < by0) by0 = j; if (j > by1) by1 = j;
       }
       if ((j & 31) === 31) yield pw * 32 * 0.3;
     }
-    if (!any) return null;
+    if (bx1 < 0) return null;
+    const sw = bx1 - bx0 + 1, sh = by1 - by0 + 1;
+    // 2) mask canvas (2 frames wide) from the cropped alpha
+    const mask = art.canvas(sw * 2, sh);
+    const mg = mask.getContext('2d');
+    const img = mg.createImageData(sw * 2, sh);
+    const d = img.data;
+    for (let j = 0; j < sh; j++) for (let i = 0; i < sw; i++) {
+      const a = alpha[(j + by0) * pw + i + bx0];
+      if (!a) continue;
+      d[(j * sw * 2 + i) * 4 + 3] = a;
+      d[(j * sw * 2 + i + sw) * 4 + 3] = a;
+    }
     mg.putImageData(img, 0, 0);
-    const frames = [];
+    // 3) strokes for both frames into one canvas, then clip to the mask
+    const c = art.canvas(sw * 2, sh);
+    const g = c.getContext('2d');
+    g.lineCap = 'round';
+    const wx0 = tile.x + bx0 / res, wy0 = tile.y + by0 / res, ww = sw / res, wh = sh / res;
     for (let f = 0; f < 2; f++) {
-      const c = art.canvas(pw, pw);
-      const g = c.getContext('2d');
-      g.setTransform(res, 0, 0, res, -tile.x * res, -tile.y * res);
-      g.lineCap = 'round';
-      for (let y = tile.y - 1; y < tile.y + M + 1; y++) for (let x = tile.x - 1; x < tile.x + M + 1; x++) {
+      g.save();
+      g.beginPath(); g.rect(f * sw, 0, sw, sh); g.clip();
+      g.setTransform(res, 0, 0, res, -wx0 * res + f * sw, -wy0 * res);
+      for (let y = Math.floor(wy0) - 1; y < wy0 + wh + 1; y++) for (let x = Math.floor(wx0) - 1; x < wx0 + ww + 1; x++) {
         if (x < 1 || y < 1 || x >= W - 1 || y >= T.h - 1) continue;
         const o = y * W + x;
         const dep = T.waterLevel[o] - T.height[o];
@@ -323,24 +343,24 @@ export class TileManager {
         const bend = (R() - 0.5) * 0.3;
         if (R() < 0.45) {
           g.strokeStyle = art.rgba(P.water.foam, 0.12 + R() * 0.22);
-          g.lineWidth = 0.04 + R() * 0.05;
+          g.lineWidth = Math.max(0.04 + R() * 0.05, 0.8 / res);
         } else {
           g.strokeStyle = art.rgba(P.water.deep, 0.12 + R() * 0.16);
-          g.lineWidth = 0.08 + R() * 0.12;
+          g.lineWidth = Math.max(0.08 + R() * 0.12, 0.8 / res);
         }
         g.beginPath();
         g.moveTo(cx - ca, cy - sa);
         g.quadraticCurveTo(cx - sa * bend * 4, cy + ca * bend * 4, cx + ca, cy + sa);
         g.stroke();
       }
-      g.setTransform(1, 0, 0, 1, 0, 0);
-      g.globalCompositeOperation = 'destination-in';
-      g.drawImage(mask, 0, 0);
-      g.globalCompositeOperation = 'source-over';
-      frames.push(c);
-      yield M * M * 8;
+      g.restore();
+      yield M * M * 4;
     }
-    return { frames, bytes: pw * pw * 8, phase: hash2(tile.tx, tile.ty, 5) * 6.28 };
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(mask, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    // the canvas is final from here on: never drawn into or read back again
+    return { canvas: c, sw, sh, x: wx0, y: wy0, w: ww, h: wh, bytes: sw * sh * 8, phase: hash2(tile.tx, tile.ty, 5) * 6.28 };
   }
 
   /** 2 px/m multiply mask: soils darken most when wet, vegetation a little, water not at all */
@@ -458,8 +478,10 @@ export class TileManager {
     const drawn = [];
     // row-major order: each tile's anti-aliased leading edge lands on an already drawn neighbour (no seams)
     const order = need.slice().sort((a, b) => a.ty - b.ty || a.tx - b.tx);
+    const dbg = this.T.dbg || {};
     for (const t of order) {
       t.used = this.frame;
+      if ((dbg.skipWet && t.wet) || (dbg.skipDry && !t.wet)) continue;
       if (t.canvas) { g.drawImage(t.canvas, t.m, t.m, t.size * t.level, t.size * t.level, t.x, t.y, t.size + pad, t.size + pad); drawn.push(t); continue; }
       // fallback: coarser cached tile
       let done = false;

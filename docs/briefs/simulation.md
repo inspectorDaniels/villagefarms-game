@@ -71,3 +71,36 @@ printing year-by-year cash/net worth/ha for 10 game years for 3 strategies × 8 
 - Contract jobs pay realistic machine-rate style pay (e.g. ploughing €80–110/ha, harvesting €130–170/ha, transport €/t·km), limited to ≈ 2–4 new offers per game day and max 3 active.
 - Crop margins: with own machinery a well-run hectare of cereals should net ≈ €500–900/ha/yr before land cost; roots/rapeseed higher risk/higher margin. Market saturation should punish dumping at one buyer but splitting sales across buyers/days must be viable.
 - Fix all "should fix" items in docs/reviews/simulation-r1.md (negative loan rate, spot market accepting everything, buyParcel on non-sale land, reputation too fast, jobs without location, board clipping/labels).
+
+---
+## Revision r3 (director decisions after critic r2, 2026-09-27)
+Assumptions stated by the director; builders tune numbers but keep the model.
+
+1. **Time model for field work.** The clock runs 60× real time (1 real s = 1 game min). The player's own
+   driving is real-time physics (vehicles module): a 3 m plough at 8 km/h does ≈1.9 ha per *real* hour.
+   Hired hands and contractors work abstractly at the physical rate per *game* hour × `AI_WORK_FACTOR`
+   (start 0.25: they are slower than ideal and still need travel/setup time). Consequence, by design: the
+   player personally can only work small areas; **hired hands are the scaling mechanism** of the farm
+   (this is the multi-character core of the game). `workRates()` must be the single source used by
+   jobs, the harness and (later) the vehicles/characters AI.
+2. **Job sizing.** Jobs done by the player personally must take ≈5–20 real minutes of driving/walking
+   (derive area from `workRates()` and the offered machine). A job may be **delegated** to a hired hand
+   (`assignJob(jobId, characterId)`), who executes it at the AI rate. Active job cap = 2 + hired hands.
+   Every job has coordinates (a field/parcel polygon or point) in the live game, not only in the harness.
+3. **Contractors.** Add a real API `hireContractor(fieldOrParcelId, operation)` → quote/booking with
+   €/ha prices (plough, cultivate, sow, spray, harvest cereals, lift beet/potatoes, bale), a lead time
+   and the AI work rate; the harness may only use operations that exist in the live API. Add a root-crop
+   harvester (beet/potato lifter, category `harvester`) to the catalog.
+4. **Wages.** Hands are paid a daily rate only for days they work (target ≈ €150–220/game day at
+   game scale), plus a small retainer when idle. Target: first hand pays for itself by year 2–3 at
+   ≈20–30 ha; 2–3 hands by year 6–8.
+5. **Insolvency.** Negative cash counts as debt against the credit limit; no new loans while over the
+   limit. 30 days over the limit → warnings + purchases blocked; 60 days → the bank sells the least
+   valuable asset (machine, then land) at 85 % of value. Selling a mortgaged parcel or financed machine
+   repays its loan from the proceeds first. Remove `sell({fromInventory:false})` for goods not held.
+6. **CAP** pays only on cropped or maintained grassland (a field worked at least once that year).
+7. **Targets** (restated, reachable): first hand year 2–3; first owned parcel year 3–4; combine year
+   4–6; 40–60 ha by year 8; net worth ≈ €400–600k by year 10. State milestones in real hours too
+   (1 game year = 14.4 real hours at 1×; players will use 3×/10×).
+8. The harness world must fit the 1024 m map (≈68 ha farmable). README numbers must reproduce from
+   the documented default commands.

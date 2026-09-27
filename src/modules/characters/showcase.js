@@ -48,7 +48,7 @@ export async function stage(ctx, name, S) {
     terrain.paintSurface({ poly: [[X + 4, Y + 3.5], [X + 13, Y + 3.5], [X + 13, Y + 7], [X + 4, Y + 7]] }, 'ploughed', { angle: 0 });
     terrain.paintSurface({ x: X - 3, y: Y - 10.5, r: 1.5 }, 'mud');
   }
-  if (roads) {
+  if (roads && name === 'crowd') {
     // gravel lane past the yard + a small village street further south (crowd preset)
     const SY = Y + 34;
     roads.generateNetwork({
@@ -56,7 +56,7 @@ export async function stage(ctx, name, S) {
       edges: [[0, 2, 'lane'], [2, 1, 'lane'], [2, 4, 'lane'], [3, 4, 'village'], [4, 5, 'village'], [4, 6, 'village']],
     });
   }
-  if (env && name === 'crowd') env.setWeather('cloudy', 0.5, { instant: true });
+  if (env && name === 'crowd') env.setWeather('clear', 0.4, { instant: true });
   if (env && (name === 'default' || name === 'tools' || name === 'walk')) env.setWeather('clear', 0.4, { instant: true });
   if (env && name === 'night') env.setWeather('clear', 0.3, { instant: true });
 
@@ -161,7 +161,7 @@ export async function stage(ctx, name, S) {
   } else if (name === 'crowd') {
     // villagers on the village street + a couple of farmhands passing on the lane
     const SY = Y + 34;
-    S.villagers(16, { x0: X - 60, y0: SY - 30, x1: X + 64, y1: SY + 40 });
+    S.villagers(18, { x0: X - 30, y0: SY - 16, x1: X + 34, y1: SY + 16 });
     const you = sp({ role: 'player', x: X + 2, y: Y + 12.5, rot: Math.PI, tool: 'hoe', sex: 'm' });
     S.setActive(you, true);
     S.api.assignTask(you, { kind: 'hold', rot: Math.PI, phase: 0.2, walk: 1 });
@@ -169,7 +169,7 @@ export async function stage(ctx, name, S) {
     S.api.assignTask(h, { kind: 'follow', targetId: you });
     cam(X + 2, SY - 2, 24);
     // let them spread out along the pavements before the shot
-    for (let i = 0; i < 240; i++) S.simulate(1 / 60);
+    for (let i = 0; i < 120; i++) S.simulate(1 / 60);
   }
   void pinAction;
 }

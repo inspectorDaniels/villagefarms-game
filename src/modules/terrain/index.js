@@ -253,6 +253,7 @@ export async function init(ctx) {
   const BUDGET = 12000; // ≈ 1.5 ms of shading per frame (tripled while visible tiles are still blank)
   ctx.renderer.addLayer('ground', (g, view) => {
     if (!tm) return;
+    T.dbg = world.terrain.debug || {};
     const need = tm.work(view, BUDGET);
     drawnTiles = tm.draw(g, view, need);
     visTiles = need; // every visible tile, painted or fallback (the wet overlay must cover all of them)
@@ -271,20 +272,27 @@ export async function init(ctx) {
     g.globalCompositeOperation = 'source-over';
   }, 0);
 
-  ctx.renderer.addLayer('ground-detail', (g, view) => {
-    if (view.zoom < 3.5) return;
+  // Water shimmer: one small cropped canvas per wet tile (2 frames side by side), drawn only over the
+  // tile's water bbox, only from SHIMMER_MIN_ZOOM px/m (below that the strokes are sub-pixel anyway).
+  const SHIMMER_MIN_ZOOM = 8;
+  const fxOn = () => !(world.terrain.debug && world.terrain.debug.fx === false);
+  function drawShimmer(g, view, alphaK, still) {
     const t = view.time || 0;
-    const drift = Math.sin(t * 0.5) * 0.12;
+    const drift = still ? 0 : Math.sin(t * 0.5) * 0.12;
     for (const tile of drawnTiles) {
       const sh = tile.shimmer;
-      if (!sh) continue;
+      if (!sh || sh.x > view.x1 || sh.y > view.y1 || sh.x + sh.w < view.x0 || sh.y + sh.h < view.y0) continue;
       const a = 0.5 + 0.5 * Math.sin(t * 1.2 + sh.phase);
-      g.globalAlpha = 0.9 * a;
-      g.drawImage(sh.frames[0], tile.x + drift, tile.y, tile.size, tile.size);
-      g.globalAlpha = 0.9 * (1 - a);
-      g.drawImage(sh.frames[1], tile.x - drift, tile.y + drift * 0.5, tile.size, tile.size);
+      g.globalAlpha = alphaK * a;
+      g.drawImage(sh.canvas, 0, 0, sh.sw, sh.sh, sh.x + drift, sh.y, sh.w, sh.h);
+      g.globalAlpha = alphaK * (1 - a);
+      g.drawImage(sh.canvas, sh.sw, 0, sh.sw, sh.sh, sh.x - drift, sh.y + drift * 0.5, sh.w, sh.h);
     }
     g.globalAlpha = 1;
+  }
+  ctx.renderer.addLayer('ground-detail', (g, view) => {
+    if (view.zoom < SHIMMER_MIN_ZOOM || !fxOn()) return;
+    drawShimmer(g, view, 0.9, false);
   }, 0);
 
   // moonlight / sky glints on water at night (after the lighting pass, additive and faint)
@@ -292,19 +300,9 @@ export async function init(ctx) {
     const env = world.environment;
     const day = env && typeof env.daylight === 'number' ? env.daylight : 1;
     const night = 1 - day;
-    if (night < 0.3 || view.zoom < 3.5) return;
-    const t = view.time || 0;
+    if (night < 0.3 || view.zoom < SHIMMER_MIN_ZOOM || !fxOn()) return;
     g.globalCompositeOperation = 'lighter';
-    for (const tile of drawnTiles) {
-      const sh = tile.shimmer;
-      if (!sh) continue;
-      const a = 0.5 + 0.5 * Math.sin(t * 1.2 + sh.phase);
-      g.globalAlpha = (night - 0.3) * 0.32 * a;
-      g.drawImage(sh.frames[0], tile.x, tile.y, tile.size, tile.size);
-      g.globalAlpha = (night - 0.3) * 0.32 * (1 - a);
-      g.drawImage(sh.frames[1], tile.x, tile.y, tile.size, tile.size);
-    }
-    g.globalAlpha = 1;
+    drawShimmer(g, view, (night - 0.3) * 0.32, true);
     g.globalCompositeOperation = 'source-over';
   }, 0);
 

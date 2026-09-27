@@ -48,7 +48,7 @@ export const CROPS = {
   },
   rapeseed: {
     name: 'Oilseed rape', product: 'rapeseed', yieldT: 4.0, strawT: 0, sowMonths: [7], harvestMonths: [6],
-    units: 'cool', height: 1.5, rows: 0.5, witherDays: 5, kind: 'oilseed', stages: [0.05, 0.3, 0.62, 0.72],
+    units: 'cool', height: 1.5, rows: 0.5, witherDays: 5, kind: 'oilseed', stages: [0.05, 0.2, 0.34, 0.46], podsAt: 0.8,
     stageNames: ['drilled', 'cotyledons', 'rosette', 'stem extension', 'in bloom', 'pods ripe'],
   },
   maize: {
@@ -131,14 +131,11 @@ export function calendarGrowth(crop, doy) {
     return m >= 3 && m <= 8 ? 0.4 + 0.6 * ((doy % 5) / 5) : 0.3;
   }
   const start = c.sowMonths[0] * MONTH_DAYS + 1;
-  let d = ((doy - start) % YEAR_DAYS + YEAR_DAYS) % YEAR_DAYS;
+  const d = ((doy - start) % YEAR_DAYS + YEAR_DAYS) % YEAR_DAYS;
   let g = 0;
-  for (let k = 1; k <= d; k++) g += unitsOn(crop, start + k) / c.need;
-  if (g >= 1) {
-    // past ripe: harvested one harvest-month later
-    const ripeFor = d - Math.ceil(c.need); // rough
-    if (ripeFor > c.witherDays) return null;
-    return 1;
+  for (let k = 1; k <= d; k++) {
+    g += unitsOn(crop, start + k) / c.need;
+    if (g >= 1) return d - k <= 3 ? 1 : null; // ripe for > 3 days → it would have been harvested
   }
   return g;
 }

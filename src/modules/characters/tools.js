@@ -61,12 +61,17 @@ export function createTools(ctx, S) {
     if (surf === 'water') { out.text = null; return out; }
     const field = crops && crops.fieldAt ? crops.fieldAt(tg.x, tg.y) : null;
     const plot = plots()[cellKey(tg.x, tg.y)];
+    if (TILLABLE[surf] && tool === 'hoe') {
+      const roads = mod('roads');
+      const n = roads && roads.nearest ? roads.nearest(tg.x, tg.y) : null;
+      ch.onVerge = !!(n && n.dist < 5.5);
+    }
     switch (tool) {
       case 'hoe':
         if (field) { out.ok = true; out.text = 'E — Hoe the field'; }
         else if (surf === 'ploughed') { out.ok = true; out.text = 'E — Break up the clods'; }
         else if (TILLABLE[surf]) { out.ok = true; out.text = `E — Hoe the ${ch.onVerge ? 'verge' : TILLABLE[surf]}`; }
-        else if (surf === 'soil') out.text = plot && plot.sown ? 'Sown — water it' : 'Tilled — ready for seed';
+        else if (surf === 'soil') out.text = plot && plot.sown ? 'Sown: water it' : 'Tilled: ready for seed';
         else if (surf === 'shallow' || surf === 'mud') out.text = 'Too wet to hoe';
         else out.text = 'Ground too hard to hoe';
         break;
@@ -96,7 +101,7 @@ export function createTools(ctx, S) {
         out.text = null;
       }
     }
-    if (out.ok && ch.stamina < (TOOL[tool] || TOOL.hand).stamina) { out.ok = false; out.text = 'Too tired — rest a moment'; }
+    if (out.ok && ch.stamina < (TOOL[tool] || TOOL.hand).stamina) { out.ok = false; out.text = 'Too tired: rest a moment'; }
     return out;
   }
 
