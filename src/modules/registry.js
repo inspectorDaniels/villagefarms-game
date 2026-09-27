@@ -7,4 +7,5 @@ export const MODULES = [
   { id: 'ui', wave: 1 },
   { id: 'audio', wave: 1 },
   { id: 'effects', wave: 1 },
+  { id: 'characters', wave: 2 },
 ];

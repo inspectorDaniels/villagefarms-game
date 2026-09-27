@@ -101,8 +101,8 @@ export async function stage(ctx, name, S) {
     const you = sp({ role: 'player', name: 'Jef', x: X + 4.6, y: Y - 1.2, rot: 0, tool: 'water', sex: 'm', age: 'adult', appearance: { hat: 'flatcap' } });
     S.setActive(you, true);
     hold(you, { rot: -0.1, action: { tool: 'water', u: 0.55 } });
-    const a = sp({ role: 'hired', name: 'Lotte', x: X + 11.5, y: Y - 4.5, tool: 'hoe', sex: 'f', appearance: { hat: 'straw', overalls: '#3f5f86' } });
-    S.api.assignTask(a, { kind: 'work', x: X + 11.2, y: Y - 6.6, r: 2, tool: 'hoe', rot: Math.PI / 2, pace: 0.35, showcase: true });
+    const a = sp({ role: 'hired', name: 'Lotte', x: X + 11.5, y: Y - 2, tool: 'hoe', sex: 'f', appearance: { hat: 'straw', overalls: '#3f5f86' } });
+    S.api.assignTask(a, { kind: 'work', x: X + 11.2, y: Y - 3.6, r: 2, tool: 'hoe', rot: Math.PI / 2, pace: 0.35, showcase: true });
     const b = sp({ role: 'hired', name: 'Wout', x: X - 9, y: Y + 5, tool: 'fork', sex: 'm', appearance: { hat: 'cap' } });
     S.api.assignTask(b, { kind: 'patrol', points: [[X - 9, Y + 5.5], [X - 0.5, Y + 5.2], [X - 0.8, Y - 3.8], [X - 8.5, Y - 3.5]], run: false });
     const c = sp({ role: 'hired', name: 'Marie', x: X + 7.6, y: Y - 1.1, tool: 'seed', sex: 'f', age: 'young', appearance: { hat: 'scarf' } });

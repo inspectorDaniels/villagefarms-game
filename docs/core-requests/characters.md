@@ -8,3 +8,6 @@ Tab switching, hand tools) can only be tested with `?only=terrain,environment,ro
 ```js
   { id: 'characters', wave: 2 },
 ```
+
+
+**Integrator: registry entry APPLIED (iteration 2).**

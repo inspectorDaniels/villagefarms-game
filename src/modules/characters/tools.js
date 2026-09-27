@@ -2,9 +2,9 @@
 // a tool strike (terrain / crops / animals / ui / effects / audio). Everything optional is null-safe.
 
 export const TOOLS = [
-  { id: 'hoe', label: 'Hoe', icon: 'hoe', key: '1', dur: 0.95, impact: 0.47, cooldown: 0.2, stamina: 0.035, reach: 1.3 },
-  { id: 'water', label: 'Watering can', icon: 'water', key: '2', dur: 1.35, impact: 0.3, cooldown: 0.15, stamina: 0.012, reach: 1.2 },
-  { id: 'seed', label: 'Seed bag', icon: 'seed', key: '3', dur: 0.95, impact: 0.5, cooldown: 0.1, stamina: 0.01, reach: 1.45 },
+  { id: 'hoe', label: 'Hoe', icon: 'hoe', key: '1', dur: 0.95, impact: 0.47, cooldown: 0.2, stamina: 0.035, reach: 1.25 },
+  { id: 'water', label: 'Watering can', icon: 'water', key: '2', dur: 1.35, impact: 0.3, cooldown: 0.15, stamina: 0.012, reach: 1.25 },
+  { id: 'seed', label: 'Seed bag', icon: 'seed', key: '3', dur: 0.95, impact: 0.5, cooldown: 0.1, stamina: 0.01, reach: 1.25 },
   { id: 'fork', label: 'Pitchfork', icon: 'hay', key: '4', dur: 1.05, impact: 0.36, cooldown: 0.2, stamina: 0.03, reach: 1.25 },
   { id: 'hand', label: 'Hands', icon: 'hand', key: '5', dur: 0.7, impact: 0.4, cooldown: 0.1, stamina: 0.004, reach: 0.8 },
 ];
@@ -62,9 +62,14 @@ export function createTools(ctx, S) {
     const field = crops && crops.fieldAt ? crops.fieldAt(tg.x, tg.y) : null;
     const plot = plots()[cellKey(tg.x, tg.y)];
     if (TILLABLE[surf] && tool === 'hoe') {
-      const roads = mod('roads');
-      const n = roads && roads.nearest ? roads.nearest(tg.x, tg.y) : null;
-      ch.onVerge = !!(n && n.dist < 5.5);
+      // roads.nearest is not cheap: evaluate once per target cell
+      const vk = cellKey(tg.x, tg.y) + ':' + ((W.roads && W.roads.version) || 0);
+      if (ch._vergeKey !== vk) {
+        ch._vergeKey = vk;
+        const roads = mod('roads');
+        const n = roads && roads.nearest && W.roads && W.roads.edges && W.roads.edges.length ? roads.nearest(tg.x, tg.y) : null;
+        ch.onVerge = !!(n && n.dist < 5.5);
+      }
     }
     switch (tool) {
       case 'hoe':

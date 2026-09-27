@@ -658,7 +658,7 @@ export async function init(ctx) {
     const env = W.environment || {};
     const w = env.weather || {};
     const raining = (w.kind === 'rain' || w.kind === 'storm') && (w.intensity == null || w.intensity > 0.15);
-    const live = ctx.params.chrlive === '0' ? false : view.zoom * (view.dpr || 1) * K >= 88;
+    const live = view.zoom * (view.dpr || 1) * K >= 88;
     const flick = 0.9 + 0.1 * Math.sin(now * 13.7) * Math.sin(now * 7.3);
     for (const c of C.list) {
       if (c.vehicleId || c.state === 'inside') continue;
