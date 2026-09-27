@@ -50,12 +50,26 @@
     },
     "roads": {
       "wave": 1,
-      "status": "built-unreviewed",
-      "score": null,
+      "status": "failing",
+      "score": 5,
       "pass": false,
-      "rounds": [],
-      "openIssues": [],
-      "note": "built; critic r1 started but stopped. Known: bridge wing walls/railings weak, kerb wedge at lane ends, batch perf 2.0-2.8 ms in 2 presets"
+      "rounds": [
+        {
+          "round": 1,
+          "score": 5,
+          "pass": false,
+          "review": "docs/reviews/roads-r1.md"
+        }
+      ],
+      "openIssues": [
+        "Hang on non-finite coords (nearestOnNetwork ring loop)",
+        "Bad inputs throw (pathfind(null), addEdge, drawMinimap(null), invalid plan wipes network, addNode(NaN))",
+        "Chunk layer 22-38 ms/frame (9 full 1024px chunk drawImage)",
+        "Pan spikes up to 162 ms (chunk builds 10-40 ms)",
+        "pathfind lane:true offsets 1.6 m off tracks",
+        "No junctionInfo for traffic"
+      ],
+      "note": "r1 critic 5/10: graph API solid (pathfind = Dijkstra 60/60, roadAt 0 misses), deterministic; fails on hang, throws, perf"
     },
     "simulation": {
       "wave": 1,

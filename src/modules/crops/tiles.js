@@ -94,8 +94,9 @@ export function createTiles(art, palette) {
     if (!short && season !== 'winter') for (let i = 0; i < 3; i++) dab(g, W, H, rng.float() * W, rng.float() * H, 0.9, 0.9, 0, rng.pick(palette.flowers), 0.8);
   }
   function paintStubble(g, W, H, rng, crop, v) {
-    soilBase(g, W, H, [soil.dry, shade(soil.dry, 0.12), soil.moist, soil.dry], 'crops:st' + v);
     const C = CROPS[crop] || CROPS.wheat;
+    const straw0 = C.kind === 'cereal' ? mix(soil.dry, '#c8ae6a', 0.55) : soil.dry;
+    soilBase(g, W, H, [straw0, shade(straw0, 0.12), mix(soil.moist, straw0, 0.4), straw0], 'crops:st' + crop + v);
     if (C.kind === 'maize') {
       const n = rows(C.rows);
       for (let r = 0; r < n; r++) for (let x = 3; x < W; x += 12 + rng.float() * 4) {
