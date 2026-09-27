@@ -136,3 +136,11 @@ requirement. **Decision:** keep prices/CAP believable (no CAP €750, no +15 % g
 target to **€250–400k** for the builder path, with the ordering builder > renter > smallfarm > contractor > jobs
 required at AI_WORK_FACTOR ×0.5–×2. Any later margin boost must come from gameplay (animals, better
 machines/upgrades, storage timing), not from price inflation.
+
+---
+## Revision r4c (director, after critic r4)
+The r4b ordering is **required only at AI_WORK_FACTOR ×1** (the shipped value). At ×0.5 and ×2 the harness must
+still show builder > renter > smallfarm and builder > jobs; contractor vs jobs may swap (slow hands make pure
+contracting weak — plausible). The €250–400k band applies at ×1. Harness prints must use these targets.
+Characters owns availability: `isAvailable(workerId)` returns false while the hand is possessed by the player or
+driving; simulation additionally skips any hour in which possessed time was logged for that hand.

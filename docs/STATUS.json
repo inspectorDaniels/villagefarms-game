@@ -73,7 +73,7 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "r4-built-unreviewed",
+      "status": "failing",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -94,16 +94,21 @@
           "score": 6,
           "pass": false,
           "review": "docs/reviews/simulation-r3.md"
+        },
+        {
+          "round": 4,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/simulation-r4.md"
         }
       ],
       "openIssues": [
-        "Contract income linear in hands (24 hands -> \u20ac256k/yr) \u2014 market must saturate (r4.1)",
-        "Implements not reserved per job (r4.2)",
-        "CAP bypass via \u20ac80 contractor booking; recordFieldWork unvalidated; not wired to crops (r4.3)",
-        "Wages depend on logWork which nobody calls; hand character not linked to worker (r4.5, characters)",
-        "should: contractor-done unhandled (r4.4, crops), infinite insolvency block (r4.6), delegated job while asleep (r4.7)"
+        "Contractor work double-counted for CAP (crops:worked contractor:true + contractorDay credit) \u2014 0.5 ha booking gives capShare 1.0",
+        "Possessed hand still works delegated job (paid twice) \u2014 skip hours with possessed time; characters.isAvailable false while possessed/driving (r4c)",
+        "Harness targets/ordering per r4c",
+        "should: recordFieldWork area cap, restructure loan sized to be serviceable, stop rent/seize grain after bankruptcy, UI show day-rate cost of possession, Dries workerId null in characters.list"
       ],
-      "note": "r4: contract market saturates (12 hands -> -\u20ac9k op profit), machine reservation, CAP on worked share via crops:worked, validated recordFieldWork/hireContractor, wages via logWork (live-verified), insolvency end state, 25/25 exploits closed. Builder \u20ac303k y10 -> target revised to \u20ac250-400k (r4b)."
+      "note": "r4 critic 6/10: contracting plateaus, reservation, live CAP+wages wiring verified; 2 live exploits remain"
     },
     "ui": {
       "wave": 1,

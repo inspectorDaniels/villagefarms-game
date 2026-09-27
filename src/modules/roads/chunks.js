@@ -40,13 +40,14 @@ export class ChunkCache {
   }
   _free(e) {
     if (e.canvas) { if (e.state !== 'raster') this._release(e.canvas); e.canvas = null; }
-    if (e.bmp) { try { e.bmp.close(); } catch (err) { /* already closed */ } e.bmp = null; }
+    if (e.parts) { for (const p of e.parts) { try { p.bmp.close(); } catch (err) { /* already closed */ } } e.parts = null; }
     e.dead = true;
   }
   _release(canvas) { if (this.pool.length < 48) this.pool.push(canvas); }
   pickRes(pxPerM) {
     if (!(pxPerM > 0) || !Number.isFinite(pxPerM)) return LEVELS[0];
-    for (const r of LEVELS) if (r >= pxPerM * 0.9) return r;
+    // ~1.1–1.5× upscale: keeps per-frame texture bytes (the measured bottleneck) low; 1:1 costs 2.2× the bytes
+    for (const r of LEVELS) if (r >= pxPerM * 0.66) return r;
     return LEVELS[LEVELS.length - 1];
   }
   size(res) { return CPX / res; }
@@ -73,7 +74,7 @@ export class ChunkCache {
     g.clearRect(0, 0, CPX, CPX);
     g.setTransform(res, 0, 0, res, -rect.x0 * res, -rect.y0 * res);
     g.lineJoin = 'round'; g.lineCap = 'round';
-    const entry = { state: 'pending', canvas, used: this.frame, res, bx0, by0, bx1, by1 };
+    const entry = { state: 'pending', canvas, used: this.frame, res, rect, bx0, by0, bx1, by1 };
     this.map.set(key, entry);
     this.bytes += BYTES;
     const gen = this.steps ? this.steps(g, rect, res) : null;
@@ -102,11 +103,27 @@ export class ChunkCache {
     const cv = entry.canvas;
     if (typeof createImageBitmap !== 'function') { entry.state = 'ready'; return; }
     entry.state = 'raster';
-    let p;
-    try { p = createImageBitmap(cv, entry.bx0, entry.by0, entry.bx1 - entry.bx0, entry.by1 - entry.by0); } catch (err) { entry.state = 'ready'; return; }
-    p.then((bmp) => {
-      if (entry.dead) { bmp.close(); return; }
-      entry.bmp = bmp;
+    // split into quadrants, each cropped to its own content bbox: GPU texture bytes per frame are the
+    // scarce resource (shared with terrain; exceeding the cache budget makes every frame re-upload).
+    const Q = CPX / 2, res = entry.res, R = entry.rect;
+    const boxes = [];
+    for (const [qx, qy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+      let x0 = Math.max(entry.bx0, qx * Q), y0 = Math.max(entry.by0, qy * Q), x1 = Math.min(entry.bx1, (qx + 1) * Q), y1 = Math.min(entry.by1, (qy + 1) * Q);
+      if (x1 - x0 < 1 || y1 - y0 < 1) continue;
+      if (this.bounds) {
+        const bb = this.bounds({ x0: R.x0 + x0 / res, y0: R.y0 + y0 / res, x1: R.x0 + x1 / res, y1: R.y0 + y1 / res });
+        if (!bb) continue;
+        x0 = Math.max(x0, Math.floor((bb.x0 - R.x0) * res)); y0 = Math.max(y0, Math.floor((bb.y0 - R.y0) * res));
+        x1 = Math.min(x1, Math.ceil((bb.x1 - R.x0) * res)); y1 = Math.min(y1, Math.ceil((bb.y1 - R.y0) * res));
+        if (x1 - x0 < 1 || y1 - y0 < 1) continue;
+      }
+      boxes.push({ x0, y0, x1, y1 });
+    }
+    let ps;
+    try { ps = boxes.map((b) => createImageBitmap(cv, b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0)); } catch (err) { entry.state = 'ready'; return; }
+    Promise.all(ps).then((bmps) => {
+      if (entry.dead) { for (const b of bmps) b.close(); return; }
+      entry.parts = bmps.map((bmp, i) => Object.assign({ bmp }, boxes[i]));
       entry.state = 'ready';
       if (entry.canvas) { this._release(entry.canvas); entry.canvas = null; }
     }, () => { if (!entry.dead) entry.state = 'ready'; });
@@ -255,7 +272,15 @@ export class ChunkCache {
   }
   /** draw from an entry's bitmap (which holds only the content bbox) or its canvas */
   _draw(g, e, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H) {
-    if (e.bmp) return this._blit(g, e.bmp, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H, e.bx0, e.by0);
+    if (e.parts) {
+      let px = 0;
+      for (const p of e.parts) {
+        const a0 = Math.max(bx0, p.x0), b0 = Math.max(by0, p.y0), a1 = Math.min(bx1, p.x1), b1 = Math.min(by1, p.y1);
+        if (a1 - a0 < 1 || b1 - b0 < 1) continue;
+        px += this._blit(g, p.bmp, sx, sy, sw, a0, b0, a1, b1, dx0, dy0, dx1, dy1, W, H, p.x0, p.y0);
+      }
+      return px;
+    }
     if (e.canvas) return this._blit(g, e.canvas, sx, sy, sw, bx0, by0, bx1, by1, dx0, dy0, dx1, dy1, W, H, 0, 0);
     return 0;
   }
