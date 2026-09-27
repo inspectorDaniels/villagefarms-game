@@ -11,8 +11,9 @@ export function createRenderer(ctx, model, tiles) {
   const { art } = ctx;
   const entries = new Map(); // key → { canvas, res, built, dirty:Set, used, f, ch }
   let bytes = 0, frame = 0;
+  let comp = null, compG = null, compSig = null;
   const pool = [];
-  const stats = { builds: 0, cellPaints: 0, lastCellPaints: 0 };
+  const stats = { builds: 0, cellPaints: 0, lastCellPaints: 0, composites: 0 };
   const env = () => ctx.world.environment || {};
   const season = () => ctx.clock.season;
   let lastSeason = null;
@@ -201,6 +202,7 @@ export function createRenderer(ctx, model, tiles) {
     stats.lastCellPaints = stats.cellPaints;
     const X = (x) => Math.round(m.a * x + m.e), Y = (y) => Math.round(m.d * y + m.f);
     const blits = [];
+    let sig = (Math.round(m.a * 1000) * 31 + Math.round(m.e) * 17 + Math.round(m.f)) | 0;
     for (const f of model.W.fields) {
       if (!f.rs || !inView(f.bbox, view)) continue;
       for (const ch of chunksOf(f, res).values()) {
@@ -219,21 +221,23 @@ export function createRenderer(ctx, model, tiles) {
           budget -= take.length * 9;
         }
         const src = e.built ? e : null;
-        if (src) {
-          // snapshot the finished canvas into an ImageBitmap (immutable: the compositor can keep it resident)
-          if (src.bmpV !== src.paintV && !src.bmpPending && typeof createImageBitmap === 'function') {
-            src.bmpPending = true;
-            const v = src.paintV;
-            createImageBitmap(src.canvas).then((bm) => { src.bmpPending = false; if (src.paintV === v && entries.has(src.key)) { if (src.bmp && src.bmp.close) src.bmp.close(); src.bmp = bm; src.bmpV = v; } else if (bm.close) bm.close(); }, () => { src.bmpPending = false; });
-          }
-          blits.push([!globalThis.__NOBMP && src.bmp && src.bmpV === src.paintV ? src.bmp : src.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0)]);
-        }
+        if (src) { blits.push([src.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0)]); sig = (sig * 31 + src.paintV * 7 + X(x0) * 3 + Y(y0)) | 0; }
       }
     }
+    // composite all chunk blits into one screen-sized layer, re-done only when the view or a chunk changed
+    const cw = g.canvas.width, chh = g.canvas.height;
+    if (!comp || comp.width !== cw || comp.height !== chh) { comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d'); compSig = null; }
+    sig = (sig * 31 + blits.length) | 0;
+    if (sig !== compSig) {
+      compSig = sig;
+      compG.setTransform(1, 0, 0, 1, 0, 0);
+      compG.clearRect(0, 0, cw, chh);
+      compG.imageSmoothingEnabled = true;
+      for (const b of blits) compG.drawImage(b[0], b[1], b[2], b[3], b[4]);
+      stats.composites++;
+    }
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.imageSmoothingEnabled = true;
-    if (!globalThis.__SKIPBLIT) for (const b of blits) g.drawImage(b[0], b[1], b[2], b[3], b[4]);
-    globalThis.__NBLIT = blits.length;
+    if (blits.length) g.drawImage(comp, 0, 0);
     g.setTransform(m);
     stats.lastCellPaints = stats.cellPaints - stats.lastCellPaints;
     // snow veil (fields have no terrain snow of their own)

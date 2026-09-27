@@ -103,4 +103,6 @@ first view, including a `?cam=` override.
 - Painting while panning fast at overview zoom shows the blurry 1 px/m fallback for a moment. Per-frame paint cost while panning is ~1.5–5 ms, above the 2 ms average budget during catch-up.
 - There is a single river and no pond outflow stream. There are no river islands and no waterfalls or rapids.
 - The pond does not freeze in winter.
+- Water shimmer is baked at 8 px/m, so its ripple strokes look slightly soft at ≥ 24 px/m (perf trade-off).
+- `generate` stays a synchronous ~1.0 s pass (base data ~0.8 s + 1 px/m overview ~0.2 s); it is only paid once at boot.
 - Rock outcrops are flat painted ground; boulders are the props module's job.

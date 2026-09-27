@@ -9,7 +9,8 @@ for sale, and paid contract jobs from NPC neighbours. The logic has no DOM and n
 Files:
 - `data.js`: all reference tables and tuning constants.
 - `sim.js`: assembly, daily processing and fast-forward.
-- `economy.js`, `market.js`, `land.js`, `jobs.js`: the logic.
+- `economy.js`, `market.js`, `land.js`, `jobs.js`, `contractors.js`: the logic.
+- `work.js`: the r3 time model. It is the single source of field-work rates (`workRates()`).
 - `strategy.js`: the standard valley and a scripted farm manager. It is used by the tests and by the showcase.
 - `paint.js`, `icons.js`, `board.js`, `showcase.js`: the painted office board.
 - `util.js`: a Node-side copy of the core RNG.
@@ -132,13 +133,22 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 `today()` → the economy's absolute day index.
 
 ## Daily processing (order)
-1. The market walk runs and gluts recover (×0.7 per day).
-2. Rent that is due is charged (monthly, in advance). CAP ha-days accrue, and CAP is paid on 1 October. Monthly, the land index moves and listings come and go.
-3. Wages, upkeep and leases are charged.
-4. Loan interest is charged, and instalments monthly.
-5. Monthly overheads are charged (€85 + €5/ha).
-6. On a negative balance: overdraft interest at 12 %/yr and `economy:bankrupt-warning`.
-7. Job expiry and failures, then new offers.
+1. **Market.** The price walk runs and gluts recover (×0.7 per day).
+2. **Delegated jobs.** Hands work the jobs assigned to them with the hours they did not log yesterday. Each needs a free owned tractor and implement.
+3. **Land.** Rent that is due is charged (monthly, in advance). CAP days accrue. On 1 October, CAP is paid pro rata on parcels worked since the last CAP day. Each month the land index moves and listings come and go.
+4. **Contractors.** Bookings start, and when they finish they emit `economy:contractor-done`.
+5. **Wages.** Yesterday's hours settle into wages:
+   - ≥ 5 h worked → the full day rate;
+   - less than 5 h → half the day rate;
+   - no hours → the €35 retainer.
+6. **Upkeep and leases** are charged.
+7. **Loans.** Interest is charged every day; instalments are due monthly.
+8. **Overheads** are charged monthly (€85 + €5/ha).
+9. **Overdraft and insolvency.**
+   - Overdraft interest is 12 %/yr.
+   - Days over the limit are counted: at 30 purchases are blocked, and from 60 the bank sells an asset every 3 days.
+   - `economy:bankrupt-warning` is emitted with `stage`, one of `overdraft | warning | blocked | seizure`.
+10. **Jobs.** Expiry and failures are processed, then new offers. There are 2–4 new offers a day, plus about 1.2 per hand. At most 8 + 2 × hands are open at once.
 
 ## Price model
 The reference price is base × seasonal(day of year) × exp(own walk + weight × shared grain factor).
@@ -152,119 +162,14 @@ In the harness, dumping 600 t of wheat at one buyer fetched €156/t. Spreading 
 ## Events
 - `economy:transaction`: each entry, plus `item/qty/unit/sellPointId` on sales.
 - `economy:price-changed {day, prices}`: daily.
-- `economy:bankrupt-warning {money, daysNegative, creditLimit}`.
+- `economy:bankrupt-warning {money, daysNegative, daysOverLimit, stage, creditLimit}`.
+- `economy:contractor-done {booking}`: a contractor finished an operation. **crops applies it to the fields.**
+- `economy:asset-seized {kind:'machine'|'land', id, name, amount}`.
 - `land:parcel-changed {id, state, from, parcel}`.
 - `jobs:offered | jobs:accepted | jobs:completed | jobs:failed`: a copy of the job.
 - Listens to `clock:day`.
 
-## Balance — reproducible, headless
-```
-node src/modules/simulation/tests/progression.mjs [years=10] [seeds=8]   # strategies × seeds, ≈ 4 s
-node src/modules/simulation/tests/exploits.mjs [seeds=8]                 # min-max probes
-```
-Both run the real module code (`sim.js` and the rest) through its public API, on the standard valley (`defineValley`):
-- 157 ha in 49 parcels;
-- the player starts with a 0.6 ha yard (owned) and 1.8 ha rented;
-- €18k and a used 95 hp tractor, a plough and drill, and a trailer.
-
-The farm manager (`strategy.js`) models:
-- crew hours (12 h per person per game day);
-- work windows;
-- machine work rates by tractor tier;
-- contractors (with a −4 %/−7 % timeliness loss) when the crew is short;
-- a 5-crop rotation;
-- selling spread over buyers and days.
-
-Contract jobs compete with farm work for the same hours.
-
-The strategies:
-- **jobs**: a greedy contractor that takes every contract it can do and never invests.
-- **contractor**: picks the best-paying contracts and never grows the farm.
-- **smallfarm**: rents up to about 12 ha with the starter tractor.
-- **renter**: rents whatever the crew can work, never buys land, and buys machinery on dealer finance.
-- **builder**: the intended path. Year 1 is contract work only. After that it rents, buys land on a 75 % mortgage when it can pay the deposit, and buys machinery on finance.
-
-Results, median over 8 seeds (net worth = cash + land + machinery + stock − debt):
-
-| game year | jobs | contractor | smallfarm | renter | builder |
-|---|---|---|---|---|---|
-| 1 | €64k | €64k | €64k (11 ha) | €58k (14 ha) | €63k (2.4 ha) |
-| 2 | €82k | €82k | €86k | €75k (33 ha) | €79k (20 ha, 3.2 owned) |
-| 4 | €119k | €119k | €140k | €128k (45 ha) | €136k (37 ha, 4.9 owned) |
-| 6 | €163k | €164k | €197k | €184k (55 ha) | €212k (40 ha, 7.5 owned) |
-| 8 | €202k | €207k | €255k | €262k (69 ha) | €300k (48 ha, 11.5 owned) |
-| 10 | €249k | €250k | €312k | €354k (104 ha) | **€402k** (65 ha, 13.8 owned) |
-| 15 (6 seeds) | €355k | €362k | €455k | €495k (158 ha) | **€707k** (109 ha, 24 owned) |
-
-These tables are printed by `progression.mjs` (per strategy and year: cash, net worth, owned/rented ha, hands, machines, contract €, crops + CAP €, operating net, €/hour).
-
-What they show:
-- **Contracting plateaus.** Contract work is worth about €24–26k/yr gross (≈ €20–23k operating) from year 2 onwards, whatever you do. Offers are limited to 2–4 a day and 3 active at once. It is the main income in year 1 for every strategy (€19–21k of ≈ €19k operating net), which makes it a good early boost.
-- **Farming out-earns contracting per hour of player time from ≈ 15 ha.**
-  - The farm's operating result per crew-hour on the farm is €100–270/h for the renter and builder from year 3 (≈ 30+ ha).
-  - Contract work pays €70–120/h gross.
-  - Farming at 60–100 ha earns €30–40k/yr operating on top of the €15–22k of contract work the same person still fits in.
-- **Growing pays, and owning pays most.**
-  - Ranking by year 10: builder > renter > smallfarm > contractor ≈ jobs.
-  - By year 15 the builder is at 2× the pure contractor.
-  - The builder's net worth grows €45–65k/yr in years 8–15, against €21k/yr for the contractor.
-- **Owning beats renting.** In `exploits.mjs`, the same 4 ha field owned on a 75 % mortgage instead of rented is:
-
-| years held | owning better by (median) |
-|---|---|
-| 3 | +€6.6k (11/12 seeds) |
-| 5 | +€12.5k (12/12) |
-| 10 | +€39.4k (12/12) |
-| 15 | +€65.4k (12/12) |
-
-  This comes from appreciation plus no rent, net of fees, interest and the 97 % resale.
-
-**r2 target check** (builder strategy, 8 seeds, printed at the end of `progression.mjs`):
-| target | result |
-|---|---|
-| Y1 cash €35–60k, jobs the main income | median €36k (5/8 in range); contract €21k of €19k operating net |
-| Y2 renting 8–12 ha, tier-2 tractor affordable | farms 20 ha (1/8 in 8–12, over target); tier-2 tractor 4/8 by Y2, 8/8 by Y5 |
-| Y3–4 first purchase (3–5 ha) with a loan, 20–30 ha | 7/8 own a parcel by Y4 (median 4.9 ha owned); farmed 35 ha (over target) |
-| Y6–8 50–80 ha, combine, 2–3 hands, net worth ≥ €1M | **missed**: 48 ha, combine 5/8, 0–1 hands, net worth €300k (Y8) / €402k (Y10) / €707k (Y15) |
-| farming > contracting per player-hour from ≈ 15 ha | met (€100–270/h farm vs €70–120/h contracts) |
-| owning beats renting over ≥ 10 years | met (+€39k per 4 ha field, 12/12 seeds) |
-| pure contracting plateaus | met (€25k/yr gross, years 2–10) |
-
-The €1M-by-year-8 target cannot be met with the brief's own per-hectare numbers. With land at €12–22k/ha, a 25 % deposit and ≈ €1,100/ha operating margin before land, the reachable path is roughly €45–60k a year of wealth growth from year 5, so the €1M comes after year 15.
-
-**5 ha self-check** (brief): 5 ha of rented winter wheat plus the yard, starter kit, no contract work. Over 24 seed-years the operating net is:
-- mean **+€2.0k/yr**, median +€0.3k, range −€3.8k … +€12.8k.
-- The swings come from which year the stored grain is sold in.
-- Mean per year: sales €8.3k, CAP €2.5k, rent −€2.8k, seed/fertiliser/spray −€2.2k, contractors −€1.6k, overheads −€1.4k, upkeep −€0.7k.
-
-A 5 ha farm is a sideline. Contract work is what pays at that size.
-
-**Exploit probes** (`exploits.mjs`, 12 seeds, € effect against an identical run without the move):
-| probe | median | verdict |
-|---|---|---|
-| r1 CAP flip: rent all to-let land (15.3 ha) on day 26, end the leases on day 28 | −€2,960 | no gain on any seed (was +€3,828) |
-| same, held a month either side of CAP day | −€4,191 | no gain |
-| rent a full year and farm nothing | −€6,896 | no gain |
-| buy land and sell it the next day | −€4,185 | no gain |
-| buy land (mortgage), hold 1 year unfarmed, sell | −€2,367 | loses on average (land-price risk, best seed +€3.3k) |
-| carry trade: buy 100 t wheat at harvest, sell in spring | −€170 | loses on average (grain-price risk, best seed +€2.7k) |
-| dump diesel or fertiliser | −€2,154 | refused (sell → €0) |
-| loan at −50 %/yr | — | clamped to 2 % |
-| buy a combine and sell it back | −€11,800 | no gain |
-| accept every job and fail it | −€895 | no gain, reputation 0.5 → 0 |
-| hire and fire a hand the same day | −€10,530 | no gain |
-| `buyParcel` on land that is only to let, or on a neighbour's | — | refused |
-| quote or sell wheat at the dairy | — | `undefined` / €0 |
-| 600 t in one lot vs spread over buyers and days | −€9,042 | dumping is punished, spreading works |
-
-Game-scale deviations from the brief:
-- CAP is €450/ha rather than the realistic ≈ €235–330.
-- Seed, fertiliser and spray costs are about 25 % below Belgian averages.
-- Machinery prices are trimmed: 180 hp tractor €64k, compact combine €118k.
-- Rents rise with only half of the land-price growth.
-
-Without these, a rented hectare nets about €0–150 after rent and no expansion pays (the r1 finding).
-
+@@BALANCE@@
 ## Showcase
 The showcase has no deps. `stage` resets the economy and plays the **builder** strategy on the standard valley, with `ctx.rng('showcase-farmer')`. It runs from 1 March of year 1 to mid-September of **year 5**, the same code the tables above measure.
 

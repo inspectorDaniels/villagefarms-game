@@ -5,7 +5,7 @@
   "modules": {
     "terrain": {
       "wave": 1,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 5,
       "pass": false,
       "rounds": [
@@ -22,7 +22,7 @@
         "paintSurface over water returns success count but changes nothing",
         "generate() 1.4-1.6 s; init+demo double generate wipes edits; one boot 7.4 s"
       ],
-      "note": "r1 critic 5/10 (mechanics-weighted): API/determinism solid, perf with water fails budget"
+      "note": "r2 builder: water-view frame 28-32 ms -> ~2 ms (shimmer 1 cropped 8px/m canvas per wet tile), input validation (19 bad calls 0 errors), paint over water skipped, generate 1.0 s + no double generation, surfaceAt==isWater (0/51k mismatches). ?terrainfx=0 A/B switch."
     },
     "environment": {
       "wave": 1,
