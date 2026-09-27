@@ -73,7 +73,8 @@ export function createAI(ctx, S) {
     switch (task.kind) {
       case 'goto': {
         ch.state = 'walking';
-        const d = steerTo(ch, task.x, task.y, dt, now, !!task.run, task.arrive || 0.35);
+        if (Math.hypot(task.x - ch.x, task.y - ch.y) > 120 && S.offscreen && S.offscreen(ch) && S.offscreen(task)) { ch.x = task.x; ch.y = task.y; ch._g = null; }
+        const d = steerTo(ch, task.x, task.y, dt, now, !!task.run || Math.hypot(task.x - ch.x, task.y - ch.y) > 20, task.arrive || 0.35);
         if (d <= (task.arrive || 0.35)) { ch.task = task.then || { kind: 'idle', x: task.x, y: task.y, r: 2 }; ch.state = 'idle'; }
         break;
       }
@@ -120,6 +121,8 @@ export function createAI(ctx, S) {
         const sp = task._spot;
         if (ch.action) { S.motion.step(ch, 0, 0, false, dt, now); ch.state = 'working'; break; }
         const d = Math.hypot(sp.x - ch.x, sp.y - ch.y);
+        // far away and nobody watching either end: get there at once (as for the walk home)
+        if (d > 120 && S.offscreen && S.offscreen(ch) && S.offscreen(sp)) { ch.x = sp.x; ch.y = sp.y + 0.6; ch._g = null; }
         if (d > 0.4) { ch.state = 'walking'; steerTo(ch, sp.x, sp.y, dt, now, d > 12, 0.3); break; }
         S.motion.step(ch, 0, 0, false, dt, now);
         ch.state = 'working';

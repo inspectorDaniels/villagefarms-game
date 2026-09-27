@@ -110,7 +110,16 @@ export async function init(ctx) {
     if (!c) return null;
     if (c.vehicleId) {
       const v = vehicleOf(c);
-      if (v) { const sp = Math.max(0, v.speed || 0), la = Math.min(14, sp * 1.1), a = v.rot || 0; return { x: v.x + Math.sin(a) * la, y: v.y - Math.cos(a) * la }; }
+      if (v) {
+        const sp = Math.abs(v.speed || 0), la = Math.min(14, sp * 1.1), a = v.rot || 0, dir = (v.speed || 0) < 0 ? -1 : 1;
+        let ox = Math.sin(a) * la * dir, oy = -Math.cos(a) * la * dir;
+        // keep the machine inside the central ~60 % of the screen, and never pushed down toward the
+        // bottom HUD band (prompt / toolbar / vehicle card): a northward lead may only move it 10 % down
+        const z = ctx.camera.zoom || 24, hw = (ctx.camera.w || 1280) / z, hh = (ctx.camera.h || 720) / z;
+        ox = Math.max(-0.2 * hw, Math.min(0.2 * hw, ox));
+        oy = Math.max(-0.1 * hh, Math.min(0.2 * hh, oy));
+        return { x: v.x + ox, y: v.y + oy };
+      }
     }
     return { x: c.x, y: c.y };
   }
@@ -174,29 +183,38 @@ export async function init(ctx) {
     const veh = mod('vehicles');
     if (!veh) return false;
     if (c.vehicleId) {
-      const v = vehicleOf(c);
-      const r = veh.exit(c.vehicleId);
-      if (r && r.blocked) {
-        // no free spot next to the machine: stay in the seat
-        if (c.id === W.player.activeCharacterId) { const ui = mod('ui'); if (ui) ui.toast('No room to get out', { kind: 'warn' }); }
-        return false;
-      }
-      if (r && Number.isFinite(r.x)) { c.x = r.x; c.y = r.y; }
-      else if (v) { const d = 2.2, a = v.rot || 0; c.x = v.x - Math.sin(a) * d; c.y = v.y + Math.cos(a) * d; } // behind (rot 0 = north)
-      c.vehicleId = null; c.state = 'idle'; c._vehIdle = 0;
-      if (c.id === W.player.activeCharacterId) restoreZoom();
+      const vid = c.vehicleId;
+      const r = veh.exit(vid);
+      // null / blocked = refused (moving above 1 m/s or no free spot; vehicles shows the toast):
+      // stay seated. Confirm with driverOf that the seat really is free before stepping out.
+      if (!r || r.blocked || !Number.isFinite(r.x)) return false;
+      const still = veh.driverOf ? veh.driverOf(vid) : null;
+      if (still && still === c.id) return false;
+      leaveVehicle(c, r.x, r.y);
       return true;
     }
     const v = nearVehicle(c);
     if (!v) return false;
     if (veh.enter(v.id, c.id) === false) return false;
     c.vehicleId = v.id; c.state = 'driving'; c.action = null; c.walk = 0; c.speed = 0; c._vehIdle = 0;
+    if (c.id === W.player.activeCharacterId) promptT = 0;
     if (c.id === W.player.activeCharacterId && driveZoom == null) { driveZoom = ctx.camera.zoom; handover = { x0: ctx.camera.x, y0: ctx.camera.y, t0: now, dur: 0.5 }; }
     return true;
   }
+  function leaveVehicle(c, x, y) {
+    if (!c.vehicleId) return;
+    if (Number.isFinite(x)) { c.x = x; c.y = y; }
+    c.vehicleId = null; c.state = 'idle'; c._vehIdle = 0; c._g = null;
+    if (c.id === W.player.activeCharacterId) { restoreZoom(); toolbarSet = false; }
+  }
   function vehicleLabel(v) {
-    const t = String(v.type || 'vehicle');
-    return t.replace(/[_-]?t\d$/, '').replace(/[_-]/g, ' ');
+    if (v.name && String(v.name).length < 28) return String(v.name);
+    const veh = mod('vehicles');
+    const T = veh && veh.types ? veh.types() : null;
+    const t = T && (Array.isArray(T) ? T.find((q) => q && (q.id === v.type || q.type === v.type)) : T[v.type]);
+    if (t && t.name) return String(t.name);
+    const kind = v.kind || String(v.type || 'vehicle').split(/[_-]/)[0];
+    return String(kind).replace(/[_-]/g, ' ');
   }
 
   // ------------------------------------------------------------------ jobs (presence)
@@ -553,10 +571,13 @@ export async function init(ctx) {
     if (a && a.tool) ui.setActiveTool(a.tool);
   }
   let toolbarSet = false;
+  let toolbarHidden = false;
   function ensureToolbar() {
     const ui = mod('ui');
-    if (!ui || toolbarSet || !active()) return;
-    toolbarSet = true;
+    if (!ui || !active()) return;
+    if (active().vehicleId) { if (!toolbarHidden) { ui.setToolbar([]); toolbarHidden = true; toolbarSet = false; } return; }
+    if (toolbarSet && !toolbarHidden) return;
+    toolbarSet = true; toolbarHidden = false;
     ui.setToolbar(TOOLS.map((t) => ({ id: t.id, label: t.label, icon: t.icon, hotkey: t.key, active: active().tool === t.id, onSelect: (item) => { const a = active(); if (a) setTool(a, item.id); } })));
   }
 
@@ -846,9 +867,18 @@ export async function init(ctx) {
 
   ctx.events.on('vehicles:exited', (e) => {
     const c = e && (get(e.characterId) || C.list.find((q) => q.vehicleId === e.vehicleId || q.vehicleId === e.id));
-    if (c && c.vehicleId) { c.vehicleId = null; c.state = 'idle'; if (e.x != null) { c.x = e.x; c.y = e.y; } }
+    if (c && c.vehicleId) leaveVehicle(c, e.x, e.y);
   });
-  const dropSite = (e) => { if (e && e.id) { delete C.jobSites[e.id]; for (const c of C.list) if (c.task && c.task.jobId === e.id) c.task = { kind: 'idle' }; } };
+  const dropSite = (e) => {
+    if (!e || !e.id) return;
+    delete C.jobSites[e.id];
+    for (const c of C.list) {
+      if (!c.task || c.task.jobId !== e.id) continue;
+      const prev = c._preJobTask && c._preJobTask.kind !== 'hold' && c._preJobTask.kind !== 'idle' ? c._preJobTask : null;
+      c.task = prev || { kind: 'goto', x: c.home.x, y: c.home.y, run: true, then: { kind: 'idle' } };
+      c._preJobTask = null; barT = 0;
+    }
+  };
   ctx.events.on('jobs:completed', dropSite);
   ctx.events.on('jobs:failed', dropSite);
 
@@ -873,7 +903,11 @@ export async function init(ctx) {
       barT = 0;
       return true;
     },
-    positionOf(id) { const c = get(id); if (!c) return null; const t = camTarget(c); return { x: t.x, y: t.y, rot: c.rot, vehicleId: c.vehicleId }; },
+    positionOf(id) {
+      const c = get(id); if (!c) return null;
+      const v = c.vehicleId ? vehicleOf(c) : null;
+      return v ? { x: v.x, y: v.y, rot: v.rot || 0, vehicleId: c.vehicleId } : { x: c.x, y: c.y, rot: c.rot, vehicleId: null };
+    },
     villagers,
     setAutoSpawn(v) { autoSpawn = !!v && !ctx.params.showcase; return autoSpawn; },
     hire,
