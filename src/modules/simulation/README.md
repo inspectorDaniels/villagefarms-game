@@ -278,20 +278,27 @@ The builder, year by year:
 - Ranking: builder > renter > smallfarm > contractor > jobs.
 - Owning beats renting: the same 4 ha field owned on a mortgage instead of rented is ahead by +€11k after 3 years, +€43k after 10 and +€70k after 15 (8/8 seeds).
 
-### Targets (builder)
-| target | result |
+### Targets (builder; r3 milestones, r4b/r4c band and ordering)
+Printed at the end of each `progression.mjs` run.
+
+| target | result at AI ×1 (default) |
 |---|---|
 | first hand year 2–3 | median year 2; 2+ hands by Y8 in 8/8 seeds |
 | first owned parcel year 3–4 | median year 3 |
 | combine year 4–6 | median year 6 |
 | 40–60 ha by year 8 | median 43.6 ha, 8/8 in range |
-| net worth €400–600k at year 10 | **missed: median €303k** (range €269–331k) |
+| **net worth €250–400k at year 10** (r4b) | median €303k, **8/8 in range** ✔ |
+| **builder > renter > smallfarm > contractor > jobs** (r4c, required at ×1) | €303k > €243k > €176k > €112k > €98k ✔ |
 
-**Why net worth fell from €405k (r3) to €303k.** In r3 the gap to €400k was covered by unbounded crew-job income, and r4.1 removes that on purpose. The farm itself makes about €1,000/ha operating at 45 ha, and the 81 ha valley limits growth.
+**Sensitivity** (`--ai=0.5` / `--ai=2`). At these factors r4c relaxes the rule: builder > renter > smallfarm and builder > jobs must still hold, but contractor vs jobs may swap.
 
-Reaching €400k with a saturated contract market needs about +€300/ha of farm margin from year 4. One lever would do it: grain prices about +15 %, or CAP about €750, or rent at the brief's floor for all soils. **That is a director decision.** I have not inflated the numbers to hit the target.
+| factor | jobs | contractor | smallfarm | renter | builder | full order | relaxed rule |
+|---|---|---|---|---|---|---|---|
+| ×0.5 | €98k | €78k | €170k | €195k | €246k | no (contractor < jobs) | ✔ |
+| ×1 | €98k | €112k | €176k | €243k | €303k | ✔ | ✔ |
+| ×2 | €98k | €123k | €180k | €269k | €318k | ✔ | ✔ |
 
-**Sensitivity to `AI_WORK_FACTOR`** (builder net worth at Y10): ×0.5 → €246k, ×1 → €303k, ×2 → €318k. The ranking is the same at all three.
+No tuning was needed for r4c.
 
 ### Pace in real hours (1 game year = 14.4 h at 1×, 4.8 h at 3×)
 | builder median | game time | real hours at 1× | at 3× |
@@ -308,9 +315,13 @@ Fast-forwarding does not skip the economy: costs are per game day, CAP needs wor
 - mean **+€2,452/yr**, median €2,878;
 - mean per year: sales €9.2k, CAP €2.3k, rent −€2.6k, inputs −€1.8k, contractors −€2.5k.
 
-### Exploit probes (`exploits.mjs`, default 8 seeds: 25/25 closed)
+### Exploit probes (`exploits.mjs`, default 8 seeds: 29/29 closed)
 | probe | median | verdict |
 |---|---|---|
+| **r4 CAP double count**: book half a parcel, then crops echoes `crops:worked {contractor:true}` | share 0.50 → 0.50 | closed (one owner: the booking) |
+| **r4 `recordFieldWork` backdoor**: area 10¹² on a parcel crops reports for | refused, share 0.009 | closed |
+| **r4 possessed hand also works his delegated job** | 0 progress while possessed, 0.15 the next hour | closed |
+| **r4 insolvency end state**: −€250k shock, 1 lease, 60 t in store, 4 years | stock seized → restructured (€21k over 140 months, €290k written off); not bankrupt, unblocked | a serviceable second chance |
 | **r3 CAP bought for €80** (0.01 ha spray bookings on never-farmed land) | CAP €5 for €160 of bookings | closed (CAP = worked share) |
 | **r3 `recordFieldWork`** on a neighbour's parcel / op `'dance'`; `hireContractor` on `'no-such-parcel'` or a neighbour's parcel | all refused | closed |
 | **r3 one combine, 3 hands, 3 combine jobs the same day** | 1 of 3 progressed | closed (per-day machine reservation) |
@@ -333,7 +344,8 @@ Presets (all day 25 = mid September):
 - `land`: a large valley map and the land register.
 
 ## Known limitations
-- **The net-worth target is missed.** The builder reaches a median of €303k at Y10, against €400–600k, now that contracting saturates (r4.1). This needs a director decision on farm margin; see Balance.
+- The net-worth band was revised to €250–400k (r4b). The builder's €303k meets it at ×1. At ×0.5, pure contracting (€78k) falls below jobs-only (€98k), which r4c allows.
+- **Restructuring writes off everything a farm without income cannot carry** (e.g. €290k in the probe). Everything else is seized first: machines, stock, land, and the hands are laid off. So it is a hard reset, not a shortcut.
 - **The live game depends on other modules:**
   - `crops:worked` must carry `parcelId` + `areaM2` for CAP;
   - characters must call `logWork` for the hands' own activity;
