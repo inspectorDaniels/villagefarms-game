@@ -26,24 +26,29 @@
     },
     "environment": {
       "wave": 1,
-      "status": "failing",
-      "score": 6,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
           "score": 6,
           "pass": false,
           "review": "docs/reviews/environment-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/environment-r2.md"
         }
       ],
       "openIssues": [
-        "**Nights are unreadable, and rainy nights are pure black.** game_night.png (March, 23:00, rain) averages RGB [15,18,24] over the play area: terrain, river and field edges are all gone. Even the clear full-moon showcase night averages [25,34,39] (preset_night.png) and the paths barely read. The cause is that the ambient floor `[32,40,76]` in `sky.js ambientFor` sits *below* the brief's \u2248[38,48,92], and then `fx.drawScreen` stacks more darkening on top of the multiply: a soft-light blue wash at 0.55\u00b7night, 0.28\u00b7night desaturation, and a vignette of up to 0.62 (0.2+0.28 night+0.08 rain). Fix it like this: the floor must hold *after* the grade, so move the floor up to about the brief's [38,48,92] for the new-moon/rain worst case. Cap the night vignette at about 0.35. Stop the night soft-light wash from darkening (use a lighten-safe tint, or apply it only to the ambient colour). Aim for a rainy new-moon night where fields, paths and the river silhouette stay legible at a glance (mean luminance of roughly 35\u201345 on grass).",
-        "**The golden-hour grade is muddy, not golden.** preset_golden.png and golden_1930.png: the whole field goes olive/khaki and the reds go brown. The amber ambient multiply plus the orange `soft-light` gradient on green gives mud. Golden hour needs warm, *saturated* highlights on the sunlit side and relatively cooler shadows. Reduce the multiply amber at 3\u201312\u00b0 elevation (for example keep G \u2265 0.85\u00b7R), replace the soft-light orange with a lower-alpha `overlay`/`screen` warm tint that lifts rather than dirties, and do not apply the overcast desaturation when `golden > 0`.",
-        "**Fog (and the fog component of snow) reads as a stretched-noise overlay.** preset_fog.png, fog_0700.png, snow_1230.png: strong vertical column streaks run across the whole screen. They come from the anisotropic pattern stretch (`tile(... ang, 2.2 / 1.6)`) aligned with the wind, which here is roughly N\u2013S. On top of that, the veil plus two bank layers wash out about 70% of the contrast (the fence and wall almost vanish in fog_0700). Drop the stretch to \u22641.3 or rotate the two layers by different angles so they don't reinforce each other. Soften the bank edges (the `smooth(lo,hi)` window is too narrow at 160 px per 150 m). Cap the combined fog opacity so gameplay objects keep about 50% contrast. Bank placement should also vary with some low-frequency depth, not tile uniformly.",
-        "**The `closeup` preset is not \"at dusk\" as the README claims.** preset_closeup.png at 21:50 in July is full night (mean [42,49,45]), and the lamp pools read sickly yellow-green. Either move it to about 20:45 so the lamp shows against blue-hour light, or rename it. A showcase preset has to demonstrate what it claims."
+        "load() keepGround flag never cleared when clock already restored -> later time skip keeps stale wetness/snow",
+        "README missing darkness, wetnessLevel, snowLevel, snowRate, rainRate docs",
+        "(cosmetic, deferred) golden hour chartreuse/warm shadows, lamp pools yellow-green, snow streaks"
       ],
-      "note": "round-2 fixes partially applied, builder stopped mid-round (session wrap-up); loads clean; needs finishing + round-2 critic"
+      "note": "r2 passed 7/10 (mechanics-weighted); 2 small must-fixes sent back to builder"
     },
     "roads": {
       "wave": 1,
