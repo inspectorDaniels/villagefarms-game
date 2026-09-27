@@ -241,9 +241,9 @@
     },
     "characters": {
       "wave": 2,
-      "status": "r3-built-unreviewed",
-      "score": 6,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
@@ -256,13 +256,18 @@
           "score": 6,
           "pass": false,
           "review": "docs/reviews/characters-r2.md"
+        },
+        {
+          "round": 3,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/characters-r3.md"
         }
       ],
       "openIssues": [
-        "Ghost exit: null from vehicles.exit treated as success -> farmer teleports, tractor keeps driver",
-        "positionOf returns camera look-ahead (8-14 m ahead) \u2014 contract bug",
-        "Look-ahead hides own tractor under HUD",
-        "should: delegated hand walks 432 m real-time; idles at site after job; 'Enter combine l' prompt; toolbar while driving"
+        "r4c: isAvailable false while possessed/driving",
+        "Dries workerId null in characters.list (sim critic r4)",
+        "should: 'Stop to get out' prompt at speed, throttle blocked-exit retry to 1 Hz"
       ],
       "note": "r3: refused exit keeps driver (speed + boxed-in tested), positionOf real position, look-ahead capped, far job sites, toolbar hidden while driving; 17/17 + 22/22 tests"
     },
