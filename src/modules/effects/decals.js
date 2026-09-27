@@ -73,7 +73,7 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
       if (s === 'water' || s === 'shallow') return null;
     }
     const life = (o.life != null ? o.life : DECAL_LIFE[type]) * (si ? si.lifeMul : 1);
-    const d = { type, x, y, rot: rot || 0, w, h, t0: clockT(), life, alpha: (o.alpha != null ? o.alpha : 1) * (si ? Math.min(1, 0.55 + 0.45 * si.str) : 1), img, r: Math.max(w, h) };
+    const d = { type, x, y, rot: rot || 0, w, h, t0: clockT(), life, wet: Number.isFinite(o.wet) ? o.wet : 0, alpha: (o.alpha != null ? o.alpha : 1) * (si ? Math.min(1, 0.55 + 0.45 * si.str) : 1), img, r: Math.max(w, h) };
     if (decals.length < MAX_DECALS) decals.push(d);
     else {
       const old = decals[dHead];
@@ -196,28 +196,29 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
       } else if (bk.type === 'tyre' && bk.surf === 'snow') {
         // compressed snow: a wide, soft blue-grey trough, deepest in the middle, flanked by
         // bright pushed-up rims that fade out into the snow (no dark outer line => no "rails")
-        g.strokeStyle = `rgba(255,255,255,${0.75 * a})`;
-        g.lineWidth = W * 1.7; g.stroke();
-        g.strokeStyle = `rgba(196,208,226,${0.55 * a})`;
-        g.lineWidth = W * 1.2; g.stroke();
-        g.strokeStyle = `rgba(174,190,214,${0.45 * a})`;
-        g.lineWidth = W * 0.9; g.stroke();
-        g.strokeStyle = `rgba(160,178,206,${0.35 * a})`;
-        g.lineWidth = W * 0.55; g.stroke();
+        // graded strokes (no hard stripe edges): broad soft rim, then an ever deeper trough
+        const snowPass = [[2.05, '255,255,255', 0.2], [1.8, '255,255,255', 0.3], [1.55, '255,255,255', 0.4],
+          [1.32, '206,216,232', 0.3], [1.12, '190,203,224', 0.3], [0.9, '176,192,216', 0.3], [0.62, '166,184,210', 0.28]];
+        for (const [k, c, al] of snowPass) { g.strokeStyle = `rgba(${c},${al * a})`; g.lineWidth = W * k; g.stroke(); }
         if (mottle) {
-          g.globalAlpha = 0.18 * a;
+          g.globalAlpha = 0.12 * a;
           g.strokeStyle = mottle; g.lineWidth = W * 0.9; g.stroke();
           g.globalAlpha = 1;
         }
       } else if (bk.type === 'tyre') {
         // compacted band: soft shoulder, a denser core, and a mottled texture instead of
         // regular cross-bars (evenly spaced lugs read as railway sleepers)
-        g.strokeStyle = col(1, 0.09 * a);
-        g.lineWidth = W * 1.3; g.stroke();
-        g.strokeStyle = col(0.92, 0.14 * a);
-        g.lineWidth = W * 0.85; g.stroke();
+        // feathered: nested strokes build a soft-edged band that is densest in the middle
+        g.strokeStyle = col(1, 0.055 * a);
+        g.lineWidth = W * 1.4; g.stroke();
+        g.strokeStyle = col(1, 0.07 * a);
+        g.lineWidth = W * 1.15; g.stroke();
+        g.strokeStyle = col(0.93, 0.085 * a);
+        g.lineWidth = W * 0.9; g.stroke();
+        g.strokeStyle = col(0.88, 0.07 * a);
+        g.lineWidth = W * 0.6; g.stroke();
         if (mottle && detail) {
-          g.globalAlpha = 0.55 * a;
+          g.globalAlpha = 0.3 * a;
           g.strokeStyle = mottle; g.lineWidth = W * 0.8; g.stroke();
           g.globalAlpha = 1;
         }
@@ -237,10 +238,13 @@ export function createDecals({ sprites, clockT, surfaceAt, weather }) {
   const tiles = new Map();
   let frameNo = 0;
   function decalAlpha(d, now, wet) {
-    const u = (now - d.t0) / d.life;
-    if (u >= 1 || u < -0.001) return 0;
+    const u = Math.max(0, (now - d.t0) / d.life); // clock set backwards: treat as fresh
+    if (u >= 1) return 0;
     let a = d.alpha * (u > 0.6 ? (1 - u) / 0.4 : 1);
-    if (d.type === 'puddle' && wet != null) a *= 0.15 + 0.85 * Math.min(1, wet * 1.3); // dry weather: nearly gone
+    if (d.type === 'puddle') {
+      const wv = Math.max(wet != null ? wet : 0.5, d.wet || 0);
+      a *= 0.12 + 0.88 * Math.min(1, wv * 1.4); // dry weather: nearly gone
+    }
     return a;
   }
   function curWet() { const w = weather(); return w && Number.isFinite(w.wetness) ? Math.round(w.wetness * 10) / 10 : null; }

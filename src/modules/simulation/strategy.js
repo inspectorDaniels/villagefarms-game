@@ -110,7 +110,7 @@ export function createManager(sim, opts) {
   const fields = new Map(); // parcelId -> { crop, stage, tasks }
   const tasks = [];          // {kind, fieldId, ha, hours, left, deadline}
   const jobWork = new Map(); // jobId -> hours left
-  const M = { declined: 0, contractorSpend: 0, jobsDone: 0, overflow: [] }; // overflow: [day, € lost to lack of hands]
+  const M = { declined: 0, contractorSpend: 0, jobsDone: 0, overflow: [], hFarm: 0, hJobs: 0 }; // overflow: [day, € lost to lack of hands]
 
   // ---------- helpers ----------
   const owned = (cat) => api.assets().filter((a) => a.mode === 'owned' && a.category === cat);
@@ -146,7 +146,7 @@ export function createManager(sim, opts) {
     const m = Math.floor(doyOf(sim.today()) / MONTH_DAYS);
     let crop = 'wheat', best = 99;
     for (const c of new Set(ROTATION)) for (const sm of CROPS[c].sowMonths) { const wait = (sm - m + 12) % 12; if (wait < best) { best = wait; crop = c; } }
-    const f = { id: p.id, crop, stage: 'fallow', factor: 1, yard: p.id === (opts.ids && opts.ids.yard) };
+    const f = { id: p.id, crop, rot: ROTATION.indexOf(crop), stage: 'fallow', factor: 1, yard: p.id === (opts.ids && opts.ids.yard) };
     fields.set(p.id, f);
     return f;
   }
@@ -193,7 +193,7 @@ export function createManager(sim, opts) {
 
   function harvestField(f, p, factor) {
     const C = CROPS[f.crop], ha = p.area / 1e4;
-    const soilF = 0.82 + 0.36 * p.soil;
+    const soilF = (0.82 + 0.36 * p.soil) * (globalThis.__YM || 1);
     const y = C.yield * ha * soilF * f.factor * factor * rng.range(0.86, 1.12);
     api.addInventory(C.product, y);
     // haul own grain: hours on the trailer (booked as a haul task), or a contractor
@@ -201,14 +201,21 @@ export function createManager(sim, opts) {
     if (owned('trailer').length) tasks.push({ kind: 'haul', fieldId: f.id, ha, hours: y * WORK.haulPerT, left: y * WORK.haulPerT, deadline: sim.today() + 3 });
     else contractor(4 * y, `Haulage ${y.toFixed(0)} t (contractor)`);
     f.stage = 'fallow';
-    f.crop = ROTATION[(ROTATION.indexOf(f.crop) + 1) % ROTATION.length];
+    f.rot = (f.rot + 1) % ROTATION.length;
+    f.crop = ROTATION[f.rot];
     sales.harvested(C.product);
   }
 
   // ---------- selling: spread over buyers and days, catch the carry ----------
   const sales = {
     ref: {},
-    harvested(item) { this.ref[item] = api.price(item, bestPoint(item)) || this.ref[item]; this.sellSome(item, 0.35); },
+    // sell ~20 % off the combine (cash flow), store the rest and sell into the carry: over several
+    // days and across the best two buyers so no single buyer's price sags much
+    harvested(item) {
+      const r = this.ref[item];
+      if (!r || sim.today() - r.day > 12) this.ref[item] = { day: sim.today(), p: quote(item) };
+      this.sellSome(item, 0.2);
+    },
     sellSome(item, frac) {
       const inv = api.inventory()[item] || 0;
       let left = inv * frac;
@@ -216,7 +223,7 @@ export function createManager(sim, opts) {
       pts.sort((a, b) => (api.price(item, b.id) || 0) - (api.price(item, a.id) || 0));
       for (const s of pts.slice(0, 2)) {
         if (left <= 0.05) break;
-        const lot = Math.min(left, depthOf(item) * 0.35);
+        const lot = Math.min(left, depthOf(item) * 0.3);
         api.sell(item, lot, s.id);
         left -= lot;
       }
@@ -225,15 +232,19 @@ export function createManager(sim, opts) {
       const doy = doyOf(d);
       for (const [item, q] of Object.entries(api.inventory())) {
         if (item === 'diesel' || item === 'fertiliser' || q < 0.1) continue;
-        const p = api.price(item, bestPoint(item));
-        if (p == null) continue;
-        const ref = this.ref[item] || p;
-        const harvestNear = CROPS_BY_PRODUCT[item] && CROPS_BY_PRODUCT[item].some((c) => doyOf(c.harvestMonths[0] * MONTH_DAYS - doy) <= 2);
-        const needCash = api.money() < reserve() * 0.6;
-        if (item === 'straw' || item === 'sugarBeet' || p >= ref * 1.07 || harvestNear || needCash) this.sellSome(item, item === 'straw' || item === 'sugarBeet' ? 1 : 0.5);
+        const p = quote(item);
+        if (p == null || api.price(item, bestPoint(item)) == null) continue;
+        const ref = this.ref[item] ? this.ref[item].p : p;
+        // the carry peaks a few weeks before the next harvest: clear the store then
+        const harvestNear = CROPS_BY_PRODUCT[item] && CROPS_BY_PRODUCT[item].some((c) => { const k = doyOf(c.harvestMonths[0] * MONTH_DAYS - doy); return k >= 1 && k <= 7; });
+        const needCash = api.money() < reserve() * 0.25;
+        if (item === 'straw' || item === 'sugarBeet') this.sellSome(item, 1);
+        else if (p >= ref * 1.1 || harvestNear) this.sellSome(item, 0.35);
+        else if (needCash) this.sellSome(item, 0.25);
       }
     },
   };
+  const quote = (item) => { const h = api.priceHistory(item); return h.length ? h[h.length - 1][1] : null; }; // market reference, no glut
   const depthOf = (item) => ({ wheat: 160, barley: 150, oats: 90, rapeseed: 80, maize: 160, potatoes: 250, sugarBeet: 3000, straw: 70, hay: 60 }[item] || 100);
   const bestPoint = (item) => {
     let best = null, bp = -1;
@@ -254,7 +265,7 @@ export function createManager(sim, opts) {
       const pool = t.kind === 'harvest' ? combineH : tractorH;
       const h = Math.min(t.left, pool, personH);
       if (h <= 0) continue;
-      t.left -= h; personH -= h;
+      t.left -= h; personH -= h; M.hFarm += h;
       if (t.kind === 'harvest') { combineH -= h; useDiesel(h * DIESEL_LH.combine); } else { tractorH -= h; useDiesel(h * DIESEL_LH[tier]); }
     }
     // finished or overdue tasks
@@ -311,7 +322,7 @@ export function createManager(sim, opts) {
       const pool = j.type === 'harvest' ? combineH : j.requiresMachine ? tractorH : personH;
       const h = Math.min(left, pool, personH);
       if (h <= 0) continue;
-      personH -= h; left -= h;
+      personH -= h; left -= h; M.hJobs += h;
       if (j.type === 'harvest') combineH -= h; else if (j.requiresMachine) tractorH -= h;
       if (j.requiresMachine) useDiesel(h * (j.type === 'harvest' ? DIESEL_LH.combine : DIESEL_LH[tillTier()]));
       const total = jobHours(j);
@@ -339,8 +350,8 @@ export function createManager(sim, opts) {
   // No scripted pace: growth is limited by cash/credit, by the crew's hours and by how much land
   // the market actually offers (a few listings at a time).
   const capacityHa = () => {
-    const t2 = (tractorTiers()[0] || 1) >= 2 && hasLargeTillage();
-    return (t2 ? 38 : 14) * Math.min(people(), Math.max(1, tractorTiers().length)) + (combineRate() ? 10 : 0);
+    const tier = hasLargeTillage() ? (tractorTiers()[0] || 1) : 1;
+    return [8, 30, 45][tier - 1] * Math.min(people(), Math.max(1, tractorTiers().length)) + (combineRate() ? 10 : 0);
   };
   function grow(d) {
     const doy = doyOf(d);
@@ -350,8 +361,11 @@ export function createManager(sim, opts) {
     const liquid = () => cash() + api.creditLimit();
     const small = strat === 'smallfarm';
     // seasonal operating credit: borrow against the credit line when cash runs low, repay when flush
-    if (api.money() < reserve() * 0.5 && api.creditLimit() > 5000) api.takeLoan(Math.min(api.creditLimit(), Math.max(10000, reserve())), { months: 12 });
-    const farming = strat === 'renter' || strat === 'builder' || small;
+    if (api.money() < reserve() * 0.6 && api.creditLimit() > 5000) api.takeLoan(Math.min(api.creditLimit(), Math.max(10000, reserve())), { months: 12 });
+    // the builder spends its first year on contract work and the starter plot, as the brief's opening
+    const firstYear = M.startDay != null && d - M.startDay < YEAR_DAYS;
+    if (M.startDay == null) M.startDay = d;
+    const farming = strat === 'renter' || small || (strat === 'builder' && !firstYear);
     const maxHa = small ? 12 : Infinity;
     // rent: only what the crew can work and the inputs + 3 months' rent are covered
     if (farming) {
@@ -363,11 +377,11 @@ export function createManager(sim, opts) {
         if (liquid() > needs && api.rentParcel(id)) break;
       }
     }
-    // buy: builder takes a 15-year mortgage (60 %) and pays 40 % + fees from its own cash
-    if (strat === 'builder') {
+    // buy: builder takes a 15-year mortgage (75 %) and pays 25 % + fees from its own cash
+    if (strat === 'builder' && !firstYear) {
       for (const id of api.landMarket().forSale) {
         const p = api.parcel(id);
-        const own = p.price * (1 - 0.6 + 0.04);
+        const own = p.price * (1 - 0.75 + 0.04);
         if (ha + p.area / 1e4 > capacityHa() + 12) continue;
         if (cash() > own + 800 * p.area / 1e4 && api.buyParcel(id, { mortgage: true })) break;
       }
@@ -380,16 +394,17 @@ export function createManager(sim, opts) {
     if (surplus > 0) for (const l of api.loans().filter((x) => !x.secured).sort((a, b) => a.months - b.months)) api.repayLoan(l.id, surplus);
     if (strat === 'jobs' || small) { M.declined = 0; return; } // never invests beyond the starter kit
     if (tiers[0] < 2 && (ha >= 8 || busy) && cash() > 26000) { if (buyMachine('tractor_t2')) buyMachine('tillage_l'); }
+    if (tiers[0] === 2 && ha >= capacityHa() - 6 && cash() > 45000) buyMachine('tractor_t3');
     if (!owned('sprayer').length && ha >= 6 && cash() > 8000) buyMachine('sprayer');
     const cereals = myParcels().filter((p) => { const f = fields.get(p.id); return f && !f.yard && f.crop !== 'sugarBeet'; }).reduce((t, p) => t + p.area / 1e4, 0);
-    if (!owned('combine').length && (cereals >= 22 || (strat === 'contractor' && busy)) && cash() > 45000) buyMachine('combine_s');
+    if (!owned('combine').length && (cereals >= 22 || (strat === 'contractor' && busy)) && cash() > 25000) buyMachine('combine_s');
     // crew: hire a hand (plus a tractor) when last year's overflow to contractors / late work cost
     // more than ~60 % of a wage; let one go after 1.5 years with almost no overflow
     M.overflow = M.overflow.filter((o) => o[0] > d - YEAR_DAYS);
     const lost = M.overflow.reduce((t, o) => t + o[1], 0);
     const wageYear = 950 * YEAR_DAYS;
     const lastYear = api.summary(YEAR_DAYS).operatingNet;
-    const outgrown = ha > capacityHa() - 4 && lastYear > 45000 && (api.landMarket().forRent.length + api.landMarket().forSale.length) > 0;
+    const outgrown = ha > capacityHa() - 4 && lastYear > 60000 && (api.landMarket().forRent.length + api.landMarket().forSale.length) > 0;
     if (farming && !small && (lost > 0.6 * wageYear || outgrown) && cash() > 20000 && api.workers().length < 3 && (!M.lastHire || d - M.lastHire >= YEAR_DAYS / 2)) {
       if (tractorTiers().length >= people() + 1 || buyMachine('tractor_t1')) { api.hireWorker(); M.lastHire = d; M.overflow = []; }
     } else if (api.workers().length && lost < 0.1 * wageYear && d - (M.lastHire || 0) > YEAR_DAYS * 1.5) { api.fireWorker(api.workers()[0].id); M.lastHire = d; }

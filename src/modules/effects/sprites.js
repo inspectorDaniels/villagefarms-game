@@ -338,11 +338,15 @@ export function createSprites(art, palette) {
     });
   }
   function hoofprint(variant, snow) {
-    return reg(`d:hoof:${variant}:${snow ? 's' : 'd'}`, 32, 32, (g, w, h, rng) => {
+    return reg(`d:hoof2:${variant}:${snow ? 's' : 'd'}`, 32, 32, (g, w, h, rng) => {
       const c = PRINT(snow);
-      g.fillStyle = art.rgba(c, 0.6);
+      // cloven hoof: two plump, slightly curved halves with a soft pressed edge
       for (const s of [-1, 1]) {
-        g.beginPath(); g.ellipse(w / 2 + s * 4.5, h / 2 + rng.range(-1, 1), 3.4, 7, s * -0.15, 0, TAU); g.fill();
+        const x = w / 2 + s * 4.2, y = h / 2 + rng.range(-0.8, 0.8);
+        g.fillStyle = art.rgba(c, 0.22);
+        g.beginPath(); g.ellipse(x, y, 5.2, 8.6, s * -0.18, 0, TAU); g.fill();
+        g.fillStyle = art.rgba(c, 0.45);
+        g.beginPath(); g.ellipse(x - s * 0.4, y + 0.5, 3.6, 7, s * -0.18, 0, TAU); g.fill();
       }
     });
   }
@@ -350,44 +354,57 @@ export function createSprites(art, palette) {
     // Flat standing water, seen from above: a soft wet-dark soak in the ground, then a translucent
     // film that reflects the (pale) sky with a few long streaks of reflected cloud. Everything is
     // even-toned: no dome gradient, no outline, no centred highlight — it must never read as a stone.
-    return reg(`d:puddle2:${variant}`, 160, 120, (g, w, h, rng) => {
+    return reg(`d:puddle8:${variant}`, 160, 120, (g, w, h, rng) => {
       const cx = w / 2, cy = h / 2;
       const r = w * 0.36;
       g.save(); g.translate(cx, cy); g.scale(1, h / w); g.translate(-cx, -cy);
-      const shape = rng.fork('w');
-      const path = (k) => {
-        g.save(); g.translate(cx, cy); g.scale(k, k); g.translate(-cx, -cy);
-        art.blobPath(g, cx, cy, r, shape.fork('p'), 0.2, 5);
-        g.restore();
+      // organic outline from a few low harmonics (no spiky lobes / star shapes)
+      const hs = [[2, rng.range(0.08, 0.15), rng.float() * TAU], [3, rng.range(0.04, 0.09), rng.float() * TAU], [5, rng.range(0.015, 0.035), rng.float() * TAU], [9, 0.012, rng.float() * TAU]];
+      const path = (k, a0 = 0, a1 = TAU) => {
+        g.beginPath();
+        for (let i = 0; i <= 64; i++) {
+          const a = a0 + (i / 64) * (a1 - a0);
+          let rr = 1;
+          for (const [f, amp, ph] of hs) rr += amp * Math.sin(a * f + ph);
+          const x = cx + Math.cos(a) * r * rr * k, y = cy + Math.sin(a) * r * rr * k;
+          if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+        }
+        if (a1 - a0 >= TAU) g.closePath();
       };
-      // wet soak: darkened ground slightly larger than the water, feathered in several passes
-      for (let k = 0; k < 5; k++) { path(1.28 - k * 0.05); g.fillStyle = 'rgba(30,24,18,0.085)'; g.fill(); }
-      // water film: flat sky tint, feathered edge
-      for (let k = 0; k < 4; k++) { path(1.0 - k * 0.035); g.fillStyle = 'rgba(150,170,184,0.2)'; g.fill(); }
-      path(0.86); g.fillStyle = 'rgba(160,180,194,0.22)'; g.fill();
+      // wet soak: a diffuse darkening of the ground around the water (no ring, no rim)
+      const soak = g.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 1.45);
+      soak.addColorStop(0, 'rgba(34,26,18,0.22)'); soak.addColorStop(0.5, 'rgba(34,26,18,0.1)'); soak.addColorStop(1, 'rgba(34,26,18,0)');
+      g.fillStyle = soak; g.fillRect(0, 0, w, w);
+      // water film: translucent, slightly darker and cooler than the mud (mud shows through),
+      // feathered edge from several passes
+      for (let k = 0; k < 6; k++) { path(1.02 - k * 0.045); g.fillStyle = 'rgba(64,82,100,0.075)'; g.fill(); }
+      // sky sheen: a broad soft wash of pale sky over part of the surface
+      path(0.92); g.save(); g.clip();
+      // even wash (no directional gradient: that is what made r1 puddles read as domed stones)
+      g.fillStyle = 'rgba(168,190,208,0.12)'; g.fillRect(0, 0, w, w);
+      g.restore();
       // reflected cloud streaks (long, soft, horizontal-ish, all the same tone)
       path(0.9); g.save(); g.clip();
       g.lineCap = 'round';
-      for (let i = 0; i < 5; i++) {
-        const y = cy + rng.range(-0.6, 0.6) * r, x = cx + rng.range(-0.5, 0.3) * r, L = rng.range(0.4, 0.9) * r;
-        g.strokeStyle = `rgba(222,232,236,${rng.range(0.1, 0.2)})`; g.lineWidth = rng.range(3, 7);
+      for (let i = 0; i < 6; i++) {
+        const y = cy + rng.range(-0.65, 0.65) * r, x = cx + rng.range(-0.7, 0.2) * r, L = rng.range(0.3, 0.8) * r;
+        g.strokeStyle = `rgba(214,228,236,${rng.range(0.12, 0.26)})`; g.lineWidth = rng.range(1.5, 4);
         g.beginPath(); g.moveTo(x, y); g.lineTo(x + L, y + rng.range(-3, 3)); g.stroke();
       }
       g.restore();
       // thin bright meniscus along part of the rim (catches the sky at the edge)
-      path(0.97); g.save(); g.clip();
-      path(1.0); g.strokeStyle = 'rgba(236,244,246,0.28)'; g.lineWidth = 2.2; g.stroke();
-      g.restore();
+      const ga = rng.float() * TAU;
+      path(0.965, ga, ga + 1.3); g.strokeStyle = 'rgba(236,244,246,0.26)'; g.lineWidth = 1.8; g.lineCap = 'round'; g.stroke();
       g.restore();
     });
   }
   // tileable dark mottle (64 px = 2 m) used as a stroke pattern to break up trail ribbons
   function mottle() {
-    return reg('mottle', 64, 64, (g, w, h, rng) => {
-      for (let i = 0; i < 90; i++) {
-        const x = rng.float() * w, y = rng.float() * h, rx = rng.range(1.5, 5), ry = rng.range(1, 3), a = rng.float() * Math.PI;
-        const dark = rng.chance(0.7);
-        g.fillStyle = dark ? `rgba(20,14,8,${rng.range(0.15, 0.45)})` : `rgba(255,245,225,${rng.range(0.08, 0.2)})`;
+    return reg('mottle2', 64, 64, (g, w, h, rng) => {
+      for (let i = 0; i < 70; i++) {
+        const x = rng.float() * w, y = rng.float() * h, rx = rng.range(2.5, 7), ry = rng.range(1.5, 4), a = rng.float() * Math.PI;
+        const dark = rng.chance(0.8);
+        g.fillStyle = dark ? `rgba(24,16,10,${rng.range(0.08, 0.26)})` : `rgba(255,245,225,${rng.range(0.05, 0.12)})`;
         for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) {
           g.beginPath(); g.ellipse(x + ox, y + oy, rx, ry, a, 0, TAU); g.fill();
         }

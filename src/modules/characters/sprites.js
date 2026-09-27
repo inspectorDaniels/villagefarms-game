@@ -654,5 +654,123 @@ export function createSprites(art, palette) {
     });
   }
 
-  return { torso, torsoDims, skirt, head, foot, sleeve, hand, contact, tool, umbrella, ring, TOOL_SPECS };
+  // ------------------------------------------------------------------ sleeping
+  /** canvas bedroll with a pillow (0.8 × 2.0 m), painted facing up (pillow at −y) */
+  function bedroll(a) {
+    const W = M(0.84), H = M(2.04);
+    return art.sprite(`chr:bedroll:${a.variant % 3}`, W, H, (g, w, h, rng) => {
+      const cx = w / 2;
+      const mat = ['#7a6a55', '#6b5d48', '#5d6b52'][a.variant % 3];
+      const mp = () => { art.wobblyPath(g, [[cx - M(0.38), M(0.04)], [cx + M(0.38), M(0.04)], [cx + M(0.39), h - M(0.04)], [cx - M(0.39), h - M(0.04)]], rng, 1.2); };
+      gouache(g, mp, mat, rng, [0, 0, w, h], { vol: 0.12, lw: 1.6,
+        over: (g) => {
+          // woven canvas + stitched hem
+          g.strokeStyle = rgba(shade(mat, -0.3), 0.25); g.lineWidth = 1;
+          for (let y = M(0.06); y < h - M(0.05); y += 3) { g.beginPath(); g.moveTo(cx - M(0.37), y); g.lineTo(cx + M(0.37), y + rng.range(-0.6, 0.6)); g.stroke(); }
+          g.strokeStyle = rgba('#e8d9a8', 0.45); g.setLineDash([3, 3]);
+          g.strokeRect(cx - M(0.34), M(0.08), M(0.68), h - M(0.16));
+          g.setLineDash([]);
+        } });
+      // rolled foot end
+      const rp = () => { g.beginPath(); g.ellipse(cx, h - M(0.1), M(0.39), M(0.08), 0, 0, TAU); };
+      gouache(g, rp, shade(mat, 0.08), rng, [cx - M(0.4), h - M(0.2), M(0.8), M(0.2)], { vol: 0.35, lw: 1.3,
+        over: (g) => { g.strokeStyle = rgba(shade(mat, -0.4), 0.5); g.lineWidth = 1; for (let i = -2; i <= 2; i++) { g.beginPath(); g.moveTo(cx + i * M(0.14), h - M(0.17)); g.lineTo(cx + i * M(0.14), h - M(0.03)); g.stroke(); } } });
+      // pillow
+      const pil = '#e9e1cc';
+      const pp2 = () => { g.beginPath(); g.ellipse(cx, M(0.3), M(0.3), M(0.17), 0, 0, TAU); };
+      gouache(g, pp2, pil, rng, [cx - M(0.3), M(0.13), M(0.6), M(0.34)], { vol: 0.35, lw: 1.3,
+        over: (g) => { g.strokeStyle = rgba(shade(pil, -0.3), 0.4); g.lineWidth = 1; g.beginPath(); g.moveTo(cx - M(0.2), M(0.28)); g.quadraticCurveTo(cx, M(0.34), cx + M(0.22), M(0.26)); g.stroke(); } });
+    });
+  }
+  /** quilt / wool blanket over the sleeper (0.78 × 1.34 m) — body bump under it */
+  function blanket(a) {
+    const W = M(0.82), H = M(1.38);
+    const col = a.overalls ? mix(a.overalls, '#8a3a30', 0.5) : mix(a.top, '#6b4d7a', 0.3);
+    return art.sprite(`chr:blanket:${col}`, W, H, (g, w, h, rng) => {
+      const cx = w / 2;
+      const bp = () => {
+        g.beginPath();
+        g.moveTo(cx - M(0.33), M(0.05));
+        g.quadraticCurveTo(cx, M(0.0), cx + M(0.34), M(0.06));
+        g.quadraticCurveTo(cx + M(0.4), h / 2, cx + M(0.33), h - M(0.06));
+        g.quadraticCurveTo(cx, h - M(0.01), cx - M(0.34), h - M(0.05));
+        g.quadraticCurveTo(cx - M(0.4), h / 2, cx - M(0.33), M(0.05));
+        g.closePath();
+      };
+      gouache(g, bp, col, rng, [0, 0, w, h], { vol: 0.2, lw: 1.5, cx, cy: M(0.5), r: M(0.6),
+        under: (g) => {
+          // quilt squares with a darker check
+          g.strokeStyle = rgba(shade(col, -0.35), 0.4); g.lineWidth = 1.2;
+          for (let x = cx - M(0.33); x < cx + M(0.35); x += M(0.165)) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x + rng.range(-1, 1), h); g.stroke(); }
+          for (let y = M(0.05); y < h; y += M(0.165)) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y + rng.range(-1, 1)); g.stroke(); }
+          g.fillStyle = rgba(shade(col, 0.3), 0.18);
+          for (let y = M(0.05), j = 0; y < h; y += M(0.165), j++) for (let x = cx - M(0.33), i = 0; x < cx + M(0.35); x += M(0.165), i++) if ((i + j) % 2) g.fillRect(x, y, M(0.165), M(0.165));
+          // the sleeper's shape: shoulders, hip and knees raise the blanket
+          const bump = (x, y, rx, ry, al) => { const gr = g.createRadialGradient(x, y, 0, x, y, Math.max(rx, ry)); gr.addColorStop(0, `rgba(255,248,228,${al})`); gr.addColorStop(1, 'rgba(255,248,228,0)'); g.fillStyle = gr; g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, TAU); g.fill(); };
+          bump(cx, M(0.2), M(0.28), M(0.16), 0.3);
+          bump(cx + M(0.03), M(0.6), M(0.2), M(0.2), 0.22);
+          bump(cx + M(0.08), M(1.0), M(0.16), M(0.14), 0.2);
+          // fold creases between them
+          g.strokeStyle = rgba(shade(col, -0.45), 0.35); g.lineWidth = 1.4;
+          for (const y of [0.4, 0.8, 1.15]) { g.beginPath(); g.moveTo(cx - M(0.28), M(y)); g.quadraticCurveTo(cx, M(y + 0.05), cx + M(0.3), M(y - 0.02)); g.stroke(); }
+        } });
+      // turned-down sheet edge at the top
+      const tp = () => { g.beginPath(); g.moveTo(cx - M(0.33), M(0.05)); g.quadraticCurveTo(cx, M(0.0), cx + M(0.34), M(0.06)); g.lineTo(cx + M(0.34), M(0.13)); g.quadraticCurveTo(cx, M(0.09), cx - M(0.33), M(0.12)); g.closePath(); };
+      gouache(g, tp, '#ece6d8', rng, [0, 0, w, M(0.15)], { vol: 0.1, lw: 1.1 });
+    });
+  }
+
+  // ------------------------------------------------------------------ showcase set dressing
+  function crate(variant) {
+    const W = M(0.66);
+    return art.sprite(`chr:crate:${variant}`, W, W, (g, w, h, rng) => {
+      const wood = ['#a47b4f', '#9a7550', '#8e6a44'][variant % 3];
+      const p = () => { art.wobblyPath(g, [[M(0.03), M(0.03)], [w - M(0.03), M(0.03)], [w - M(0.03), h - M(0.03)], [M(0.03), h - M(0.03)]], rng, 0.8); };
+      gouache(g, p, wood, rng, [0, 0, w, h], { vol: 0.15, lw: 1.8,
+        over: (g) => {
+          g.strokeStyle = rgba(shade(wood, -0.5), 0.6); g.lineWidth = 1.6;
+          for (let i = 1; i < 4; i++) { g.beginPath(); g.moveTo(M(0.04), i * h / 4); g.lineTo(w - M(0.04), i * h / 4 + rng.range(-1, 1)); g.stroke(); }
+          g.strokeStyle = rgba(shade(wood, 0.35), 0.35); g.lineWidth = 1;
+          for (let i = 0; i < 4; i++) for (let k = 0; k < 3; k++) { const y = i * h / 4 + M(0.03) + k * 4; g.beginPath(); g.moveTo(M(0.06), y); g.lineTo(w - M(0.06), y + rng.range(-1, 1)); g.stroke(); }
+          // frame battens + nails
+          g.strokeStyle = rgba(shade(wood, -0.25), 0.9); g.lineWidth = M(0.05);
+          g.strokeRect(M(0.055), M(0.055), w - M(0.11), h - M(0.11));
+          g.fillStyle = '#5a5f66';
+          for (const [x, y] of [[0.09, 0.09], [0.57, 0.09], [0.09, 0.57], [0.57, 0.57]]) { g.beginPath(); g.arc(M(x), M(y), 1.6, 0, TAU); g.fill(); }
+          // contents: potatoes or apples
+          if (variant % 2 === 0) {
+            g.save(); g.beginPath(); g.rect(M(0.09), M(0.09), w - M(0.18), h - M(0.18)); g.clip();
+            for (let i = 0; i < 26; i++) {
+              const x = rng.range(M(0.1), w - M(0.1)), y = rng.range(M(0.1), h - M(0.1));
+              const c = variant % 4 === 0 ? rng.pick(['#c7a36a', '#b8925a', '#d4b27a']) : rng.pick(['#b8352b', '#c0643f', '#9c2a24', '#7ea84a']);
+              g.fillStyle = c; g.beginPath(); g.ellipse(x, y, M(0.05), M(0.043), rng.float() * 3, 0, TAU); g.fill();
+              g.strokeStyle = rgba(outline(c), 0.6); g.lineWidth = 1; g.stroke();
+              g.fillStyle = 'rgba(255,248,228,0.35)'; g.beginPath(); g.arc(x - 1.5, y - 1.5, 1.6, 0, TAU); g.fill();
+            }
+            g.restore();
+          }
+        } });
+    });
+  }
+  function bale() {
+    const W = M(1.3), H = M(0.62);
+    return art.sprite('chr:bale', W, H, (g, w, h, rng) => {
+      const st = '#d2b46e';
+      const p = () => { art.wobblyPath(g, [[M(0.04), M(0.05)], [w - M(0.04), M(0.04)], [w - M(0.05), h - M(0.05)], [M(0.05), h - M(0.04)]], rng, 1.5); };
+      gouache(g, p, st, rng, [0, 0, w, h], { vol: 0.3, lw: 1.6,
+        under: (g) => {
+          for (let i = 0; i < 260; i++) {
+            const x = rng.range(0, w), y = rng.range(0, h);
+            g.strokeStyle = rgba(rng.pick(['#a8884a', '#ecd79c', '#b89a5a', '#f3e2aa']), 0.6); g.lineWidth = 1;
+            g.beginPath(); g.moveTo(x, y); g.lineTo(x + rng.range(-6, 6), y + rng.range(-2, 2)); g.stroke();
+          }
+        },
+        over: (g) => {
+          g.strokeStyle = rgba('#b8352b', 0.75); g.lineWidth = 2;
+          for (const f of [0.3, 0.7]) { g.beginPath(); g.moveTo(w * f, 0); g.lineTo(w * f + 1, h); g.stroke(); }
+        } });
+    });
+  }
+
+  return { torso, torsoDims, skirt, head, foot, sleeve, hand, contact, tool, umbrella, ring, bedroll, blanket, crate, bale, TOOL_SPECS };
 }

@@ -18,19 +18,19 @@ export const CONST = {
   creditIncomeMult: 0.6,      // … + 60 % of the last 12 months' operating result (the bank reads your accounts)
   creditLandLTV: 0.6,         // + 60 % of owned land market value
   creditMachineLTV: 0.5,      // + 50 % of owned machinery value
-  mortgageLTV: 0.6,           // buyParcel({mortgage}) lends at most 60 % of the price (15 years); you bring 40 % + fees
+  mortgageLTV: 0.75,          // buyParcel({mortgage}) lends at most 75 % of the price (15 years); you bring 25 % + fees
   mortgageMonths: 180,
   machineFinanceLTV: 0.75,    // purchase(id, {finance}) : dealer finance, 25 % down, 5 years, secured on the machine
   machineFinanceMonths: 60,
   fixedCostsMonthly: 85,      // farm insurance, accountant, phone, electricity
   fixedCostsPerHaMonthly: 5,  // liability/crop insurance scales with farmed area
-  capPaymentPerHa: 235,       // CAP basic + eco-scheme per ha-year, paid pro rata by days held
+  capPaymentPerHa: 450,       // CAP basic income support + eco-schemes + young-farmer & redistributive top-ups per ha-year (game scale), pro rata by days held
   capPaymentDayOfYear: 27,    // 1 October
   landFees: 0.04,             // purchase fees
   landResale: 0.97,           // selling nets 97 % of market value
   landPerHa: [12000, 22000],  // market value by soil quality 0..1 (× regional land index)
   rentPerHaYear: [450, 750],  // by soil quality (× land index at signing) ≈ 3.5 % of value
-  landGrowthYear: 0.025,      // mean appreciation of the land index
+  landGrowthYear: 0.03,       // mean appreciation of the land index
   landGrowthSd: 0.012,        // monthly noise (log)
   leaseMinDays: 36,           // minimum lease term: one game year
   leaseEarlyExitMonths: 3,    // ending early costs min(rest of the minimum term, 3 months' rent)
@@ -42,10 +42,10 @@ export const CONST = {
   ledgerMax: 600,
   saturationDecay: 0.7,       // per day (half-life ≈ 2 days)
   saturationMaxDrop: 0.25,    // at most −25 % when one buyer is flooded
-  retailMarkup: 1.12,         // buying a commodity back costs more than selling it
-  assetResaleNew: 0.88,       // machinery is worth 88 % of list once it leaves the dealer …
-  assetDepreciationYear: 0.06,// … minus 6 % of list per year, floor 20 %
-  upkeepYear: 0.02,           // default upkeep: 2 % of list per year
+  retailMarkup: 1.15,         // buying a commodity back costs more than selling it
+  assetResaleNew: 0.9,        // machinery is worth 90 % of list once it leaves the dealer …
+  assetDepreciationYear: 0.05,// … minus 5 % of list per year, floor 20 %
+  upkeepYear: 0.015,          // default upkeep: 1.5 % of list per year
   maxOpenOffers: 8,
   maxActiveJobs: 3,
   catchUpMaxDays: 72,
@@ -77,14 +77,14 @@ export const CONSUMABLES = ['diesel', 'fertiliser']; // buy-only: no buyer takes
 
 // Per-hectare agronomy and input costs (€/ha, litres/ha). Months are 0-based (0 = January).
 export const CROPS = {
-  wheat:     { name: 'Winter wheat', product: 'wheat',    yield: 8.5, straw: 3.5, seed: 90,  fertiliser: 250, spray: 130, dieselL: 95,  sowMonths: [9, 10], harvestMonths: [7] },
-  barley:    { name: 'Winter barley', product: 'barley',  yield: 7.5, straw: 3.0, seed: 80,   fertiliser: 200, spray: 110, dieselL: 90,  sowMonths: [8, 9], harvestMonths: [6] },
-  oats:      { name: 'Spring oats', product: 'oats',      yield: 6.0, straw: 3.5, seed: 70,   fertiliser: 140, spray: 60,  dieselL: 85,  sowMonths: [2, 3], harvestMonths: [7] },
-  rapeseed:  { name: 'Oilseed rape', product: 'rapeseed', yield: 4.0, straw: 0,   seed: 130,  fertiliser: 250, spray: 160, dieselL: 90,  sowMonths: [7], harvestMonths: [6] },
-  maize:     { name: 'Grain maize', product: 'maize',     yield: 11,  straw: 0,   seed: 220,  fertiliser: 220, spray: 80, dieselL: 110, sowMonths: [3, 4], harvestMonths: [9] },
-  potatoes:  { name: 'Potatoes', product: 'potatoes',     yield: 45,  straw: 0,   seed: 1100, fertiliser: 350, spray: 480, dieselL: 260, sowMonths: [3], harvestMonths: [8, 9] },
-  sugarBeet: { name: 'Sugar beet', product: 'sugarBeet',  yield: 75,  straw: 0,   seed: 250,  fertiliser: 250, spray: 300, dieselL: 170, sowMonths: [2, 3], harvestMonths: [9, 10] },
-  grass:     { name: 'Grass (hay)', product: 'hay',       yield: 9,   straw: 0,   seed: 30,   fertiliser: 170, spray: 15,  dieselL: 120, sowMonths: [2, 3, 7, 8], harvestMonths: [4, 5, 6, 7] },
+  wheat:     { name: 'Winter wheat', product: 'wheat',    yield: 8.5, straw: 3.5, seed: 80,  fertiliser: 220, spray: 115, dieselL: 95,  sowMonths: [9, 10], harvestMonths: [7] },
+  barley:    { name: 'Winter barley', product: 'barley',  yield: 7.5, straw: 3.0, seed: 70,   fertiliser: 180, spray: 95, dieselL: 90,  sowMonths: [8, 9], harvestMonths: [6] },
+  oats:      { name: 'Spring oats', product: 'oats',      yield: 6.0, straw: 3.5, seed: 60,   fertiliser: 120, spray: 50,  dieselL: 85,  sowMonths: [2, 3], harvestMonths: [7] },
+  rapeseed:  { name: 'Oilseed rape', product: 'rapeseed', yield: 4.0, straw: 0,   seed: 115,  fertiliser: 220, spray: 140, dieselL: 90,  sowMonths: [7], harvestMonths: [6] },
+  maize:     { name: 'Grain maize', product: 'maize',     yield: 11,  straw: 0,   seed: 200,  fertiliser: 200, spray: 70, dieselL: 110, sowMonths: [3, 4], harvestMonths: [9] },
+  potatoes:  { name: 'Potatoes', product: 'potatoes',     yield: 45,  straw: 0,   seed: 1000, fertiliser: 300, spray: 420, dieselL: 260, sowMonths: [3], harvestMonths: [8, 9] },
+  sugarBeet: { name: 'Sugar beet', product: 'sugarBeet',  yield: 75,  straw: 0,   seed: 230,  fertiliser: 220, spray: 260, dieselL: 170, sowMonths: [2, 3], harvestMonths: [9, 10] },
+  grass:     { name: 'Grass (hay)', product: 'hay',       yield: 9,   straw: 0,   seed: 30,   fertiliser: 150, spray: 15,  dieselL: 120, sowMonths: [2, 3, 7, 8], harvestMonths: [4, 5, 6, 7] },
 };
 
 // Contract job types (machine-rate pay). rate = € per unit; transport also pays perTkm × km.
@@ -121,21 +121,21 @@ export const WORK = {
   harvest: { combine_s: 0.7, combine_l: 0.4 },
   haulPerT: 0.05, haulPerTkm: 0.02, deliverPerLoad: 1.5,
   hoursPerDay: 12,           // one person's working day in season
-  contractor: { tillage: 175, care: 90, harvest: 165, lift: 480 }, // €/ha when you hire it done
+  contractor: { tillage: 175, care: 90, harvest: 165, lift: 420 }, // €/ha when you hire it done
 };
 
 // Machinery catalog (registered by default; other modules may override entries by id).
 export const MACHINES = [
   { id: 'tractor_t1', category: 'tractor', name: 'Used 95 hp tractor', price: 26000, meta: { tier: 1 } },
-  { id: 'tractor_t2', category: 'tractor', name: '180 hp tractor', price: 78000, meta: { tier: 2 } },
-  { id: 'tractor_t3', category: 'tractor', name: '300 hp tractor', price: 185000, meta: { tier: 3 } },
+  { id: 'tractor_t2', category: 'tractor', name: '180 hp tractor', price: 64000, meta: { tier: 2 } },
+  { id: 'tractor_t3', category: 'tractor', name: '300 hp tractor', price: 150000, meta: { tier: 3 } },
   { id: 'tillage_s', category: 'tillage', name: 'Plough & 3 m drill', price: 9000, meta: { size: 1 } },
-  { id: 'tillage_l', category: 'tillage', name: '5-furrow plough & 4 m drill', price: 24000, meta: { size: 2 } },
-  { id: 'sprayer', category: 'sprayer', name: 'Sprayer & spreader', price: 16000, meta: {} },
+  { id: 'tillage_l', category: 'tillage', name: '5-furrow plough & 4 m drill', price: 20000, meta: { size: 2 } },
+  { id: 'sprayer', category: 'sprayer', name: 'Sprayer & spreader', price: 14000, meta: {} },
   { id: 'trailer', category: 'trailer', name: '14 t tipping trailer', price: 11000, meta: {} },
   { id: 'mower', category: 'mower', name: 'Disc mower', price: 12000, meta: {} },
-  { id: 'combine_s', category: 'combine', name: 'Compact combine', price: 150000, meta: {} },
-  { id: 'combine_l', category: 'combine', name: 'Large combine', price: 330000, meta: {} },
+  { id: 'combine_s', category: 'combine', name: 'Compact combine', price: 118000, meta: {} },
+  { id: 'combine_l', category: 'combine', name: 'Large combine', price: 260000, meta: {} },
 ];
 
 // Seeded NPC neighbours. Flemish + Walloon family names, farms and village people.

@@ -26,7 +26,7 @@ export async function init(ctx) {
   const particles = createParticles({ rng, sprites, season: () => clock.season });
 
   // hooks the showcase can fill when terrain/environment are absent (never used when they exist)
-  const hooks = { surfaceAt: null, isWater: null, weather: null, leafSources: null, fireflyZones: null, butterflyZones: null, fallbackNight: false };
+  const hooks = { decalClock: null, surfaceAt: null, isWater: null, weather: null, leafSources: null, fireflyZones: null, butterflyZones: null, fallbackNight: false };
 
   const terrain = () => ctx.modules.get('terrain');
   function surfaceAt(x, y) {
@@ -63,7 +63,9 @@ export async function init(ctx) {
     return Math.max(0, Math.min(1, elev * 4 + 0.25));
   }
 
-  const decals = createDecals({ sprites, clockT: () => clock.t, surfaceAt, weather });
+  // decals/trails age on game time; the showcase may substitute a staged clock so a preset looks
+  // the same whatever time-of-day override the screenshot tool applies after staging
+  const decals = createDecals({ sprites, clockT: () => (hooks.decalClock ? hooks.decalClock() : clock.t), surfaceAt, weather });
 
   // ---------------- emitters ----------------
   const emitters = [];

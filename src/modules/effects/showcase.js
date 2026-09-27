@@ -549,6 +549,10 @@ export const showcase = {
 
     // ---- vehicles
     const T = { t: 0 };
+    // staged decal clock: decals/trails keep the look of this preset even when the screenshot
+    // tool overrides the time of day after staging (1 real s of showcase time = 1 game minute)
+    const stageT0 = clock.t;
+    hooks.decalClock = () => stageT0 + Math.max(0, T.t) * 60;
     const trackVehicle = (id, x0, speed, color, opts = {}) => {
       const v = { id, x: x0, y: trackY(x0), rot: 0, speed, img: tractorSprite(art, palette, color), w: 2.6, h: 4.2, x0, opts };
       v.place = (t) => {
@@ -693,7 +697,7 @@ export const showcase = {
         api.decal('hoofprint', s + Math.sin(k * 2.3) * 0.05, hy + side, hr, { variant: k });
       }
       if (preset === 'default' || preset === 'rain' || preset === 'closeup') {
-        for (const [px, sz] of [[40, 2.6], [66, 3.2], [75, 2.2], [47.5, 2.0]]) api.decal('puddle', px, trackY(px) + 0.8 * (px % 2 ? 1 : -1), Math.atan2(trackSlope(px), 1), { size: sz, variant: px | 0 });
+        for (const [px, sz] of [[40, 2.6], [66, 3.2], [75, 2.2], [47.5, 2.0]]) api.decal('puddle', px, trackY(px) + 0.8 * (px % 2 ? 1 : -1), Math.atan2(trackSlope(px), 1), { size: sz, variant: px | 0, wet: preset === 'rain' ? 0 : 0.55 });
       }
       if (preset === 'rain') {
         api.decal('puddle', 50, 49, 0.2, { size: 3.2, variant: 1 });

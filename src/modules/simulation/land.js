@@ -39,7 +39,8 @@ export function installLand(sim) {
   function reprice(p) {
     p.price = Math.round((ha(p) * p.valuePerHa * L.index) / 100) * 100;
     // current asking rent (a running lease keeps the rate it was signed at, in p.lease)
-    p.rentPerHaYear = Math.round(p.rentBasePerHa * L.index);
+    // Belgian lease law (Pachtwet) caps farm rents: asking rents follow only half the land-price growth
+    p.rentPerHaYear = Math.round(p.rentBasePerHa * Math.sqrt(L.index));
     p.rentPerDay = Math.round((ha(p) * p.rentPerHaYear / YEAR_DAYS) * 100) / 100;
   }
 
@@ -72,7 +73,7 @@ export function installLand(sim) {
         state: STATES.includes(def.state) ? def.state : 'npc',
         soil: +soilQ.toFixed(2),
         valuePerHa: def.price != null ? def.price / Math.max(1e-6, hectares) / L.index : lerp(CONST.landPerHa[0], CONST.landPerHa[1], soilQ),
-        rentBasePerHa: def.rentPerHaYear != null ? def.rentPerHaYear / L.index : lerp(CONST.rentPerHaYear[0], CONST.rentPerHaYear[1], soilQ),
+        rentBasePerHa: def.rentPerHaYear != null ? def.rentPerHaYear / Math.sqrt(L.index) : lerp(CONST.rentPerHaYear[0], CONST.rentPerHaYear[1], soilQ * soilQ),
         owner: def.owner || null, crop: def.crop || null, tradeable: def.tradeable !== false,
         center: centroid(poly), bbox: [x0, y0, x1, y1], since: sim.today(), listedUntil: null, lease: null,
       };
@@ -94,8 +95,8 @@ export function installLand(sim) {
       return null;
     },
     /** buy a parcel listed for sale: market value + 4 % fees.
-     *  opts.mortgage: borrow up to 60 % of the price over 15 years, secured on the parcel; you bring the
-     *  other 40 % + fees in cash (the bank will not lend the deposit). */
+     *  opts.mortgage: borrow up to 75 % of the price over 15 years, secured on the parcel; you bring the
+     *  other 25 % + fees in cash (the bank will not lend the deposit). */
     buyParcel(id, opts = {}) {
       const p = find(id);
       if (!p || p.state !== 'forSale') return false;
@@ -200,7 +201,7 @@ export function installLand(sim) {
       changed(p, 'npc');
     };
     if (nRent < CONST.maxRentListings && rng.chance(0.5)) list('forRent');
-    if (nSale < CONST.maxSaleListings && rng.chance(0.3)) list('forSale');
+    if (nSale < CONST.maxSaleListings && rng.chance(0.4)) list('forSale');
   }
 
   sim.land = { initLand, landDay };
