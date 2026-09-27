@@ -193,7 +193,7 @@ export function createManager(sim, opts) {
 
   function harvestField(f, p, factor) {
     const C = CROPS[f.crop], ha = p.area / 1e4;
-    const soilF = (0.82 + 0.36 * p.soil) * (globalThis.__YM || 1);
+    const soilF = 0.82 + 0.36 * p.soil;
     const y = C.yield * ha * soilF * f.factor * factor * rng.range(0.86, 1.12);
     api.addInventory(C.product, y);
     // haul own grain: hours on the trailer (booked as a haul task), or a contractor
