@@ -459,6 +459,14 @@ export async function init(ctx) {
     if (!sim || !sim.workers) return;
     const ws = sim.workers() || [];
     const have = new Set(C.list.map((c) => c.workerId).filter(Boolean));
+    // link hired characters that have no worker record yet (spawned directly, older saves) by name, then in order
+    for (const pass of [0, 1]) {
+      for (const c of C.list) {
+        if (c.role !== 'hired' || c.workerId) continue;
+        const w = ws.find((q) => !have.has(q.id) && (pass === 1 || q.name === c.name));
+        if (w) { c.workerId = w.id; have.add(w.id); barT = 0; }
+      }
+    }
     for (const w of ws) {
       if (have.has(w.id)) continue;
       const h = homeBase();
@@ -530,7 +538,7 @@ export async function init(ctx) {
     const c = active();
     if (!c) { ui.setPrompt(null); return; }
     let text = null;
-    if (c.vehicleId) text = 'F — Get out';
+    if (c.vehicleId) { const v = vehicleOf(c); text = v && Math.abs(v.speed || 0) > 1 ? 'Stop to get out' : 'F — Get out'; }
     else {
       const v = nearVehicle(c);
       if (v) text = `F — Enter ${vehicleLabel(v)}`;
@@ -668,7 +676,11 @@ export async function init(ctx) {
           c.x = v.x; c.y = v.y; c.rot = v.rot || 0;
           // a hand left alone in a machine gets out after 30 game minutes, or at night
           c._vehIdle = (c._vehIdle || 0) + gdt;
-          if ((c._vehIdle > 1800 || isNightNow()) && farmhand(c) && toggleVehicle(c)) { c.task = { kind: 'idle' }; }
+          c._exitTry = (c._exitTry || 0) - dt;
+          if ((c._vehIdle > 1800 || isNightNow()) && farmhand(c) && c._exitTry <= 0) {
+            c._exitTry = 1; // a refused exit (moving / boxed in) is retried about once a second
+            if (toggleVehicle(c)) c.task = { kind: 'idle' };
+          }
         } else { c.vehicleId = null; c.state = 'idle'; }
       } else if (c.role === 'villager') {
         ai.tickVillager(c, dt, now);
@@ -883,7 +895,7 @@ export async function init(ctx) {
   ctx.events.on('jobs:failed', dropSite);
 
   // ------------------------------------------------------------------ api
-  const pub = (c) => c && { id: c.id, name: c.name, role: c.role, x: c.x, y: c.y, rot: c.rot, state: c.state, vehicleId: c.vehicleId, task: c.task ? { ...c.task, _spot: undefined } : null, appearance: c.appearance, tool: c.tool, stamina: c.stamina };
+  const pub = (c) => c && { id: c.id, name: c.name, role: c.role, x: c.x, y: c.y, rot: c.rot, state: c.state, vehicleId: c.vehicleId, task: c.task ? { ...c.task, _spot: undefined } : null, appearance: c.appearance, tool: c.tool, stamina: c.stamina, workerId: c.workerId || null };
   const api = {
     spawn,
     despawn,
@@ -917,7 +929,8 @@ export async function init(ctx) {
     /** r4.7: is the hand linked to this simulation worker awake and able to take a job? */
     isAvailable(workerId) {
       const c = C.list.find((q) => q.workerId === workerId || q.id === workerId);
-      return !!c && c.state !== 'sleeping' && c.state !== 'inside' && !isNightNow();
+      // r4c: not available while possessed by the player or driving a vehicle
+      return !!c && c.id !== W.player.activeCharacterId && !c.vehicleId && c.state !== 'sleeping' && c.state !== 'inside' && !isNightNow();
     },
   };
 

@@ -255,7 +255,16 @@ export function installEconomy(sim) {
       w.kinds = w.kinds || {};
       const k = String(kind || 'work');
       w.kinds[k] = +(((w.kinds[k] || 0) + +hours).toFixed(2));
+      if (k === 'possessed') w.possessedAt = sim.now(); // r4c: that hour he is the player's, not on delegated jobs
       return w.hoursToday;
+    },
+    /** r4c: what a hand costs today — for the UI ("Dries is on the clock today").
+     *  → { dayRate, retainer, onTheClock (≥ 1 h logged or a delegated job today), costToday, extraIfUsed } */
+    workerDayCost(workerId) {
+      const w = E.workers.find((x) => x.id === workerId);
+      if (!w) return null;
+      const on = (w.hoursToday || 0) >= 1 || !!w.delegatedToday;
+      return { dayRate: w.dayRate, retainer: w.retainer, hoursToday: +(w.hoursToday || 0).toFixed(2), onTheClock: on, costToday: on ? w.dayRate : w.retainer, extraIfUsed: on ? 0 : w.dayRate - w.retainer };
     },
     /** r4: machines are reserved per day by category (tractor, combine, harvester, trailer, tillage, …).
      *  Returns true if one more unit of `category` was free today and is now held by `holderId`. */
@@ -302,7 +311,7 @@ export function installEconomy(sim) {
       const interest = l.balance * l.rate / YEAR_DAYS;
       l.interestPaid += interest;
       api.charge(interest, 'interest', 'Loan interest', { force: true });
-      if (doy % MONTH_DAYS === 0) {
+      if (doy % MONTH_DAYS === 0 && !(l.graceUntil > day)) {
         const p = Math.min(l.balance, l.monthly);
         l.balance -= p;
         sim.record(-p, 'loanRepay', 'Loan instalment');
@@ -341,17 +350,33 @@ export function installEconomy(sim) {
     }
   }
 
+  /** r4c: restructure once, sized to what the farm can service: instalments ≤ ⅓ of last year's operating
+   *  result (min €150/month), up to 20 years, 6 months' grace; whatever that cannot carry is written off. */
   function restructure() {
-    if (E.restructured) {
-      if (!E.bankrupt) { E.bankrupt = true; sim.emit('economy:bankrupt-warning', { money: E.money, stage: 'bankrupt', daysOverLimit: E.overLimitDays, creditLimit: 0 }); }
-      return;
-    }
+    if (E.restructured) { goBankrupt(); return; }
     E.restructured = true;
-    const amount = Math.ceil(-E.money / 100) * 100 + 2000;
-    securedLoan(amount, 120, 'Bank restructuring of the overdraft', { restructuring: true });
-    const l = E.loans[E.loans.length - 1]; l.rate = 0.06;
+    const debt = Math.ceil(-E.money / 100) * 100;
+    const income = Math.max(0, api.summary(YEAR_DAYS).operatingNet);
+    const monthlyCap = Math.max(150, income / 12 / 3);
+    const r = 0.06 / 12, n = 240;
+    const carry = Math.floor(monthlyCap * (1 - Math.pow(1 + r, -n)) / r / 100) * 100; // annuity the farm can pay
+    const loan = Math.min(debt, carry);
+    const writeOff = debt - loan;
+    if (writeOff > 0) sim.record(writeOff, 'loan', `Debt written off by the bank (restructuring)`);
+    const months = loan > 0 ? Math.max(24, Math.min(n, Math.ceil(loan / monthlyCap))) : 0;
+    if (loan > 0) {
+      securedLoan(loan, months, 'Bank restructuring of the overdraft', { restructuring: true });
+      const l = E.loans[E.loans.length - 1]; l.rate = 0.06; l.graceUntil = sim.today() + 6 * MONTH_DAYS;
+    }
     E.overLimitDays = 0; E.nothingLeftDays = 0;
-    sim.emit('economy:bankrupt-warning', { money: E.money, stage: 'restructured', daysOverLimit: 0, creditLimit: api.creditLimit(), loan: amount });
+    sim.emit('economy:bankrupt-warning', { money: E.money, stage: 'restructured', daysOverLimit: 0, creditLimit: api.creditLimit(), loan, months, writeOff });
+  }
+  /** final state: leases are handed back (rent stops), the farm is blocked until cash is positive again */
+  function goBankrupt() {
+    if (E.bankrupt) return;
+    E.bankrupt = true;
+    if (sim.endAllLeases) sim.endAllLeases();
+    sim.emit('economy:bankrupt-warning', { money: E.money, stage: 'bankrupt', daysOverLimit: E.overLimitDays, creditLimit: 0 });
   }
 
   function overLimit() {
@@ -364,7 +389,7 @@ export function installEconomy(sim) {
     const head = CONST.creditLimitBase + CONST.creditIncomeMult * income + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt;
     return -E.money > head;
   }
-  sim.blocked = () => !!E.bankrupt || (E.overLimitDays || 0) >= CONST.overLimitBlockDays;
+  sim.blocked = () => (!!E.bankrupt && E.money < 0) || (E.overLimitDays || 0) >= CONST.overLimitBlockDays;
 
   /** the bank sells the least valuable owned asset (machines first, then land) at 85 % of value */
   function seizeOne() {
@@ -376,6 +401,15 @@ export function installEconomy(sim) {
       api.credit(got, 'assetSale', `Bank sale (insolvency): ${a.name}`);
       settleLinked({ assetId: a.id });
       sim.emit('economy:asset-seized', { kind: 'machine', id: a.id, name: a.name, amount: got });
+      return true;
+    }
+    // r4c: stored produce is the easiest thing to liquidate — before any land
+    const stock = Object.entries(E.inventory).filter(([k, q]) => q > 0.05 && ITEMS[k] && !['diesel', 'fertiliser'].includes(k) && E.prices[k]);
+    if (stock.length) {
+      let got = 0;
+      for (const [k, q] of stock) { got += q * E.prices[k] * CONST.seizeValue; api.removeInventory(k, q); }
+      api.credit(got, 'sales', 'Bank sale (insolvency): stored produce');
+      sim.emit('economy:asset-seized', { kind: 'stock', id: 'stock', name: 'stored produce', amount: got });
       return true;
     }
     if (sim.seizeLand) return sim.seizeLand(CONST.seizeValue);

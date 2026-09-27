@@ -151,7 +151,9 @@ export function installLand(sim) {
       if (!FIELD_OPS.includes(op)) return false;
       const a = opts.areaM2 == null ? 0 : +opts.areaM2;
       if (!Number.isFinite(a) || a < 0) return false;
-      creditWork(p, op, a);
+      // r4c: land with crops fields is reported by crops (crops:worked) — no second, unchecked path to CAP
+      if (p.cropsFields || (sim.hasCropsFields && sim.hasCropsFields(p.id))) return false;
+      creditWork(p, op, Math.min(a, p.area)); // at most the parcel per call
       if (opts.workerId && opts.hours > 0) api.logWork(opts.workerId, opts.hours, 'field');
       return true;
     },
@@ -181,11 +183,13 @@ export function installLand(sim) {
   const share = (p) => { let m = 0; for (const v of Object.values(p.worked || {})) m = Math.max(m, v); return Math.min(1, m / Math.max(1, p.area)); };
   sim.creditWork = (id, op, a) => { const p = find(id); if (p && (p.state === 'owned' || p.state === 'rented')) creditWork(p, op, a); };
   sim.onCropsWorked = (e) => {
-    if (!e) return;
+    // r4c: contractor work is credited once, by contractorDay (booked area) — ignore crops' echo of it
+    if (!e || e.contractor) return;
     const p = e.parcelId ? find(e.parcelId) : null;
     if (!p || (p.state !== 'owned' && p.state !== 'rented')) return;
     const a = +e.areaM2;
     if (!(a > 0)) return;
+    p.cropsFields = true; // crops reports this parcel's work itself from now on
     creditWork(p, String(e.tool || 'work'), a);
   };
 
@@ -196,6 +200,8 @@ export function installLand(sim) {
     p.state = 'npc'; p.owner = 'a neighbour'; p.since = sim.today(); p.lease = null; resetCap(p); changed(p, 'owned');
     return v - repaid;
   }
+  /** bankruptcy: every lease is handed back without the early-exit fee (rent stops) */
+  sim.endAllLeases = () => { for (const p of L.parcels) if (p.state === 'rented') { p.state = 'npc'; p.lease = null; resetCap(p); p.since = sim.today(); reprice(p); changed(p, 'rented'); } };
   /** insolvency: the bank sells the least valuable tradeable owned parcel */
   sim.seizeLand = (frac) => {
     const ps = L.parcels.filter((p) => p.state === 'owned' && p.tradeable !== false).sort((a, b) => a.price - b.price);

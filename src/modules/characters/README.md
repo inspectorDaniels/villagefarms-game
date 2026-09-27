@@ -151,7 +151,9 @@ Hooks for modules that do not exist yet (every call is guarded, and undefined re
   - Presence is not ticked for jobs assigned to a simulation worker, because simulation works those itself.
   - At night the job waits and the hand sleeps.
 - **Wages (r4.5):** each hired character carries the `workerId` returned by `hireWorker`/`workers()`. Game-hours spent active are logged to it with `simulation.logWork(workerId, hours, kind)` in 0.25 h batches. Kind is `possessed` when the player controls the hand, or `task` for goto/work/driving. Delegated-job hours are not logged here, because simulation logs them.
-- `isAvailable(workerId)` (r4.7): true when the hand exists, is awake and it is not night (21:45–06:00). This includes hands pinned to night work.
+- `isAvailable(workerId)` (r4.7/r4c): true when the hand exists, is awake, is not possessed by the player, is not driving, and it is not night (21:45–06:00). The night rule includes hands pinned to night work.
+- `list()` and `get()` include `workerId`. Hired characters without a worker record are linked to an unmatched `simulation.workers()` entry, by name first.
+- While the vehicle moves faster than 1 m/s, the prompt reads "Stop to get out". A hand's blocked auto-exit is retried about once a second.
 - Delegated hands run to far job sites. Beyond 120 m, with both ends off-screen, they get there at once. After `jobs:completed` or `jobs:failed` they go back to their previous task, or run home.
 - **Vehicles:**
   - F and the prompt use `vehicles.nearest(x, y, 3, {free:true})`.

@@ -28,7 +28,7 @@ export const manifest = {
     // jobs
     'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation', 'assignJob', 'activeJobCap', 'defineClientFarm',
     // workers
-    'hireWorker', 'fireWorker', 'workers', 'logWork', 'reserveMachine', 'machinesFree', 'capShare',
+    'hireWorker', 'fireWorker', 'workers', 'logWork', 'workerDayCost', 'reserveMachine', 'machinesFree', 'capShare',
     // time helper
     'today',
   ],
@@ -46,6 +46,11 @@ export async function init(ctx) {
     clockT: () => ctx.clock.t,
     warn: (msg) => ctx.warn(msg),
     hourlyDelegation: true,
+    hasCropsFields: (parcelId) => {
+      const cr = ctx.modules.get('crops');
+      const fs = cr && typeof cr.fields === 'function' ? cr.fields() : null;
+      return Array.isArray(fs) && fs.some((f) => f && f.parcelId === parcelId);
+    },
     isAvailable: (workerId) => {
       const ch = ctx.modules.get('characters');
       if (!ch || typeof ch.isAvailable !== 'function') return true;

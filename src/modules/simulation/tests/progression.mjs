@@ -114,14 +114,24 @@ function main() {
   if (B) {
     const at = (y, fn) => B.filter((rows) => rows[Math.min(YEARS, y) - 1] && fn(rows[Math.min(YEARS, y) - 1])).length + '/' + B.length;
     const first = (fn) => med(B.map((rows) => { const i = rows.findIndex(fn); return i < 0 ? 99 : i + 1; }));
-    console.log('\n### r3 targets (builder strategy)');
+    console.log('\n### Targets (builder strategy; r3 milestones, r4b/r4c net-worth band and ordering)');
     console.log(`- first hand: median year ${first((r) => r.hands >= 1)} (target 2–3); 2+ hands by Y8: ${at(8, (r) => r.hands >= 2)}`);
     console.log(`- first owned parcel (beyond the yard): median year ${first((r) => r.own > 1)} (target 3–4)`);
     console.log(`- combine: median year ${first((r) => r.combine)} (target 4–6)`);
     console.log(`- farmed ha at Y8: median ${med(B.map((r) => (r[Math.min(8, YEARS) - 1] || r[r.length - 1]).own + (r[Math.min(8, YEARS) - 1] || r[r.length - 1]).rent)).toFixed(1)} (target 40–60); in range ${at(8, (r) => r.own + r.rent >= 40 && r.own + r.rent <= 60)}`);
-    console.log(`- net worth at Y10: median ${k(med(B.map((r) => r[Math.min(10, YEARS) - 1].net)))} (target 400–600k); in range ${at(10, (r) => r.net >= 400000 && r.net <= 600000)}`);
-    const cmp = Object.keys(all).map((s) => `${s} ${k(med(all[s].map((r) => r[YEARS - 1].net)))}`).join(' · ');
-    console.log(`- Y${YEARS} net worth by strategy: ${cmp}`);
+    const nw10 = med(B.map((r) => r[Math.min(10, YEARS) - 1].net));
+    console.log(`- net worth at Y10: median ${k(nw10)} (r4b target €250–400k, required at AI ×1); in range ${at(10, (r) => r.net >= 250000 && r.net <= 400000)}${AI_MULT === 1 ? (nw10 >= 250000 && nw10 <= 400000 ? '  ✔' : '  ✘') : '  (informative at this factor)'}`);
+    const Y = Math.min(10, YEARS) - 1;
+    const nw = {}; for (const st of Object.keys(all)) nw[st] = med(all[st].map((r) => r[Y].net));
+    const cmp = Object.keys(all).map((st) => `${st} ${k(nw[st])}`).join(' · ');
+    console.log(`- Y${Y + 1} net worth by strategy: ${cmp}`);
+    const gt = (a, b) => nw[a] != null && nw[b] != null && nw[a] > nw[b];
+    if (['jobs', 'contractor', 'smallfarm', 'renter', 'builder'].every((st) => nw[st] != null)) {
+      const full = gt('builder', 'renter') && gt('renter', 'smallfarm') && gt('smallfarm', 'contractor') && gt('contractor', 'jobs');
+      const relaxed = gt('builder', 'renter') && gt('renter', 'smallfarm') && gt('builder', 'jobs');
+      console.log(`- r4c ordering: builder > renter > smallfarm > contractor > jobs: ${full ? 'yes' : 'no'}${AI_MULT === 1 ? ' (required at ×1) ' + (full ? '✔' : '✘') : ''}`);
+      if (AI_MULT !== 1) console.log(`  relaxed rule at ×${AI_MULT} (builder > renter > smallfarm, builder > jobs; contractor vs jobs may swap): ${relaxed ? '✔' : '✘'}`);
+    }
   }
   // 5 ha wheat self-check
   const five = [];
