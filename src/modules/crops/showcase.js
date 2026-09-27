@@ -75,8 +75,7 @@ export async function stageShowcase(ctx, presetName, inst) {
     api.plantAll(F9, 'oats', 'ripe'); api.plantAll(F10, 'barley', 'withered');
   } else {
     // June patchwork (default / closeup / maize)
-    api.plantAll(F1, 'wheat', 4); api.plantAll(F2, 'barley', 'ripe'); api.plantAll(F3, 'rapeseed', 'pods ripe'); api.plantAll(F3, 'rapeseed', 4);
-    model.byId.get(F3) && inst.model.plantAll(F3, 'rapeseed', 4);
+    api.plantAll(F1, 'wheat', 4); api.plantAll(F2, 'barley', 'ripe'); api.plantAll(F3, 'rapeseed', 'pods');
     api.plantAll(F4, 'grass', 'ripe'); W(F4, 'mow', 3, 0, 0.75); W(F4, 'rake', 6, 0, 0.5); W(F4, 'bale', 3, 0, 0.18);
     api.forceStage(F5, 'stubble', 'wheat'); W(F5, 'plough', 3, 0.35, 1);
     api.plantAll(F6, 'maize', 3); api.plantAll(F7, 'potatoes', 4); api.plantAll(F8, 'sugarBeet', 3); api.plantAll(F9, 'oats', 2);
@@ -85,13 +84,10 @@ export async function stageShowcase(ctx, presetName, inst) {
   }
   // weeds on one field so the weed overlay is visible
   const f9 = model.byId.get(F9);
-  if (f9) { for (let k = 0; k < f9.cells.weeds.length; k++) if (f9.cells.state[k] && (k % 7 < 3)) f9.cells.weeds[k] = 0.6; model.summarize(f9); }
-  for (let k = 0; f9 && k < f9.cells.state.length; k++) model.W.fields && inst.renderer.onDirty(f9, k);
+  if (f9) { for (let k = 0; k < f9.cells.weeds.length; k++) if (f9.cells.state[k] && (k % 7 < 3)) f9.cells.weeds[k] = 0.6; model.refresh(F9); }
   // paint everything visible now so the first screenshot frame is complete
-  const cam = ctx.camera;
   const z = P.camera.zoom;
   const hw = 1700 / 2 / z, hh = 1000 / 2 / z;
   inst.renderer.prewarm({ x0: P.camera.x - hw, x1: P.camera.x + hw, y0: P.camera.y - hh, y1: P.camera.y + hh, zoom: z, dpr: 1 });
   inst.setBudget(6000);
-  void cam;
 }

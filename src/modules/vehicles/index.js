@@ -588,7 +588,7 @@ export async function init(ctx) {
 const internals = new WeakMap();
 
 export const showcase = {
-  deps: ['terrain', 'environment', 'roads', 'effects', 'crops'],
+  deps: ['terrain', 'environment', 'roads', 'effects'],
   presets: PRESETS,
   async stage(ctx, presetName) {
     await stageShowcase(ctx, presetName, internals.get(ctx));

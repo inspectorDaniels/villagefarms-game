@@ -692,6 +692,7 @@ export function createModel(W, env) {
     else if (stage === 'ripe') g = 1;
     else if (stage === 'withered') { g = 1; state = S.WITHERED; }
     else if (stage === 'sown') g = 0;
+    else if (stage === 'pods') g = CROPS[crop].podsAt ? (CROPS[crop].podsAt + 1) / 2 : growthForStage(crop, 4);
     else { const idx = CROPS[crop].stageNames.indexOf(stage); g = idx >= 0 ? growthForStage(crop, idx) : 0; }
     for (let k = 0; k < c.state.length; k++) {
       if (!c.state[k]) continue;
@@ -712,7 +713,7 @@ export function createModel(W, env) {
     const f = byId.get(fieldId);
     if (!f) return false;
     const crop = cropOpt || f.crop || 'wheat';
-    if (typeof stage === 'number' || stage === 'ripe' || stage === 'sown' || (CROPS[crop] && CROPS[crop].stageNames.includes(stage)) || stage === 'withered') {
+    if (typeof stage === 'number' || stage === 'ripe' || stage === 'sown' || stage === 'pods' || (CROPS[crop] && CROPS[crop].stageNames.includes(stage)) || stage === 'withered') {
       return plantAll(fieldId, crop, stage);
     }
     const s = stage === 'harvested' ? S.STUBBLE : S[String(stage).toUpperCase()];
@@ -730,6 +731,15 @@ export function createModel(W, env) {
       if (s === S.STUBBLE && stage === 'harvested' && C && C.strawT) c.mass[k] = C.strawT * 1000 * f.cellArea / 1e4;
       touch(f, k);
     }
+    summarize(f);
+    return true;
+  }
+
+  /** recompute summary + visuals of a field after direct edits of its cell arrays */
+  function refresh(fieldId) {
+    const f = byId.get(fieldId);
+    if (!f) return false;
+    for (let k = 0; k < f.cells.state.length; k++) touch(f, k);
     summarize(f);
     return true;
   }
@@ -826,7 +836,7 @@ export function createModel(W, env) {
   }
 
   return {
-    W, byId, createField, removeField, fieldAtObj, work, flush, dayTick, beginDay, stepDay, pendingDay: () => (dayJob ? dayJob.day : null), plantAll, forceStage, stats, cellAt, summarize,
+    W, byId, createField, removeField, fieldAtObj, work, flush, dayTick, beginDay, stepDay, pendingDay: () => (dayJob ? dayJob.day : null), plantAll, forceStage, refresh, stats, cellAt, summarize,
     save, load, digest, cellCenter, cellIndexAt, toGrid, yieldKgCell, visKey, cropOf,
     fieldPublic(f) { return f ? { id: f.id, crop: f.crop, stage: f.stage, state: f.state, parcelId: f.parcelId, area: f.area, growth: f.growth } : null; },
   };

@@ -90,14 +90,12 @@ export async function stageShowcase(ctx, preset, I) {
     veh.setImplement(wt, down);
     for (let k = 0; k < steps; k++) { veh.control(wt, { throttle: thr, brake: 0, steer }); I.step(1 / 60); }
   };
-  // three passes up and down the field
-  for (let pass = 0; pass < 3; pass++) {
-    drivePass(pass === 2 ? 700 : 1050, 1, 0, true);
-    if (pass === 2) break;
-    drivePass(60, 0, 0, false);
-    // headland U-turn (right on the way up, left on the way down)
-    drivePass(250, 0.6, pass % 2 === 0 ? 1 : -1, false);
-    drivePass(60, 0.6, 0, false);
+  // four adjacent lands, alternating direction (teleported to each headland start)
+  for (let pass = 0; pass < 4; pass++) {
+    const up = pass % 2 === 0;
+    v.x = O.x + 74 + pass * 2.2; v.y = O.y + (up ? 66 : 10); v.rot = up ? 0 : Math.PI; v.speed = 0; v.steer = 0;
+    I.driver.settle(v);
+    drivePass(pass === 3 ? 520 : 1250, 1, 0, true);
   }
   // combine on the headland, tractor + trailer convoy on the lane, pickup following
   const cv = sp('tractor_t3', 18, 50.5, E, { owner: 'owned' });
@@ -126,13 +124,13 @@ export async function stageShowcase(ctx, preset, I) {
   // ---- camera
   const cams = {
     default: [31, 26],
-    working: [88, 46],
     convoy: [42, 46],
     night: [40, 36],
     closeup: [0, 0],
   };
   let target;
   if (preset === 'closeup') target = () => ({ x: I.byId.get(pl).x * 0.5 + v.x * 0.5, y: I.byId.get(pl).y * 0.5 + v.y * 0.5 });
+  else if (preset === 'working') target = () => ({ x: v.x + 4, y: v.y + 6 });
   else if (preset === 'convoy') target = () => ({ x: (cvd.x + O.x + 30) / 2, y: O.y + 46 });
   else { const c = cams[preset] || cams.default; target = () => ({ x: O.x + c[0], y: O.y + c[1] }); }
   const t0 = target();

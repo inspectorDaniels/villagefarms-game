@@ -215,7 +215,7 @@ export function createDriver(env) {
     if (!T) return;
     S.stepN++;
     const c = v.ctl || {};
-    const fresh = v.driverId && (env.stepCount() - (v.ctlStep || -99)) <= 3;
+    const fresh = v.driverId && (v.ctlHold || (env.stepCount() - (v.ctlStep || -99)) <= 3);
     let thr = fresh ? clamp(+c.throttle || 0, 0, 1) : 0;
     let brk = fresh ? clamp(+c.brake || 0, 0, 1) : (v.driverId ? 0 : 1);
     let str = fresh ? clamp(+c.steer || 0, -1, 1) : 0;
