@@ -151,11 +151,17 @@ Hooks for modules that do not exist yet (every call is guarded, and undefined re
   - Presence is not ticked for jobs assigned to a simulation worker, because simulation works those itself.
   - At night the job waits and the hand sleeps.
 - **Wages (r4.5):** each hired character carries the `workerId` returned by `hireWorker`/`workers()`. Game-hours spent active are logged to it with `simulation.logWork(workerId, hours, kind)` in 0.25 h batches. Kind is `possessed` when the player controls the hand, or `task` for goto/work/driving. Delegated-job hours are not logged here, because simulation logs them.
-- `isAvailable(workerId)` (r4.7): true when the hand exists, is awake and it is not night.
+- `isAvailable(workerId)` (r4.7): true when the hand exists, is awake and it is not night (21:45–06:00). This includes hands pinned to night work.
+- Delegated hands run to far job sites. Beyond 120 m, with both ends off-screen, they get there at once. After `jobs:completed` or `jobs:failed` they go back to their previous task, or run home.
 - **Vehicles:**
   - F and the prompt use `vehicles.nearest(x, y, 3, {free:true})`.
-  - If `exit()` returns `blocked`, the character stays seated and a toast says "No room to get out". If `exit()` returns nothing, the fallback puts the character 2.2 m behind the vehicle.
+  - A null (or `blocked`) result from `exit()` means the exit was refused, because the vehicle is moving above 1 m/s or there is no free spot. The character stays seated; vehicles shows the toast.
+  - A successful exit is confirmed with `driverOf(vid)`. `vehicles:exited` also clears the seat, and there is no fallback teleport.
+  - `positionOf(id)` returns the true position: the vehicle's while seated.
   - While driving, the camera zooms out with speed (down to 20 px/m) and looks up to 14 m ahead. The zoom is restored on exit.
+  - The look-ahead is private to the camera and capped so the vehicle stays in the central band. A northward lead may shift it at most 10 % of the screen down, clear of the bottom HUD.
+  - The hand-tool toolbar is hidden while driving.
+  - Prompts use the vehicle's display name.
   - A hand left alone in a vehicle gets out after 30 game minutes, or at night.
 - **Tools:** a tool key pressed during an animation is buffered and applied when the animation ends.
 - **Walking home:** a hand walking home runs when more than 12 m away. Beyond 120 m, with both it and its home off-screen, it goes home at once.
