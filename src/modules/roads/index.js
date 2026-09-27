@@ -39,7 +39,14 @@ export async function init(ctx) {
   };
   let lastEnvKey = '';
   const painter = makePainter({ art, palette, tex, getD: () => D, getEnv: envState });
-  const cache = new ChunkCache(painter.paint, { isEmpty: painter.isEmpty, maxBytes: 180 * 1048576 });
+  const cache = new ChunkCache(painter.paint, { bounds: painter.bounds, steps: painter.steps, maxBytes: 96 * 1048576 });
+  // debug / A-B switch: ?roadsfx=0 (or world.roads.debug.render = false at runtime) removes all road
+  // rendering (chunk layer, wet layer, lamps/bridges collector, glow) while keeping the API alive.
+  const debug = { render: ctx.params && (ctx.params.roadsfx === '0' || ctx.params.roadsfx === 0) ? false : true, stats: () => cache.stats() };
+  Object.defineProperty(roads, 'debug', { value: debug, enumerable: false, configurable: true, writable: true });
+  const warned = new Set();
+  const warnOnce = (key, msg) => { if (warned.has(key)) return; warned.add(key); ctx.warn('roads: ' + msg); };
+  const fin = Number.isFinite;
 
   // ------------------------------------------------------------ graph editing
   const nodeIndex = () => new Map(roads.nodes.map((n) => [n.id, n]));

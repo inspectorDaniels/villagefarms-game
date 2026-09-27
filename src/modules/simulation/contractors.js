@@ -16,7 +16,9 @@ export function installContractors(sim) {
     const C = CONTRACTOR[op];
     if (!C) return null;
     const p = api.parcel(id);
-    const ha = opts.ha > 0 ? +opts.ha : p ? p.area / 1e4 : 0;
+    // r4: only on land the player farms; a partial booking is limited to the parcel
+    if (!p || (p.state !== 'owned' && p.state !== 'rented')) return null;
+    const ha = Math.min(p.area / 1e4, opts.ha > 0 ? +opts.ha : opts.areaM2 > 0 ? opts.areaM2 / 1e4 : p.area / 1e4);
     if (!(ha > 0)) return null;
     const today = sim.today();
     const peak = C.peakMonths.includes(monthOf(today));
@@ -25,11 +27,12 @@ export function installContractors(sim) {
     const rate = haPerGameHour(sim.rates, op, 'ai', 3, 'combine_l'); // contractors bring big kit
     const days = Math.max(1, Math.ceil(ha / (rate * CONST.hoursPerDayHand)));
     const price = Math.round(Math.max(80, C.perHa * ha)); // minimum charge €80
-    return { parcelId: p ? p.id : id, name: p ? p.name : opts.name || id, op, ha: +ha.toFixed(2), price, leadDays, leadRange: [a, b], days, peak };
+    return { parcelId: p.id, fieldId: opts.fieldId || null, crop: opts.crop || null, name: p.name, op, ha: +ha.toFixed(4), areaM2: Math.round(ha * 1e4), price, leadDays, leadRange: [a, b], days, peak };
   }
 
   Object.assign(api, {
     /** price, lead time and duration for having `op` done on a parcel (no booking) */
+    /** opts: {ha | areaM2, fieldId?, crop?} — the parcel must be owned or rented by the player */
     contractorQuote(id, op, opts = {}) { return quote(id, op, opts, null); },
     /** book (and pay for) a contractor; returns the booking or null */
     hireContractor(id, op, opts = {}) {
@@ -62,8 +65,9 @@ export function installContractors(sim) {
       if (b.status === 'booked' && day >= b.startDay) b.status = 'working';
       if (b.status === 'working' && day >= b.doneDay) {
         b.status = 'done';
-        if (api.parcel(b.parcelId)) api.recordFieldWork(b.parcelId, b.op);
-        sim.emit('economy:contractor-done', { booking: { ...b } });
+        sim.creditWork(b.parcelId, b.op, b.areaM2); // CAP: only the booked area counts
+        // crops listens and applies the operation to that area
+        sim.emit('economy:contractor-done', { parcelId: b.parcelId, fieldId: b.fieldId, operation: b.op, areaM2: b.areaM2, crop: b.crop, bookingId: b.id, booking: { ...b } });
       }
     }
     // keep a short history
