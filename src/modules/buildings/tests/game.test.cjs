@@ -22,6 +22,15 @@ async function scenario(page) {
     const check = (name, ok, info) => out.checks.push({ name, ok: !!ok, info: info === undefined ? '' : info });
     const r2 = (x) => Math.round(x * 100) / 100;
     const W = G.world;
+    // first valid spot on a spiral around (x,y) → [x,y]
+    const spot = (type, x, y, rot, opts = {}) => {
+      for (let r = 0; r < 200; r += 6) for (let a = 0; a < Math.max(1, r); a++) {
+        const px = x + Math.cos(a / Math.max(1, r) * 6.283) * r, py = y + Math.sin(a / Math.max(1, r) * 6.283) * r;
+        const q = B.canPlace(type, px, py, rot, opts);
+        if (q && q.ok) return [px, py];
+      }
+      return [x, y];
+    };
 
     // ---- site: dry, gentle ground near the farmhands; own a 160 × 160 m parcel, neighbour to the east
     const ch = W.characters.list.find((c) => c.role === 'hired') || W.characters.list[0];
@@ -109,7 +118,8 @@ async function scenario(page) {
     check('refuel works at the shed fuel point', lit > 0, lit);
 
     // ---- 4. sell point building (grain co-op) + deliver by trailer
-    const coop = B.place('grain_coop', X + 100, Y - 20, 0, { owner: 'npc' });
+    const coop = B.place('grain_coop', ...spot('grain_coop', X + 100, Y - 20, 0, { owner: 'npc' }), 0, { owner: 'npc' });
+    out.nums.coopErr = B.lastError();
     const cb = B.get(coop);
     const sp = S.sellPoints().find((q) => q.id === cb.sellPointId);
     check('co-op defines a simulation sell point at its door', sp && Math.hypot(sp.x - cb.doors[0].x, sp.y - cb.doors[0].y) < 0.01 && sp.accepts.includes('wheat'), sp);
@@ -120,7 +130,7 @@ async function scenario(page) {
     const md = S.money();
     const del = B.deliver(tr);
     check('deliver 8 t wheat at the co-op → sold via simulation', del && del.kg === 8000 && del.euros > 1000 && r2(S.money() - md) === r2(del.euros), { del, gained: r2(S.money() - md) });
-    const shop = B.place('shop', X + 120, Y + 40, 0, { owner: 'npc' });
+    const shop = B.place('shop', ...spot('shop', X + 120, Y + 40, 0, { owner: 'npc' }), 0, { owner: 'npc' });
     const eggs = S.price('eggs', B.get(shop).sellPointId);
     check('shop buys eggs, not wheat', eggs > 0 && !S.price('wheat', B.get(shop).sellPointId), eggs);
     const shopSp = B.get(shop).sellPointId;
@@ -172,10 +182,8 @@ async function scenario(page) {
 
     // ---- 10. perf with a dense village on screen at night
     const vx = X + 110, vy = Y + 20;
-    for (let i = 0; i < 6; i++) B.place('village_house', vx - 30 + i * 11, vy + 34, 0, { owner: 'npc', variant: i % 3 });
-    B.place('church', vx - 10, vy + 58, 0, { owner: 'npc' });
-    B.place('dairy', vx + 30, vy + 60, 0, { owner: 'npc' });
-    B.place('dealer', vx + 60, vy + 20, 0, { owner: 'npc' });
+    for (let i = 0; i < 6; i++) B.place('village_house', ...spot('village_house', vx - 30 + i * 11, vy + 34, 0, { owner: 'npc', variant: i % 3 }), 0, { owner: 'npc', variant: i % 3 });
+    for (const [t, dx, dy] of [['church', -10, 58], ['dairy', 30, 60], ['dealer', 60, 20]]) B.place(t, ...spot(t, vx + dx, vy + dy, 0, { owner: 'npc' }), 0, { owner: 'npc' });
     out.nums.total = B.list().length;
     G.setCamera(vx, vy + 30, 9);
     G.setTime('21:40');

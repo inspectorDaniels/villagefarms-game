@@ -5,24 +5,29 @@
   "modules": {
     "terrain": {
       "wave": 1,
-      "status": "r2-built-unreviewed",
-      "score": 5,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
           "score": 5,
           "pass": false,
           "review": "docs/reviews/terrain-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/terrain-r2.md"
         }
       ],
       "openIssues": [
-        "Water views at 6-24 px/m cost 20-45 ms/frame (shimmer: 2-4 full-tile drawImage per wet tile + wet tile drawing); health msAvg under-reports deferred canvas cost",
-        "paintSurface/flatten throw on bad shape -> console errors toward auto-disable; must warn+return falsy, reject NaN",
-        "paintSurface over water returns success count but changes nothing",
-        "generate() 1.4-1.6 s; init+demo double generate wipes edits; one boot 7.4 s"
+        "Seams: grass ticks between adjacent painted strips",
+        "Small shapes between grid points paint nothing (characters fork r=0.62 at x.5)",
+        "should: collinear polygon passes validation, same-frame edit coalescing, findDry clamp, edit-list wipe drops outlines"
       ],
-      "note": "r2 builder: water-view frame 28-32 ms -> ~2 ms (shimmer 1 cropped 8px/m canvas per wet tile), input validation (19 bad calls 0 errors), paint over water skipped, generate 1.0 s + no double generation, surfaceAt==isWater (0/51k mismatches). ?terrainfx=0 A/B switch."
+      "note": "passed r2 7/10: water frame cost 20-45 -> 0.4-0.7 ms, robust API, 0/184k surface mismatches; 2 functional must-fixes sent back"
     },
     "environment": {
       "wave": 1,
