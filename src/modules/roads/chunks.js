@@ -16,7 +16,7 @@ export class ChunkCache {
    * @param opts   { maxBytes, bounds(rect)→{x0,y0,x1,y1}|null (content bbox, metres), steps(g,rect,res) generator,
    *                 stepBudget:[min,max] steps per frame }
    */
-  constructor(paint, { maxBytes = 96 * 1048576, bounds = null, isEmpty = null, steps = null, stepBudget = [3, 40] } = {}) {
+  constructor(paint, { maxBytes = 96 * 1048576, bounds = null, isEmpty = null, steps = null, stepBudget = [6, 40] } = {}) {
     this.paint = paint;
     this.bounds = bounds;
     this.isEmpty = isEmpty;

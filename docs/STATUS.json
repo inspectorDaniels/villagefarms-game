@@ -73,9 +73,9 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "r5-built-unreviewed",
-      "score": 6,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
@@ -100,15 +100,22 @@
           "score": 6,
           "pass": false,
           "review": "docs/reviews/simulation-r4.md"
+        },
+        {
+          "round": 5,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/simulation-r5.md"
         }
       ],
       "openIssues": [
-        "Contractor work double-counted for CAP (crops:worked contractor:true + contractorDay credit) \u2014 0.5 ha booking gives capShare 1.0",
-        "Possessed hand still works delegated job (paid twice) \u2014 skip hours with possessed time; characters.isAvailable false while possessed/driving (r4c)",
-        "Harness targets/ordering per r4c",
-        "should: recordFieldWork area cap, restructure loan sized to be serviceable, stop rent/seize grain after bankruptcy, UI show day-rate cost of possession, Dries workerId null in characters.list"
+        "should: seize diesel/fertiliser on insolvency (credit-line diesel leak +\u20ac13-15k)",
+        "should: warn when delegated job fails due to possession",
+        "should: harness prints relaxed rule at x0.5/x2",
+        "should: restructuring after ~93 blocked days reads as soft-lock",
+        "ui/characters: show workerDayCost when switching to a hand"
       ],
-      "note": "r5: CAP contractor echo ignored, possessed-hour skip, r4c ordering printed (x1 builder \u20ac303k 8/8 in band), recordFieldWork refuses crop parcels + area cap, sized restructuring + write-off, workerDayCost API; 29/29 probes"
+      "note": "passed r5 7/10: all must-fixes verified live; economy ordering holds at x0.5/x1/x2"
     },
     "ui": {
       "wave": 1,
