@@ -255,7 +255,8 @@ async function boot() {
       renderer.overlay = (g, w, h) => {
         g.fillStyle = 'rgba(243,234,214,0.9)';
         g.font = '20px Georgia';
-        g.fillText('Harvest Valley — demo module not built yet. Use ?showcase=<module>.', 24, 40);
+        g.textAlign = 'center';
+        g.fillText('Demo module not built yet — use ?showcase=<module>', w / 2, h - 24);
       };
     }
   }

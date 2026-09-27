@@ -801,8 +801,11 @@ export const showcase = {
       I.step(dt, view);
       if (t < -warm) I.particles.clear();
     }
-    if (preset === 'default' || preset === 'winter') I.spawnFlock(view, 8, { x: view.x0 + 8, y: view.y0 + 9, dirX: 0.94, dirY: 0.34, speed: 5, z: 26 });
-    if (preset === 'harvest') I.spawnFlock(view, 6, { x: view.x0 + 12, y: view.y1 - 6, dirX: 0.8, dirY: -0.6, speed: 5, z: 18 });
-    if (preset === 'autumn') I.spawnFlock(view, 10, { x: view.x0 + 6, y: view.y0 + 4, dirX: 1, dirY: 0.25, speed: 5.5, z: 30 });
+    // staged flocks only by day (the ambient director handles dawn/dusk on its own)
+    if (I.daylight() > 0.3) {
+      if (preset === 'default' || preset === 'winter') I.spawnFlock(view, 8, { x: view.x0 + 8, y: view.y0 + 9, dirX: 0.94, dirY: 0.34, speed: 5, z: 9 });
+      if (preset === 'harvest') I.spawnFlock(view, 6, { x: view.x0 + 12, y: view.y1 - 6, dirX: 0.8, dirY: -0.6, speed: 5, z: 8 });
+      if (preset === 'autumn') I.spawnFlock(view, 10, { x: view.x0 + 6, y: view.y0 + 4, dirX: 1, dirY: 0.25, speed: 5.5, z: 10 });
+    }
   },
 };

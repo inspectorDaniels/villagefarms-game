@@ -35,7 +35,7 @@ async function main() {
   for (const preset of presets) {
     for (const time of times) {
       const out = path.join(dir, `${preset}_${time.replace(':', '')}`);
-      const log = await shot({ showcase: id, preset, time, out, weather: opts.weather, day: opts.day, port, w: opts.w, h: opts.h });
+      const log = await shot({ showcase: id, preset, time, out, weather: opts.weather, day: opts.day, extra: opts.extra, port, w: opts.w, h: opts.h });
       results.push({ preset, time, png: log.out, ...log.summary, fatal: log.fatal, errors: [...log.pageErrors, ...log.consoleErrors].slice(0, 5) });
       console.log(`${preset} ${time}: ok=${log.summary.ok} err=${log.summary.consoleErrors + log.summary.pageErrors} cpu=${log.summary.frameMsAvg}ms draws=${log.summary.drawCalls} -> ${log.out}`);
     }

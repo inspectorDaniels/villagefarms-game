@@ -377,7 +377,8 @@ export async function init(ctx) {
     D.W = W;
     const lv = ambienceLevels(ctx.clock.timeOfDay, ctx.clock.season, ctx.clock.yearFrac, W, D.water);
     for (const k of DIRECTOR_LAYERS) A.mixer[k] = +lv[k].toFixed(3);
-    if (S.muffle && S.ac) S.muffle.frequency.setTargetAtTime(muffleCutoff(W), S.ac.currentTime, 2);
+    A.muffle = Math.round(muffleCutoff(W)); A.storm = +W.storm.toFixed(3);
+    if (S.muffle && S.ac) S.muffle.frequency.setTargetAtTime(A.muffle, S.ac.currentTime, 2);
     if (!D.enabled) return;
     for (const k of DIRECTOR_LAYERS) {
       const target = lv[k];
