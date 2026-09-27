@@ -4,6 +4,10 @@ You are the builder of exactly ONE module: `src/modules/<id>/`. Read `ARCHITECTU
 then skim `src/core/*.js` (read-only for you) — especially `boot.js` (ctx), `renderer.js`
 (layers, collectors, shadow/light API), `art.js` (painting helpers), `palette.js`.
 
+## Current priority (user directive, iteration 2)
+Mechanics & gameplay first; visual polish is deferred. Painted-style art that is merely acceptable is fine —
+spend the effort on working, verified behaviour in the full game (scripted key runs + world-state checks).
+
 ## Hard rules
 1. Write ONLY inside `src/modules/<id>/`. Never edit core, tools, registry, index.html, or another
    module. If you need a core change, append a request to `docs/core-requests/<id>.md`

@@ -15,6 +15,12 @@ You write NO code and edit NO source files. You may only write your review file
    namespaces; does it null-check optional deps; any writes to other modules' namespaces;
    any import from another module folder.
 
+## Current priority (user directive, iteration 2)
+Mechanics & gameplay first. Weight the score toward functional correctness: API contract, does the
+gameplay loop work in the FULL GAME (verify with scripted `--keys` runs and `page.evaluate` state checks),
+determinism, errors, perf. Art only needs to be acceptable (not programmer rectangles); cosmetic issues
+go under "Should fix" and don't block a pass unless they hurt gameplay readability.
+
 ## Scoring (0–10, integers; be harsh — 10 is shippable indie quality)
 - 0–2 broken / fails to load / programmer art
 - 3–4 works but looks like a prototype (flat fills, inconsistent style, obvious bugs)
