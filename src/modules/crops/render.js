@@ -191,7 +191,6 @@ export function createRenderer(ctx, model, tiles) {
   const inView = (b, v, pad = 0) => !(b.x1 < v.x0 - pad || b.x0 > v.x1 + pad || b.y1 < v.y0 - pad || b.y0 > v.y1 + pad);
 
   function drawGround(g, view, budgetCells = 2200) {
-    if (globalThis.__NOGROUND) return;
     frame++;
     const sn = season();
     if (lastSeason && sn !== lastSeason) invalidateAll(); // grass/margins are seasonal
@@ -260,7 +259,7 @@ export function createRenderer(ctx, model, tiles) {
 
   // wind: soft light gusts travelling across tall, flexible crops (close zoom only)
   function drawSway(g, view) {
-    if (view.zoom < 10 || globalThis.__NOSWAY) return;
+    if (view.zoom < 10) return;
     const envApi = ctx.modules.get('environment');
     const W = env().weather;
     const t = view.time || 0;
@@ -343,7 +342,6 @@ export function createRenderer(ctx, model, tiles) {
     return segs;
   }
   function collect(view, F) {
-    if (globalThis.__NOCOLLECT) return;
     const sun = env().sun;
     const sdx = sun ? sun.dirX : 0, sdy = sun ? sun.dirY : -1;
     for (const f of model.W.fields) {
