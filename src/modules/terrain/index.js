@@ -1,5 +1,5 @@
 // terrain — heightmap, surfaces, river + lakes, chunked LOD painted ground, water shimmer.
-import { generateData, SURFACES, S, NO_WATER, flattenCircle, computeShade, reclassify, computeUniform } from './gen.js';
+import { generateData, applyFlats, SURFACES, S, NO_WATER, flattenCircle, computeShade, reclassify, computeUniform } from './gen.js';
 import { makeLook, makeDecals, warmShader, opSD, codeAt } from './paint.js';
 import { TileManager } from './tiles.js';
 
@@ -32,6 +32,7 @@ export async function init(ctx) {
   let visTiles = [];
   let minimapCache = null;
   let wetNow = 0;
+  let genKey = null, flatKey = '[]', edits = 0; // what the current data was generated from; edits since
 
   function getLook() {
     const season = ctx.clock.season || 'spring';
@@ -65,14 +66,34 @@ export async function init(ctx) {
     return Math.max(0, wl - bil(T.height, x, y));
   }
 
-  function shapeBBox(shape) {
-    if (shape && Array.isArray(shape.poly) && shape.poly.length >= 3) {
+  // bad input from callers must never throw (errors count toward the module's auto-disable):
+  // warn once per distinct message and let the caller return a neutral value
+  const warned = new Set();
+  function warnOnce(msg) {
+    if (warned.has(msg) || warned.size > 50) return;
+    warned.add(msg);
+    ctx.warn(msg);
+  }
+  const fin = Number.isFinite;
+  /** validate a shape → {shape (normalised copy), bb} or null (after a one-time warning) */
+  function checkShape(shape, fn) {
+    if (shape && Array.isArray(shape.poly)) {
+      const poly = [];
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-      for (const [x, y] of shape.poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
-      return { x0, y0, x1, y1 };
+      for (const p of shape.poly) {
+        if (!p || !fin(p[0]) || !fin(p[1])) { warnOnce(`${fn}: polygon has a non-finite point, ignored`); return null; }
+        poly.push([p[0], p[1]]);
+        x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]);
+      }
+      if (poly.length < 3 || !(x1 - x0 > 0) || !(y1 - y0 > 0)) { warnOnce(`${fn}: polygon needs ≥ 3 points with non-zero area, ignored`); return null; }
+      return { shape: { poly }, bb: { x0, y0, x1, y1 } };
     }
-    if (shape && Number.isFinite(shape.x) && Number.isFinite(shape.y) && shape.r > 0) return { x0: shape.x - shape.r, y0: shape.y - shape.r, x1: shape.x + shape.r, y1: shape.y + shape.r };
-    throw new Error('terrain: shape must be {poly:[[x,y],...]} or {x,y,r}');
+    if (shape && fin(shape.x) && fin(shape.y) && fin(shape.r) && shape.r > 0) {
+      const { x, y, r } = shape;
+      return { shape: { x, y, r }, bb: { x0: x - r, y0: y - r, x1: x + r, y1: y + r } };
+    }
+    warnOnce(`${fn}: shape must be {poly:[[x,y],...]} or {x,y,r} with finite numbers and r > 0, ignored`);
+    return null;
   }
   function inPoly(poly, x, y) {
     let c = false;
@@ -103,6 +124,7 @@ export async function init(ctx) {
     });
   }
   function changed(kind, bb, extra) {
+    edits++;
     world.terrain.version = (world.terrain.version || 0) + 1;
     minimapCache = null;
     computeUniform(T, Math.floor(bb.x0) - 3, Math.floor(bb.y0) - 3, Math.ceil(bb.x1) + 3, Math.ceil(bb.y1) + 3);
@@ -113,38 +135,71 @@ export async function init(ctx) {
   // ------------------------------------------------------------ API
   const api = {
     async generate(opts = {}) {
-      T = generateData(ctx, Object.assign({ w: world.bounds.w, h: world.bounds.h }, opts));
-      if (!tm) tm = new TileManager(ctx, T, NZ, decals, getLook); else tm.reset(T);
-      tm.paintOverviewSync(getLook());
-      minimapCache = null;
-      publish();
+      opts = opts && typeof opts === 'object' ? opts : {};
+      const base = {
+        w: fin(opts.w) ? opts.w : world.bounds.w, h: fin(opts.h) ? opts.h : world.bounds.h,
+        river: opts.river !== false, lakes: opts.lakes == null ? 1 : opts.lakes | 0,
+      };
+      const flats = [];
+      for (const f of Array.isArray(opts.flatAreas) ? opts.flatAreas : []) {
+        if (f && fin(f.x) && fin(f.y) && fin(f.r) && f.r > 0) flats.push({ x: f.x, y: f.y, r: f.r, height: fin(f.height) ? f.height : undefined });
+        else warnOnce('generate: flatAreas entries must be {x,y,r,height?} with finite numbers and r > 0; bad entry ignored');
+      }
+      const key = JSON.stringify(base), fk = JSON.stringify(flats);
+      if (T && key === genKey && edits === 0 && (fk === flatKey || flatKey === '[]')) {
+        // Same valley, nothing edited since: no second 1 s generation. New flat areas are levelled
+        // in place — applyFlats() is exactly what a full generation does after the base pass.
+        if (fk !== flatKey) {
+          applyFlats(T, ctx, flats);
+          flatKey = fk;
+          world.terrain.version = (world.terrain.version || 0) + 1;
+          minimapCache = null;
+          for (const f of flats) { const R = f.r * 1.7 + 14; tm.markDirty(f.x - R, f.y - R, f.x + R, f.y + R); }
+        }
+      } else {
+        if (T && edits) ctx.warn(`generate(): regenerating the valley discards ${edits} earlier paintSurface/flatten edit(s)`);
+        T = generateData(ctx, base);
+        applyFlats(T, ctx, flats);
+        genKey = key; flatKey = fk; edits = 0;
+        if (!tm) tm = new TileManager(ctx, T, NZ, decals, getLook); else tm.reset(T);
+        tm.paintOverviewSync(getLook());
+        minimapCache = null;
+        publish();
+      }
       ctx.events.emit('terrain:generated', { w: T.w, h: T.h, rivers: T.rivers.length, lakes: T.lakes.length, version: world.terrain.version });
       return { w: T.w, h: T.h, rivers: T.rivers.length, lakes: T.lakes.length };
     },
-    heightAt(x, y) { return T ? bil(T.height, x, y) : 0; },
+    heightAt(x, y) { return T && fin(x) && fin(y) ? bil(T.height, x, y) : 0; },
     slopeAt(x, y) {
-      if (!T) return 0;
+      if (!T || !fin(x) || !fin(y)) return 0;
       const gx = (bil(T.height, x + 1, y) - bil(T.height, x - 1, y)) / 2, gy = (bil(T.height, x, y + 1) - bil(T.height, x, y - 1)) / 2;
       return Math.sqrt(gx * gx + gy * gy);
     },
     surfaceAt(x, y) {
-      if (!T) return 'grass';
+      if (!T || !fin(x) || !fin(y)) return 'grass';
       if (x < 0 || y < 0 || x > T.w || y > T.h) return 'grass';
       const d = depthAt(x, y);
       const code = T.surface[node(x, y)];
+      // always consistent with isWater(): 'water'/'shallow' ⇔ depth > 0.02
       if (d > 0.55) return 'water';
-      if (d > 0.02 && code !== S.water) return 'shallow';
+      if (d > 0.02) return code === S.water ? 'water' : 'shallow';
+      if (code === S.water || code === S.shallow) return 'mud'; // bank cell whose node is wet but this point is dry
       return SURFACES[code];
     },
-    isWater(x, y) { return T ? depthAt(x, y) > 0.02 : false; },
-    waterDepthAt(x, y) { return T ? depthAt(x, y) : 0; },
-    moistureAt(x, y) { return T ? clamp(bil(T.moisture, x, y), 0, 1) : 0.5; },
+    isWater(x, y) { return T && fin(x) && fin(y) ? depthAt(x, y) > 0.02 : false; },
+    waterDepthAt(x, y) { return T && fin(x) && fin(y) ? depthAt(x, y) : 0; },
+    moistureAt(x, y) { return T && fin(x) && fin(y) ? clamp(bil(T.moisture, x, y), 0, 1) : 0.5; },
     paintSurface(shape, type, opts = {}) {
       if (!T) return false;
       const code = S[type];
-      if (code == null) { ctx.warn(`paintSurface: unknown surface "${type}"`); return false; }
-      const bb = shapeBBox(shape);
-      let angle = opts.angle;
+      if (code == null) { warnOnce(`paintSurface: unknown surface "${type}"`); return false; }
+      if (code === S.water || code === S.shallow) { warnOnce('paintSurface: water/shallow cannot be painted (water comes from depth), ignored'); return false; }
+      const chk = checkShape(shape, 'paintSurface');
+      if (!chk) return 0;
+      shape = chk.shape;
+      const bb = chk.bb;
+      opts = opts || {};
+      let angle = fin(opts.angle) ? opts.angle : null;
       if (angle == null && type === 'ploughed') {
         angle = 0;
         if (shape.poly) {
@@ -162,7 +217,7 @@ export async function init(ctx) {
       const x1 = Math.min(T.w - 1, Math.ceil(bb.x1)), y1 = Math.min(T.h - 1, Math.ceil(bb.y1));
       // record the op so the shader can draw its true (sub-cell) outline
       const op = shape.poly ? { code, aux: auxV, poly: [].concat(...shape.poly.map((p) => [p[0], p[1]])) } : { code, aux: auxV, cx: shape.x, cy: shape.y, r: shape.r };
-      if (T.ops.length >= 65000) T.ops.length = 0; // pathological: fall back to cell edges
+      if (T.ops.length >= 65000) { T.ops.length = 0; T.pedge.fill(0); } // pathological: fall back to cell edges
       T.ops.push(op);
       const idx = T.ops.length;
       const BAND = 1.6;
@@ -171,6 +226,7 @@ export async function init(ctx) {
       const bx1 = Math.min(T.w - 1, Math.ceil(bb.x1 + BAND)), by1 = Math.min(T.h - 1, Math.ceil(bb.y1 + BAND));
       for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
         const o = y * T.w + x;
+        if (T.waterLevel[o] - T.height[o] > 0.02) continue; // water cells are never painted nor counted
         const sd = opSD(op, x, y);
         if (Math.abs(sd) < BAND) { T.prev[o] = codeAt(T, x, y); T.pedge[o] = idx; }
         else if (sd > 0) T.pedge[o] = 0;
@@ -182,7 +238,11 @@ export async function init(ctx) {
     },
     flatten(shape, height) {
       if (!T) return undefined;
-      const bb = shapeBBox(shape);
+      const chk = checkShape(shape, 'flatten');
+      if (!chk) return undefined;
+      shape = chk.shape;
+      const bb = chk.bb;
+      if (height != null && !fin(height)) { warnOnce('flatten: height must be a finite number, ignored'); return undefined; }
       let tgt = height;
       if (shape.poly) {
         const F = 4;
@@ -215,6 +275,8 @@ export async function init(ctx) {
     lakes() { return T ? T.lakes.map((l) => ({ id: l.id, x: l.x, y: l.y, r: l.r, level: l.level, depth: l.depth, poly: l.poly.map((p) => p.slice()) })) : []; },
     findDry(x, y, radius = 64) {
       if (!T) return { x, y };
+      if (!fin(x) || !fin(y)) return null;
+      if (!fin(radius)) radius = 64;
       const R = Math.min(256, Math.max(1, radius));
       const dry = (px, py) => px >= 0 && py >= 0 && px <= T.w - 1 && py <= T.h - 1 && depthAt(px, py) <= 0 && T.surface[node(px, py)] !== S.water && T.surface[node(px, py)] !== S.shallow;
       if (dry(x, y)) return { x, y };
@@ -253,7 +315,6 @@ export async function init(ctx) {
   const BUDGET = 12000; // ≈ 1.5 ms of shading per frame (tripled while visible tiles are still blank)
   ctx.renderer.addLayer('ground', (g, view) => {
     if (!tm) return;
-    T.dbg = world.terrain.debug || {};
     const need = tm.work(view, BUDGET);
     drawnTiles = tm.draw(g, view, need);
     visTiles = need; // every visible tile, painted or fallback (the wet overlay must cover all of them)
@@ -323,6 +384,8 @@ export async function init(ctx) {
   });
 
   if (ctx.params.weather === 'snow') local.snowOverride = 0.6;
+  // perf A/B switch: ?terrainfx=0 or world.terrain.debug.fx = false at runtime disables the water shimmer/glints
+  world.terrain.debug = { fx: ctx.params.terrainfx !== '0' };
   INST = { local, warm(view) { if (tm) tm.work(view, Infinity); } };
 
   return {

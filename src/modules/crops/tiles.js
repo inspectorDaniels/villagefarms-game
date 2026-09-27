@@ -139,6 +139,7 @@ export function createTiles(art, palette) {
   function paintCereal(g, W, H, rng, crop, st, v) {
     const P = CER[crop] || CER.wheat;
     const n = rows(0.25), rh = H / n;
+    if (st === 0) { paintCultivated(g, W, H, rng, v); drillRows(g, W, H, 0.25, 0.45); return; }
     if (st <= 2) {
       paintCultivated(g, W, H, rng, v);
       drillRows(g, W, H, 0.25, 0.3);
@@ -169,6 +170,7 @@ export function createTiles(art, palette) {
   }
   function paintRapeseed(g, W, H, rng, st, v) {
     const G = ['#4f7a4a', '#5f8a55', '#3f6a40', '#6e9a60'];
+    if (st === 0) { paintCultivated(g, W, H, rng, v); drillRows(g, W, H, 0.5, 0.45); return; }
     if (st <= 2) {
       paintCultivated(g, W, H, rng, v);
       const n = rows(0.5), rh = H / n;
@@ -190,25 +192,31 @@ export function createTiles(art, palette) {
     if (pods || ripe) for (let i = 0; i < 200; i++) stroke(g, W, H, rng.float() * W, rng.float() * H, rng.range(1.5, 3), rng.float() * 6.28, 0.7, ripe ? '#b8aa78' : '#aab86a', 0.7);
   }
   function paintMaize(g, W, H, rng, st, v) {
-    const G = ['#3f6f2f', '#4f7f38', '#5f8f40', '#2f5a26'];
+    const G = ['#3f6f2f', '#4f7f38', '#5f8f40', '#2f5a26', '#6f9a45'];
     const DRY = ['#c8ab6a', '#b09050', '#d8c088', '#9a7a45'];
     const n = rows(CROPS.maize.rows), rh = H / n;
     if (st <= 3) { paintCultivated(g, W, H, rng, v); drillRows(g, W, H, CROPS.maize.rows, 0.25); }
-    else art.noiseFill(g, 0, 0, W, H, st === 5 ? [DRY[3], DRY[1], DRY[0]] : [G[3], G[0], G[1]], { scale: 0.1, grain: 0.05, seed: 'crops:mz' + st + v, px: 2 });
-    const sp = 6.4; // px between plants (0.2 m)
-    const L = [0, 2.4, 5, 9, 12, 12][st];
+    else art.noiseFill(g, 0, 0, W, H, st === 5 ? [DRY[3], DRY[1], DRY[0]] : [G[3], G[0], G[3]], { scale: 0.1, grain: 0.05, seed: 'crops:mz' + st + v, px: 2 });
+    const sp = W / 10;                           // 0.2 m between plants, 10 per tile row
+    const L = [0, 0.1, 0.2, 0.34, 0.48, 0.45][st] * K;
     const cols = st === 5 ? DRY : G;
-    for (let r = 0; r < n; r++) for (let x = rng.float() * sp; x < W; x += sp * rng.range(0.85, 1.15)) {
-      const y = (r + 0.5) * rh + rng.range(-1, 1);
-      if (st === 0) { dab(g, W, H, x, y, 0.8, 0.8, 0, shade(soil.moist, -0.4), 0.6); continue; }
-      const k = st === 1 ? 2 : 4;
+    for (let r = 0; r < n; r++) for (let p = 0; p < 10; p++) {
+      const x = (p + 0.5) * sp + rng.range(-1, 1), y = (r + 0.5) * rh + rng.range(-1, 1);
+      if (st === 0) { dab(g, W, H, x, y, 0.9, 0.9, 0, shade(soil.moist, -0.4), 0.6); continue; }
+      // leaves alternate on the two sides of the plant, mostly across the row
+      const k = [0, 2, 4, 6, 8, 7][st];
       for (let s = 0; s < k; s++) {
-        const a = rng.range(-0.5, 0.5) + (s % 2 ? Math.PI / 2 : -Math.PI / 2) + (s > 1 ? rng.range(-0.8, 0.8) : 0);
-        const len = L * rng.range(0.7, 1.1);
-        stroke(g, W, H, x, y, len, a, st >= 3 ? 2.2 : 1.6, rng.pick(cols), 0.9);
-        stroke(g, W, H, x, y, len * 0.8, a, 0.5, shade(rng.pick(cols), 0.3), 0.5); // midrib highlight
+        const side = s % 2 ? 1 : -1;
+        const a = side * Math.PI / 2 + rng.range(-0.55, 0.55) + (p % 2 ? 0.2 : -0.2);
+        const len = L * rng.range(0.65, 1.05) * (1 - s * 0.05);
+        const mx = x + Math.cos(a) * len / 2, my = y + Math.sin(a) * len / 2;
+        const col = rng.pick(cols);
+        dab(g, W, H, mx, my, len / 2, Math.max(1, len * 0.15), a, shade(col, -0.2), 0.9);
+        dab(g, W, H, mx, my, len / 2 * 0.9, Math.max(0.7, len * 0.1), a, col, 0.95);
+        stroke(g, W, H, x, y, len * 0.8, a, 0.45, shade(col, 0.35), 0.45); // midrib
       }
-      if (st >= 4) { dab(g, W, H, x, y, 1.3, 1.3, 0, st === 5 ? '#8a6a3a' : '#d8c070', 0.9); }
+      dab(g, W, H, x, y, Math.max(0.8, L * 0.08), Math.max(0.8, L * 0.08), 0, shade(cols[0], 0.15), 0.9);
+      if (st >= 4) stroke(g, W, H, x - 1.5, y, 3, 0, 1, st === 5 ? '#8a6a3a' : '#d8c070', 0.95); // tassel
     }
   }
   function paintPotato(g, W, H, rng, st, v) {
@@ -243,7 +251,8 @@ export function createTiles(art, palette) {
     }
   }
   function paintSownGrass(g, W, H, rng, st, season, v) {
-    if (st <= 1) {
+    if (st === 1) { paintGrass(g, W, H, rng, season, true, v); return; } // fresh sward / regrowth after a cut
+    if (st === 0) {
       paintCultivated(g, W, H, rng, v);
       const G = palette.grass[season] || palette.grass.summer;
       for (let i = 0; i < (st ? 220 : 40); i++) stroke(g, W, H, rng.float() * W, rng.float() * H, rng.range(1, 2.5), -Math.PI / 2 + rng.range(-0.7, 0.7), 0.8, rng.pick(G), 0.8);
@@ -265,9 +274,9 @@ export function createTiles(art, palette) {
   }
   function tramlines(g, W, H, rng) {
     // two bare wheel tracks 1.8 m apart (at the tile edges; the tram cell is the middle of a 12 m bout)
-    for (const y0 of [0.05 * K, 1.65 * K]) {
-      art.noiseFill(g, 0, Math.round(y0), W, Math.round(0.3 * K), [soil.moist, soil.dry, soil.moist], { scale: 0.2, grain: 0.07, seed: 'crops:tram', px: 2 });
-      for (let i = 0; i < 10; i++) stroke(g, W, H, rng.float() * W, y0 + rng.range(0, 0.3 * K), rng.range(3, 6), rng.range(-0.3, 0.3), 1, shade(soil.moist, -0.4), 0.35);
+    for (const y0 of [0.08 * K, 1.72 * K]) {
+      g.fillStyle = soil.dry; g.globalAlpha = 0.45; g.fillRect(0, y0, W, 0.2 * K); g.globalAlpha = 1;
+      for (let i = 0; i < 14; i++) dab(g, W, H, rng.float() * W, y0 + rng.range(0, 0.2 * K), rng.range(1, 2), rng.range(0.6, 1.2), 0, rng.pick([soil.dry, soil.moist, shade(soil.dry, 0.15)]), 0.5);
     }
   }
 

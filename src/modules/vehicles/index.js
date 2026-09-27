@@ -2,7 +2,7 @@
 // Kinematic bicycle driving with surface-dependent top speed, spatial-hash collisions, hitch
 // articulation, implements that work the ground through crops.work(), fuel (bought as diesel
 // through simulation), wear + repair, upgrades, headlights/beacons, save/load.
-import { TYPES, IMPLEMENTS, ALL, KITS, UPGRADES, REPAIR_FRAC } from './types.js';
+import { TYPES, IMPLEMENTS, ALL, KITS, UPGRADES, REPAIR_FRAC, FIELD_EFF } from './types.js';
 import { createDriver, toWorld, corners, distToBox, polysOverlap } from './drive.js';
 import { createPainter } from './paint.js';
 import { createRender } from './render.js';
@@ -17,7 +17,7 @@ export const manifest = {
   namespaces: ['vehicles'],
   api: ['spawn', 'despawn', 'list', 'get', 'nearest', 'enter', 'exit', 'driverOf', 'control', 'attach', 'detach',
     'refuel', 'repair', 'upgrade', 'purchase', 'sell', 'catalog', 'types', 'setImplement', 'setLights', 'setSeed',
-    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder'],
+    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder', 'workRate'],
   emits: ['vehicles:entered', 'vehicles:exited', 'vehicles:purchased', 'vehicles:worked', 'vehicles:attached',
     'vehicles:detached', 'vehicles:refuelled', 'vehicles:repaired', 'vehicles:sold'],
   listens: [],
@@ -45,6 +45,9 @@ export async function init(ctx) {
       if (!T.register || done.has(T.catalog)) continue;
       done.add(T.catalog);
       if (have.has(T.catalog)) continue;
+      // simulation may already list an equivalent machine under another id (same category): reuse it
+      const same = T.register.category === 'harvester' && (sim.catalog('harvester') || [])[0];
+      if (same) { KITS[same.id] = KITS[T.catalog]; continue; }
       sim.registerCatalogItem({ id: T.catalog, category: T.register.category, name: T.name, price: T.register.price, meta: { vehicleTypes: KITS[T.catalog] || [type] } });
     }
   }
@@ -127,7 +130,7 @@ export async function init(ctx) {
         if (tw.tool === 'harvest' && kg > 0) {
           const host = imp;
           if (!host.cargo) host.cargo = { item: null, kg: 0 };
-          const cap = ALL[host.type].grainTank || Infinity;
+          const cap = ALL[host.type].grainTank || ALL[host.type].capacity || Infinity;
           const take = Math.min(kg, Math.max(0, cap - host.cargo.kg));
           host.cargo.kg += take; host.cargo.item = r.item || host.cargo.item;
           if (take < kg) host.cargoLost = (host.cargoLost || 0) + (kg - take);
@@ -460,10 +463,32 @@ export async function init(ctx) {
     }
     return out;
   }
+  /** physical work rate of a type or of a live rig (tractor + implement): width m, speed m/s, ha/h, h/ha.
+   *  Rig speed is the implement's working speed limited by the tractor's power (same rule as driving). */
+  function rateFor(width, speed) {
+    const haH = width * speed * 0.36 * FIELD_EFF;
+    return { width, speed: +speed.toFixed(3), kmh: +(speed * 3.6).toFixed(1), haPerHour: +haH.toFixed(3), hoursPerHa: haH > 0 ? +(1 / haH).toFixed(3) : null, fieldEfficiency: FIELD_EFF };
+  }
+  function workRate(what, withType) {
+    let v = byId.get(what);
+    let type = v ? v.type : what;
+    let hp = null;
+    if (v && TYPES[v.type]) {
+      hp = (TYPES[v.type].hp || 100) * (v.upgrades && v.upgrades.engine ? 1.2 : 1);
+      const imp = partsOf(v).find((p) => ALL[p.type].work);
+      if (imp) type = imp.type; else if (!TYPES[v.type].header) return null;
+    } else if (withType && TYPES[withType]) hp = TYPES[withType].hp;
+    const T = ALL[type];
+    if (!T) return null;
+    const w = T.work || (T.header ? { tool: 'harvest', width: T.header.width, speed: T.workSpeed, needHp: 0 } : null);
+    if (!w) return null;
+    const pr = hp && w.needHp ? Math.max(0.35, Math.min(1, hp / w.needHp)) : 1;
+    return { type, tool: w.tool, needHp: w.needHp || null, ...rateFor(w.width, w.speed * pr) };
+  }
   function typesApi() {
     const out = {};
     for (const [k, T] of Object.entries(ALL)) {
-      out[k] = { kind: T.kind, name: T.name, len: T.len, wid: T.wid, hp: T.hp || null, vmax: T.vmax || null, tank: T.tank || null, mount: T.mount || null, work: T.work ? { ...T.work } : T.header ? { tool: 'harvest', width: T.header.width, speed: T.workSpeed } : null, capacity: T.capacity || T.grainTank || null, item: itemOf(k) };
+      out[k] = { kind: T.kind, name: T.name, len: T.len, wid: T.wid, hp: T.hp || null, vmax: T.vmax || null, tank: T.tank || null, mount: T.mount || null, work: T.work ? { ...T.work, ...rateFor(T.work.width, T.work.speed) } : T.header ? { tool: 'harvest', width: T.header.width, ...rateFor(T.header.width, T.workSpeed) } : null, capacity: T.capacity || T.grainTank || null, item: itemOf(k) };
     }
     return out;
   }
@@ -564,7 +589,7 @@ export async function init(ctx) {
 
   const api = {
     spawn, despawn, get, nearest, enter, exit, control, attach, detach, refuel, repair, upgrade, purchase, sell, catalog,
-    setImplement, setLights, unload, hitchNearest, exitPosition,
+    setImplement, setLights, unload, hitchNearest, exitPosition, workRate,
     list: (filter) => (filter ? W.list.filter((v) => (typeof filter === 'function' ? filter(v) : Object.entries(filter).every(([k, val]) => v[k] === val))) : W.list.slice()),
     driverOf: (id) => { const v = byId.get(id); return v ? v.driverId || null : null; },
     types: typesApi,

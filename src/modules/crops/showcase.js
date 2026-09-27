@@ -69,14 +69,14 @@ export async function stageShowcase(ctx, presetName, inst) {
   } else if (presetName === 'harvest') {
     // wheat half combined (6 m header) with straw swaths, part of the straw already baled
     api.plantAll(F1, 'wheat', 'ripe'); W(F1, 'harvest', 6, 0, 0.55); W(F1, 'bale', 3, 0, 0.2);
-    api.forceStage(F2, 'harvested', 'barley'); api.forceStage(F3, 'stubble', 'rapeseed'); W(F3, 'cultivate', 4, 0, 0.4);
+    api.forceStage(F2, 'harvested', 'barley'); W(F2, 'bale', 3, 0, 1); api.forceStage(F3, 'stubble', 'rapeseed'); W(F3, 'cultivate', 4, 0, 0.4);
     api.plantAll(F4, 'grass', 'ripe'); W(F4, 'mow', 3, 0, 1); W(F4, 'rake', 6, 0, 0.7); W(F4, 'bale', 3, 0, 0.3);
     api.forceStage(F5, 'ploughed'); api.plantAll(F6, 'maize', 4); api.plantAll(F7, 'potatoes', 5); api.plantAll(F8, 'sugarBeet', 4);
     api.plantAll(F9, 'oats', 'ripe'); api.plantAll(F10, 'barley', 'withered');
   } else {
     // June patchwork (default / closeup / maize)
     api.plantAll(F1, 'wheat', 4); api.plantAll(F2, 'barley', 'ripe'); api.plantAll(F3, 'rapeseed', 'pods');
-    api.plantAll(F4, 'grass', 'ripe'); W(F4, 'mow', 3, 0, 0.75); W(F4, 'rake', 6, 0, 0.5); W(F4, 'bale', 3, 0, 0.18);
+    api.plantAll(F4, 'grass', 'ripe'); W(F4, 'mow', 3, 0, 0.8); W(F4, 'rake', 6, 0, 0.66); W(F4, 'bale', 3, 0, 0.4);
     api.forceStage(F5, 'stubble', 'wheat'); W(F5, 'plough', 3, 0.35, 1);
     api.plantAll(F6, 'maize', 3); api.plantAll(F7, 'potatoes', 4); api.plantAll(F8, 'sugarBeet', 3); api.plantAll(F9, 'oats', 2);
     api.forceStage(F10, 'ploughed'); W(F10, 'cultivate', 4, 0, 0.7); W(F10, 'seed:sugarBeet', 4, 0, 0.35);

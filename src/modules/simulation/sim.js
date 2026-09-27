@@ -4,10 +4,12 @@ import { installEconomy } from './economy.js';
 import { installMarket } from './market.js';
 import { installLand } from './land.js';
 import { installJobs } from './jobs.js';
+import { installContractors } from './contractors.js';
+import { buildWorkRates, AI_WORK_FACTOR } from './work.js';
 import { DAY_SECONDS } from './data.js';
 
 /**
- * env = { rngFor(name) → Rng, emit(type, payload), clockT() → game seconds }
+ * env = { rngFor(name) → Rng, emit(type, payload), clockT() → game seconds, warn?(msg), aiWorkFactor? }
  */
 export function createSim(world, env) {
   for (const ns of ['economy', 'land', 'jobs']) if (!world[ns]) world[ns] = {};
@@ -17,11 +19,14 @@ export function createSim(world, env) {
   // tOffset shifts the economy's calendar relative to the game clock (showcase history years)
   sim.now = () => (sim.virtualT != null ? sim.virtualT : env.clockT() + sim.tOffset);
   sim.today = () => Math.floor(sim.now() / DAY_SECONDS);
+  sim.blocked = () => false; // replaced by economy.js
+  sim.rates = buildWorkRates(env.aiWorkFactor || AI_WORK_FACTOR);
 
   installEconomy(sim);
   installMarket(sim);
   installLand(sim);
   installJobs(sim);
+  installContractors(sim);
 
   /** wipe and initialise all three namespaces; pre-fills `historyDays` of market history before startDay */
   sim.reset = (startDay, opts = {}) => {
@@ -29,6 +34,7 @@ export function createSim(world, env) {
     sim.market.initMarket();
     sim.land.initLand();
     sim.jobs.initJobs();
+    sim.contractors.initContractors();
     const E = world.economy;
     const was = sim.virtualT;
     sim.silent = true;
@@ -44,8 +50,10 @@ export function createSim(world, env) {
     const prevT = sim.virtualT;
     if (prevT == null && day !== sim.today()) sim.virtualT = day * DAY_SECONDS + 60; // stamp catch-up days correctly
     sim.market.stepMarket(day);
+    sim.jobs.workDelegated(day);       // hands work delegated jobs with yesterday's unlogged hours …
     sim.land.landDay(day);
-    sim.economy.economyDay(day);
+    sim.contractors.contractorDay(day);
+    sim.economy.economyDay(day);       // … before their wages settle
     sim.jobs.jobsDay(day);
     E.lastDay = day;
     sim.virtualT = prevT;

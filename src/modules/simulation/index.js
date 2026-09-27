@@ -16,21 +16,23 @@ export const manifest = {
     // market
     'price', 'priceHistory', 'sell', 'buy', 'defineSellPoint', 'sellPoints', 'yieldTable', 'inputCost', 'buyInputs', 'workRates',
     // inventory
-    'inventory', 'addInventory', 'removeInventory', 'setCapacity', 'storageRoom',
+    'inventory', 'addInventory', 'removeInventory', 'setCapacity', 'storageRoom', 'bulkRoom',
     // catalog & assets
     'registerCatalogItem', 'catalog', 'purchase', 'lease', 'grantAsset', 'assets', 'releaseAsset',
     // loans
-    'takeLoan', 'repayLoan', 'loans', 'creditLimit',
+    'takeLoan', 'repayLoan', 'loans', 'creditLimit', 'solvency',
+    // contractors (r3)
+    'contractorQuote', 'hireContractor', 'contractorBookings', 'cancelContractor',
     // land
-    'defineParcel', 'parcels', 'parcel', 'parcelAt', 'buyParcel', 'rentParcel', 'endLease', 'leaseExitCost', 'sellParcel', 'canUse', 'landMarket',
+    'defineParcel', 'parcels', 'parcel', 'parcelAt', 'buyParcel', 'rentParcel', 'endLease', 'leaseExitCost', 'sellParcel', 'canUse', 'landMarket', 'recordFieldWork',
     // jobs
-    'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation',
+    'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation', 'assignJob', 'activeJobCap', 'defineClientFarm',
     // workers
-    'hireWorker', 'fireWorker', 'workers',
+    'hireWorker', 'fireWorker', 'workers', 'logWork',
     // time helper
     'today',
   ],
-  emits: ['economy:transaction', 'economy:price-changed', 'economy:bankrupt-warning', 'land:parcel-changed',
+  emits: ['economy:transaction', 'economy:price-changed', 'economy:bankrupt-warning', 'economy:contractor-done', 'economy:asset-seized', 'land:parcel-changed',
     'jobs:offered', 'jobs:accepted', 'jobs:completed', 'jobs:failed'],
   listens: ['clock:day'],
 };

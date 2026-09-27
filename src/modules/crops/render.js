@@ -41,8 +41,7 @@ export function createRenderer(ctx, model, tiles) {
       }
     }
     for (const ch of chunks.values()) ch.cells = Int32Array.from(ch.list), delete ch.list;
-    f.rs = { chunks, shadowV: -1, shadowAt: -99, segs: [], tall: 0, headland: null };
-    f.rs.headland = insetPoly(f.poly, 3.4);
+    f.rs = { chunks, shadowV: -1, shadowAt: -99, segs: [], edgePath: null };
   }
   function onDirty(f, k) {
     if (!f.rs) return;
@@ -147,18 +146,13 @@ export function createRenderer(ctx, model, tiles) {
     for (const k of list) if (c.edge[k]) drawCell(g, f, k, res, x0, y0, 2.4, seasonName);
     // pass 2: the cells
     for (const k of list) drawCell(g, f, k, res, x0, y0, 1, seasonName);
-    // pass 3: headland wheel tracks + grass margin along the boundary
+    // pass 3: ragged, feathered field edge — erase the outer ~1 m so the terrain verge shows through
     g.setTransform(res, 0, 0, res, -x0 * res, -y0 * res);
-    const worked = f.counts[S.SOWN] + f.counts[S.RIPE] + f.counts[S.CULTIVATED] + f.counts[S.PLOUGHED];
-    if (f.rs.headland && worked > f.nCells * 0.5) {
-      g.strokeStyle = 'rgba(58,42,28,0.22)'; g.lineWidth = 0.4;
-      for (const inset of [0, 1.8]) { const p = inset ? insetPoly(f.poly, 3.4 + inset) : f.rs.headland; if (p) { polyPath(g, p); g.stroke(); } }
-    }
-    polyPath(g, f.poly);
-    g.strokeStyle = 'rgba(40,46,30,0.28)'; g.lineWidth = 2.7; g.stroke();
-    const pat = g.createPattern(tiles.marginTile(seasonName), 'repeat');
-    if (pat.setTransform) pat.setTransform(new DOMMatrix().scaleSelf(1 / art.PPM, 1 / art.PPM));
-    g.strokeStyle = pat; g.lineWidth = 2.1; g.stroke();
+    g.globalCompositeOperation = 'destination-out';
+    const ep = f.rs.edgePath || (f.rs.edgePath = raggedPath(f.poly, f.id));
+    for (const [w, a] of [[1.5, 1], [2.3, 0.45], [3.1, 0.2]]) { g.globalAlpha = a; g.lineWidth = w; g.stroke(ep); }
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
     g.restore();
   }
   function ensure(f, ch, res) {
@@ -297,22 +291,39 @@ export function createRenderer(ctx, model, tiles) {
     const q = (h) => Math.round(h * 5) / 5;
     const hs = new Float32Array(c.state.length);
     for (let k = 0; k < hs.length; k++) hs[k] = q(heightOf(c, k));
-    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    for (let j = 0; j < G.nv; j++) for (let i = 0; i < G.nu; i++) {
-      const k = j * G.nu + i;
-      const h = hs[k];
-      if (h < 0.4) continue;
-      for (const [di, dj] of dirs) {
-        const ii = i + di, jj = j + dj;
-        const hn = ii < 0 || jj < 0 || ii >= G.nu || jj >= G.nv ? 0 : hs[jj * G.nu + ii];
-        if (h - hn < 0.35) continue;
-        // edge of the cell square facing (di,dj), outward normal in world space
-        const [cx, cy] = model.cellCenter(f, k);
-        const hc = G.cell / 2;
-        const nx = G.ux * di + G.vx * dj, ny = G.uy * di + G.vy * dj;
-        const tx = -ny, ty = nx;
-        const mx = cx + nx * hc, my = cy + ny * hc;
-        segs.push({ x0: mx - tx * hc, y0: my - ty * hc, x1: mx + tx * hc, y1: my + ty * hc, nx, ny, h: h - hn });
+    const H = (i, j) => (i < 0 || j < 0 || i >= G.nu || j >= G.nv ? 0 : hs[j * G.nu + i]);
+    const hc = G.cell / 2;
+    // merge runs of equal edge height along each grid line → few long walls instead of one per cell
+    for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const alongJ = di !== 0;              // edge lines run along v for ±u normals
+      const nOuter = alongJ ? G.nu : G.nv, nInner = alongJ ? G.nv : G.nu;
+      const nx = G.ux * di + G.vx * dj, ny = G.uy * di + G.vy * dj;
+      for (let o = 0; o < nOuter; o++) {
+        let start = -1, cur = 0;
+        for (let t = 0; t <= nInner; t++) {
+          let d = 0;
+          if (t < nInner) {
+            const i = alongJ ? o : t, j = alongJ ? t : o;
+            const h = H(i, j);
+            if (h >= 0.4) {
+              const ii = i + di, jj = j + dj;
+              const outer = ii < 0 || jj < 0 || ii >= G.nu || jj >= G.nv || !c.state[jj * G.nu + ii];
+              const dh = h - H(ii, jj); d = dh >= 0.35 ? dh + (outer ? 1000 : 0) : 0;
+            }
+          }
+          if (d !== cur) {
+            if (cur > 0 && !(cur >= 1000 && t - start < 3)) { // short outer runs are staircase steps of the grid → no wall
+              const i0 = alongJ ? o : start, j0 = alongJ ? start : o, i1 = alongJ ? o : t - 1, j1 = alongJ ? t - 1 : o;
+              const k0 = j0 * G.nu + i0, k1 = j1 * G.nu + i1;
+              const [ax, ay] = model.cellCenter(f, k0), [bx, by] = model.cellCenter(f, k1);
+              const tx = alongJ ? G.vx : G.ux, ty = alongJ ? G.vy : G.uy;
+              // the visible crop stops ~1 m inside the field polygon (feathered verge): pull outer walls in
+              const off = cur >= 1000 ? hc - 1.0 : hc, hh = cur >= 1000 ? cur - 1000 : cur;
+              segs.push({ x0: ax + nx * off - tx * hc, y0: ay + ny * off - ty * hc, x1: bx + nx * off + tx * hc, y1: by + ny * off + ty * hc, nx, ny, h: hh });
+            }
+            cur = d; start = t;
+          }
+        }
       }
     }
     return segs;
@@ -357,6 +368,29 @@ export function createRenderer(ctx, model, tiles) {
 }
 
 /** inset a simple polygon by d metres (edge offset + intersection; fine for the convex-ish field shapes) */
+/** closed Path2D along the polygon with a small deterministic wobble (hand-cut field edge) */
+function raggedPath(poly, id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  const p = new Path2D();
+  const n = poly.length;
+  let first = true;
+  for (let i = 0; i < n; i++) {
+    const a = poly[i], b = poly[(i + 1) % n];
+    const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const nx = -(b[1] - a[1]) / (L || 1), ny = (b[0] - a[0]) / (L || 1);
+    const steps = Math.max(2, Math.round(L / 1.5));
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const w = Math.sin((t * L) * 0.9 + h * 0.001 + i) * 0.18 + Math.sin((t * L) * 2.7 + h * 0.003) * 0.1;
+      const x = a[0] + (b[0] - a[0]) * t + nx * w, y = a[1] + (b[1] - a[1]) * t + ny * w;
+      if (first) { p.moveTo(x, y); first = false; } else p.lineTo(x, y);
+    }
+  }
+  p.closePath();
+  return p;
+}
+
 export function insetPoly(poly, d) {
   const n = poly.length;
   let area = 0;

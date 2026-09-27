@@ -1,7 +1,7 @@
 // Market: seasonal price curves × mean-reverting random walk × per-sell-point bias × saturation.
 // Pure logic operating on world.economy; installed onto the shared `sim` object.
 import { hashString } from './util.js';
-import { ITEMS, ITEM_ALIASES, CROPS, CONST, YEAR_DAYS, CONSUMABLES, WORK } from './data.js';
+import { ITEMS, ITEM_ALIASES, CROPS, CONST, YEAR_DAYS, CONSUMABLES } from './data.js';
 
 export const resolveItem = (item) => ITEM_ALIASES[item] || item;
 const mod = (a, n) => ((a % n) + n) % n;
@@ -110,15 +110,16 @@ export function installMarket(sim) {
       return id;
     },
     sellPoints() { return Object.values(E.sellPoints).map((s) => ({ ...s, accepts: s.accepts && s.accepts.slice() })); },
-    /** sell qty units. opts.fromInventory (default true) takes the goods out of farm inventory. Returns € received. */
-    sell(item, qty, sellPointId, opts = {}) {
+    /** sell qty units from farm inventory. Returns € received. (r3: the old fromInventory:false path is gone —
+     *  producers addInventory first.) */
+    sell(item, qty, sellPointId) {
       item = resolveItem(item);
       const it = ITEMS[item];
       if (!it || !(qty > 0)) return 0;
       const sp = sellPointId ? E.sellPoints[sellPointId] : null;
       if (sellPointId && !sp) return 0;
       if (!accepts(sellPointId, item)) return 0;
-      if (opts.fromInventory !== false) qty = api.removeInventory(item, qty);
+      qty = api.removeInventory(item, qty);
       if (!(qty > 0)) return 0;
       const day = sim.today();
       const key = sellPointId || '_spot';
@@ -151,7 +152,8 @@ export function installMarket(sim) {
       return cost;
     },
     /** machine hours per ha by operation/tier, contractor rates, hours per working day */
-    workRates() { return JSON.parse(JSON.stringify(WORK)); },
+    /** the single source of field-work rates (see work.js / README 'r3 time model') */
+    workRates() { return JSON.parse(JSON.stringify(sim.rates)); },
     yieldTable() {
       const out = {};
       for (const [id, c] of Object.entries(CROPS)) out[id] = { ...c, sowMonths: c.sowMonths.slice(), harvestMonths: c.harvestMonths.slice() };

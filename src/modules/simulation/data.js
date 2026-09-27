@@ -37,7 +37,16 @@ export const CONST = {
   maxRentListings: 3,         // scarce: at most this many parcels to let at once
   maxSaleListings: 2,
   listingMonths: [3, 8],      // an unanswered listing is withdrawn after this many months
-  wageRange: [830, 1060],     // € per game day per hired hand (€30–38k/yr ÷ 36)
+  wageRange: [150, 220],      // r3: € per game day a hand actually works (by skill)
+  retainer: 35,               // € per idle game day
+  hoursPerDayHand: 10,        // a hand's full working day (game hours) — work.js HOURS_PER_DAY
+  jobCapBase: 2,              // active jobs = 2 + hired hands
+  callout: [60, 110],         // € call-out fee on machine jobs (small jobs still pay the trip)
+  bulkItems: ['wheat', 'barley', 'oats', 'rapeseed', 'maize'],
+  bulkBase: 80,               // t: the old barn, before any grain store is bought
+  overLimitBlockDays: 30,     // insolvency: purchases blocked
+  overLimitSeizeDays: 60,     // insolvency: the bank sells the least valuable asset …
+  seizeValue: 0.85,           // … at 85 % of value, every 3 days while still over the limit
   historyDays: 144,           // price history kept (4 years)
   ledgerMax: 600,
   saturationDecay: 0.7,       // per day (half-life ≈ 2 days)
@@ -96,7 +105,7 @@ export const JOB_TYPES = {
     months: [0, 0.2, 1.0, 1.0, 0.7, 0, 0, 0.4, 0.9, 1.0, 0.3, 0] },
   harvest:    { title: 'Combine', unit: 'ha', rate: 160, spread: 0.13, amount: [2, 7], machine: true, needs: 'combine',
     months: [0, 0, 0, 0, 0, 0.2, 1.0, 1.0, 0.8, 0.7, 0.3, 0] },
-  mow:        { title: 'Mow', unit: 'ha', rate: 58, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'tractor',
+  mow:        { title: 'Mow', unit: 'ha', rate: 58, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'mower',
     months: [0, 0, 0, 0.3, 1.0, 1.0, 0.8, 0.6, 0.4, 0.1, 0, 0] },
   transport:  { title: 'Haul', unit: 't', rate: 4.5, perTkm: 1.2, spread: 0.12, amount: [20, 60], machine: true, needs: 'trailer',
     months: [0.4, 0.4, 0.5, 0.5, 0.4, 0.6, 1.0, 1.0, 1.0, 1.0, 0.7, 0.4] },
@@ -112,17 +121,7 @@ export const JOB_TYPES = {
     months: [1.0, 0.8, 0.1, 0, 0, 0, 0, 0, 0, 0, 0.2, 0.9] },
 };
 
-// Work rates (machine hours) for the farm-manager model; exposed through workRates().
-export const WORK = {
-  plough: [1.6, 1.0, 0.7],   // h/ha (incl. stubble + seedbed passes) by tractor tier 1..3 (tier ≥ 2 needs the large tillage set)
-  sow: [0.9, 0.5, 0.35],
-  mow: [0.5, 0.32, 0.25],
-  care: 0.8,                 // all spreader/sprayer passes of a season, h/ha
-  harvest: { combine_s: 0.7, combine_l: 0.4 },
-  haulPerT: 0.05, haulPerTkm: 0.02, deliverPerLoad: 1.5,
-  hoursPerDay: 12,           // one person's working day in season
-  contractor: { tillage: 175, care: 90, harvest: 165, lift: 420 }, // €/ha when you hire it done
-};
+// Field-work rates live in work.js (workRates()).
 
 // Machinery catalog (registered by default; other modules may override entries by id).
 export const MACHINES = [
@@ -136,6 +135,11 @@ export const MACHINES = [
   { id: 'mower', category: 'mower', name: 'Disc mower', price: 12000, meta: {} },
   { id: 'combine_s', category: 'combine', name: 'Compact combine', price: 118000, meta: {} },
   { id: 'combine_l', category: 'combine', name: 'Large combine', price: 260000, meta: {} },
+  { id: 'root_harvester', category: 'harvester', name: 'Trailed beet & potato lifter', price: 68000, meta: {} },
+  { id: 'baler', category: 'baler', name: 'Round baler', price: 30000, meta: {} },
+  { id: 'cultivator', category: 'cultivator', name: 'Power harrow / cultivator', price: 12000, meta: {} },
+  { id: 'grain_store', category: 'storage', name: 'Grain store (400 t)', price: 40000, meta: { capacity: 400 } },
+  { id: 'grain_store_l', category: 'storage', name: 'Grain store & dryer (1000 t)', price: 85000, meta: { capacity: 1000 } },
 ];
 
 // Seeded NPC neighbours. Flemish + Walloon family names, farms and village people.

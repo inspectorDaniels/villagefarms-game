@@ -268,8 +268,8 @@ export function createDriver(env) {
       else if (brk > 0 && sp > -capRev) sp = Math.max(-capRev, sp - accel * 0.7 * brk * dt);
       else sp = Math.min(brk > 0 ? -capRev : 0, sp + (sp < -capRev ? 3.5 + coast : coast) * dt);
     } else {
-      if (thr > 0) sp = accel * thr * dt;
-      else if (brk > 0 && running) sp = -accel * 0.7 * brk * dt;
+      if (thr > 0) sp = Math.max(0, sp) + accel * thr * dt;
+      else if (brk > 0 && running) sp = Math.min(0, sp) - accel * 0.7 * brk * dt;
       else sp = 0;
     }
 

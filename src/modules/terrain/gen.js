@@ -105,16 +105,33 @@ export function generateData(ctx, opts = {}) {
     const cp = [], cc = [];
     for (let i = 0; i < rPts.length; i += 4) { cp.push(rPts[i]); cc.push(rCum[i]); }
     cp.push(rPts[rPts.length - 1]); cc.push(rLen);
+    // exact nearest segment, pruned by bounding boxes of groups of 8 segments (≈10× faster than
+    // testing every segment; ties resolve to the lowest index exactly like a plain linear scan)
+    const nSeg = cp.length - 1, GS = 8, nG = Math.ceil(nSeg / GS);
+    const gb = new Float64Array(nG * 4);
+    for (let q = 0; q < nG; q++) {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (let k = q * GS; k <= Math.min(nSeg, (q + 1) * GS); k++) { const p = cp[k]; x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); }
+      gb[q * 4] = x0; gb[q * 4 + 1] = y0; gb[q * 4 + 2] = x1; gb[q * 4 + 3] = y1;
+    }
+    let hint = 0;
     for (let j = 0; j < CH; j++) for (let i = 0; i < CW; i++) {
       const X = i * CS, Y = j * CS;
-      let best = 1e12, bs = 0;
-      for (let k = 0; k < cp.length - 1; k++) {
-        const [ax, ay] = cp[k], [bx, by] = cp[k + 1];
+      let best = 1e12, bs = 0, bk = -1;
+      const seg = (k) => {
+        const ax = cp[k][0], ay = cp[k][1], bx = cp[k + 1][0], by = cp[k + 1][1];
         const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy || 1e-9;
         let t = ((X - ax) * dx + (Y - ay) * dy) / L2; t = t < 0 ? 0 : t > 1 ? 1 : t;
         const px = ax + dx * t - X, py = ay + dy * t - Y, d = px * px + py * py;
-        if (d < best) { best = d; bs = cc[k] + t * (cc[k + 1] - cc[k]); }
+        if (d < best || (d === best && k < bk)) { best = d; bk = k; bs = cc[k] + t * (cc[k + 1] - cc[k]); }
+      };
+      seg(hint); // warm start from the neighbour's nearest segment
+      for (let q = 0; q < nG; q++) {
+        const ex = Math.max(gb[q * 4] - X, 0, X - gb[q * 4 + 2]), ey = Math.max(gb[q * 4 + 1] - Y, 0, Y - gb[q * 4 + 3]);
+        if (ex * ex + ey * ey > best * (1 + 1e-9) + 1e-9) continue;
+        for (let k = q * GS, ke = Math.min(nSeg, (q + 1) * GS); k < ke; k++) seg(k);
       }
+      hint = bk;
       dFar[j * CW + i] = Math.sqrt(best); sFar[j * CW + i] = bs;
     }
   }
@@ -147,20 +164,23 @@ export function generateData(ctx, opts = {}) {
       if (d < 40) d += 1.9 * nRiv.at(x / 13 + 3.3, y / 13 - 8.1) + 0.45 * nRiv.at(x / 6, y / 6 + 20);
       const hills = 0.5 + 0.5 * bl(hillsC, x, y);
       const detail = nDet.fbm(x / 95, y / 95, 3);
-      const above = 3 + 24 * Math.pow(hills, 1.25) + 7 * (1 - y / H) + 3.2 * detail;
+      const above = 3 + 24 * hills * Math.sqrt(Math.sqrt(hills)) + 7 * (1 - y / H) + 3.2 * detail; // = hills^1.25 (Math.pow is ~10× slower)
       const rl = rPts ? levelAtY(y) : 4;
-      const hw = rPts ? halfWidthAt(s) : 0;
-      const bw = rPts ? Math.min(bankAt(s), 15.5 - hw) : 0;
+      // hw + bw ≤ 15.5 by construction → channel/bank noise is only needed within 21.5 m
+      const near = rPts && d < 21.5;
+      const hw = near ? halfWidthAt(s) : 0;
+      const bw = near ? Math.min(bankAt(s), 15.5 - hw) : 0;
       const und = 0.35 * nDet.at(x / 26 + 7.7, y / 26 - 3.1);
       const floor = rl + 0.8 + und;
-      const t = rPts ? smooth(16, 16 + floodAt(x, y), d) : 1;
+      // smooth(16, 16 + flood, d) is exactly 0 for d ≤ 16 and 1 beyond 16 + max flood (< 180)
+      const t = !rPts ? 1 : d <= 16 ? 0 : d >= 200 ? 1 : smooth(16, 16 + floodAt(x, y), d);
       let h = floor + t * Math.max(0.2, above);
-      if (rPts && d < hw + bw) {
+      if (near && d < hw + bw) {
         const dep = depthAt(s);
         if (d < hw) { const u = d / hw; h = rl - 0.22 - dep * (1 - u * u); }
         else { const k = (d - hw) / bw; h = lerp(rl - 0.22, floor, k < 0.5 ? 0.9 * k : 0.45 + 1.1 * (k - 0.5)); }
         waterLevel[o] = rl;
-      } else if (rPts && d < hw + bw + 6) waterLevel[o] = rl;
+      } else if (near && d < hw + bw + 6) waterLevel[o] = rl;
       height[o] = h;
     }
   }
@@ -172,7 +192,9 @@ export function generateData(ctx, opts = {}) {
     const d = riverD[o];
     if (d < 70) continue;
     const hi = smooth(14, 30, height[o]);
-    const v = nRock.fbm(x / 48, y / 48, 3) + 0.28 * hi + 0.12 * nRock.ridged(x / 14, y / 14, 2);
+    const v0 = nRock.fbm(x / 48, y / 48, 3) + 0.28 * hi;
+    if (v0 + 0.12 <= 0.66) continue; // w would be 0
+    const v = v0 + 0.12 * nRock.ridged(x / 14, y / 14, 2);
     const w = smooth(0.66, 0.74, v);
     if (w > 0) {
       const bump = w * (1.1 + 0.9 * nMisc.at(x / 5.5, y / 5.5) + 0.5 * nRock.ridged(x / 4, y / 4, 2));
@@ -181,9 +203,7 @@ export function generateData(ctx, opts = {}) {
     }
   }
 
-  // ---------------- flat areas ----------------
-  const flats = Array.isArray(opts.flatAreas) ? opts.flatAreas : [];
-  for (const f of flats) flattenCircle(W, H, height, f.x, f.y, f.r, f.height);
+  // flat areas are applied after the base generation by applyFlats() (see index.js generate())
 
   // ---------------- lakes ----------------
   const lakes = [];
@@ -341,6 +361,16 @@ export function computeShade(T, x0, y0, x1, y1) {
   const { w: W, h: H, height, shade } = T;
   const at = (x, y) => height[clamp(y, 0, H - 1) * W + clamp(x, 0, W - 1)];
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    if (y >= 12 && y < H - 12 && x >= 12 && x < W - 12) {
+      // interior: no clamping needed (same values, ~4× faster)
+      const o = y * W + x, h = height[o];
+      const c4 = (height[o - 4] + height[o + 4] + height[o - 4 * W] + height[o + 4 * W]) * 0.25 - h;
+      const c12 = (height[o - 12] + height[o + 12] + height[o - 12 * W] + height[o + 12 * W]) * 0.25 - h;
+      const gx = height[o + 1] - height[o - 1], gy = height[o + W] - height[o - W];
+      const slope = Math.sqrt(gx * gx + gy * gy) * 0.5;
+      shade[o] = clamp(-c4 * 0.12 - c12 * 0.055 - slope * 0.3, -0.24, 0.18);
+      continue;
+    }
     const h = at(x, y);
     const c4 = (at(x - 4, y) + at(x + 4, y) + at(x, y - 4) + at(x, y + 4)) * 0.25 - h;
     const c12 = (at(x - 12, y) + at(x + 12, y) + at(x, y - 12) + at(x, y + 12)) * 0.25 - h;
@@ -383,4 +413,27 @@ export function computeUniform(T, x0, y0, x1, y1) {
     for (let yy = Math.max(0, y - 1); yy <= Math.min(H - 1, y + 2) && u; yy++) for (let xx = Math.max(0, x - 1); xx <= Math.min(W - 1, x + 2); xx++) if (surface[yy * W + xx] !== c) { u = 0; break; }
     uni[y * W + x] = u;
   }
+}
+
+/**
+ * Level circular flat areas [{x,y,r,height?}] into generated data and refresh everything derived
+ * from height (shade, surfaces, flags, reeds). Used by generate({flatAreas}) both after a full
+ * generation and as the cheap path on top of an unedited default generation → identical results.
+ */
+export function applyFlats(T, ctx, flats) {
+  if (!flats.length) return;
+  const W = T.w, H = T.h;
+  let x0 = W, y0 = H, x1 = 0, y1 = 0;
+  for (const f of flats) {
+    flattenCircle(W, H, T.height, f.x, f.y, f.r, f.height);
+    const R = f.r * 1.7 + 14;
+    x0 = Math.min(x0, Math.floor(f.x - R)); y0 = Math.min(y0, Math.floor(f.y - R));
+    x1 = Math.max(x1, Math.ceil(f.x + R)); y1 = Math.max(y1, Math.ceil(f.y + R));
+  }
+  x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(W - 1, x1); y1 = Math.min(H - 1, y1);
+  if (x1 < x0 || y1 < y0) return;
+  computeShade(T, x0, y0, x1, y1);
+  reclassify(T, ctx, x0, y0, x1, y1);
+  computeUniform(T, x0 - 3, y0 - 3, x1 + 3, y1 + 3);
+  placeReeds(T, ctx);
 }

@@ -49,11 +49,9 @@ export class TileManager {
     const cx0 = Math.max(0, Math.floor(x0 / CELL)), cx1 = Math.min(this.vw - 1, Math.floor(x1 / CELL));
     const cy0 = Math.max(0, Math.floor(y0 / CELL)), cy1 = Math.min(this.vh - 1, Math.floor(y1 / CELL));
     for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) this.cellVer[y * this.vw + x]++;
-    // cancel running jobs for affected tiles (they would commit stale data)
-    for (const [k, j] of this.jobs) {
-      const t = j.tile;
-      if (t.x < x1 + 1 && t.x + t.size > x0 - 1 && t.y < y1 + 1 && t.y + t.size > y0 - 1) this.jobs.delete(k);
-    }
+    // Running jobs for affected tiles are NOT cancelled: they commit with the version they started
+    // from, so fresh() fails and the tile is simply repainted once more. Cancelling starved tiles
+    // under repeated small edits (a tractor painting a strip every ~2 m never let a tile finish).
     if (this.overview) this.patchOverview(x0, y0, x1, y1);
   }
   verOf(x, y, size) {
@@ -478,10 +476,8 @@ export class TileManager {
     const drawn = [];
     // row-major order: each tile's anti-aliased leading edge lands on an already drawn neighbour (no seams)
     const order = need.slice().sort((a, b) => a.ty - b.ty || a.tx - b.tx);
-    const dbg = this.T.dbg || {};
     for (const t of order) {
       t.used = this.frame;
-      if ((dbg.skipWet && t.wet) || (dbg.skipDry && !t.wet)) continue;
       if (t.canvas) { g.drawImage(t.canvas, t.m, t.m, t.size * t.level, t.size * t.level, t.x, t.y, t.size + pad, t.size + pad); drawn.push(t); continue; }
       // fallback: coarser cached tile
       let done = false;

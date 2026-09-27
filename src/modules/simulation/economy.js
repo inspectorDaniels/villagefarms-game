@@ -21,6 +21,7 @@ export function installEconomy(sim) {
     E.days = [];
     E.nextId = 1;
     E.negativeDays = 0;
+    E.overLimitDays = 0;
     E.version = 0;
   }
 
@@ -106,7 +107,14 @@ export function installEconomy(sim) {
     inventory() { return { ...E.inventory }; },
     storageRoom(item) {
       const cap = E.capacity[item];
-      return cap == null ? Infinity : Math.max(0, cap - (E.inventory[item] || 0));
+      const own = cap == null ? Infinity : Math.max(0, cap - (E.inventory[item] || 0));
+      return CONST.bulkItems.includes(item) ? Math.min(own, api.bulkRoom()) : own;
+    },
+    /** t free in the shared bulk store (wheat, barley, oats, rapeseed, maize): the barn + grain stores */
+    bulkRoom() {
+      const cap = CONST.bulkBase + E.assets.reduce((t, a) => t + (a.mode === 'owned' && a.category === 'storage' ? (+(a.meta && a.meta.capacity) || 0) : 0), 0);
+      const used = CONST.bulkItems.reduce((t, k) => t + (E.inventory[k] || 0), 0);
+      return Math.max(0, cap - used);
     },
     /** returns the quantity actually stored (capacity-limited) */
     addInventory(item, qty) {
@@ -137,22 +145,23 @@ export function installEconomy(sim) {
      *  (needs enough credit headroom once the machine is counted as collateral). */
     purchase(id, opts = {}) {
       const c = E.catalog[id];
-      if (!c) return false;
+      if (!c || sim.blocked()) return false;
       if (opts && opts.finance) {
         const loan = Math.ceil(c.price * CONST.machineFinanceLTV / 100) * 100;
         const down = c.price - loan;
         const headroom = api.creditLimit() + CONST.creditMachineLTV * c.price * CONST.assetResaleNew;
         if (E.money < down || headroom < loan) return false;
-        securedLoan(loan, CONST.machineFinanceMonths, `Dealer finance on ${c.name}`);
       }
+      const assetId = nid('asset');
+      if (opts && opts.finance) securedLoan(Math.ceil(c.price * CONST.machineFinanceLTV / 100) * 100, CONST.machineFinanceMonths, `Dealer finance on ${c.name}`, { assetId });
       if (!api.charge(c.price, 'machinery', `Bought ${c.name}`)) return false;
-      E.assets.push({ id: nid('asset'), itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: sim.today() });
+      E.assets.push({ id: assetId, itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: sim.today() });
       return true;
     },
     /** lease a catalog item (first day paid now). Returns true on success. */
     lease(id) {
       const c = E.catalog[id];
-      if (!c || !(c.leasePerDay > 0)) return false;
+      if (!c || !(c.leasePerDay > 0) || sim.blocked()) return false;
       if (!api.charge(c.leasePerDay, 'lease', `Lease ${c.name} (first day)`)) return false;
       E.assets.push({ id: nid('asset'), itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'leased', price: c.price, leasePerDay: c.leasePerDay, upkeepPerDay: 0, boughtDay: sim.today() });
       return true;
@@ -173,7 +182,7 @@ export function installEconomy(sim) {
       if (i < 0) return undefined;
       const a = E.assets[i];
       E.assets.splice(i, 1);
-      if (a.mode === 'owned') { const v = assetValue(a); api.credit(v, 'assetSale', `Sold used ${a.name}`); return v; }
+      if (a.mode === 'owned') { const v = assetValue(a); api.credit(v, 'assetSale', `Sold used ${a.name}`); return v - settleLinked({ assetId: a.id }); }
       E.version++;
       return 0;
     },
@@ -195,13 +204,13 @@ export function installEconomy(sim) {
     creditLimit() {
       const land = sim.landValue ? sim.landValue() : 0;
       const mach = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
-      const debt = E.loans.reduce((a, l) => a + l.balance, 0);
+      const debt = E.loans.reduce((a, l) => a + l.balance, 0) + Math.max(0, -E.money); // an overdraft is debt too
       const income = Math.max(0, api.summary(YEAR_DAYS).operatingNet);
       return Math.max(0, CONST.creditLimitBase + CONST.creditIncomeMult * income + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt);
     },
     /** borrow; repaid monthly over opts.months (default 60). Returns loan id or null. */
     takeLoan(amount, opts = {}) {
-      if (!(amount > 0) || amount > api.creditLimit() + 1e-6) return null;
+      if (!(amount > 0) || sim.blocked() || amount > api.creditLimit() + 1e-6) return null;
       const months = Math.round(Math.max(3, Math.min(240, +opts.months || 60)));
       const [rlo, rhi] = CONST.loanRateRange;
       const rate = Math.max(rlo, Math.min(rhi, Number.isFinite(+opts.rate) && opts.rate != null ? +opts.rate : CONST.loanRate));
@@ -223,31 +232,49 @@ export function installEconomy(sim) {
     },
     loans() { return E.loans.map((l) => ({ ...l })); },
 
-    // ---------- workers ----------
+    // ---------- workers (r3: paid a day rate for days worked, a retainer when idle) ----------
     hireWorker(name) {
+      if (sim.blocked()) return null;
       const rng = sim.rngFor('worker:' + E.nextId);
       const skill = rng.range(0, 1);
-      const wage = Math.round((CONST.wageRange[0] + (CONST.wageRange[1] - CONST.wageRange[0]) * (0.2 + 0.8 * skill) - rng.range(0, 30)) / 5) * 5;
-      const w = { id: nid('worker'), name: name || rng.pick(WORKER_NAMES), wage: Math.max(CONST.wageRange[0], wage), skill: +skill.toFixed(2), hiredDay: sim.today(), paid: 0 };
+      const [lo, hi] = CONST.wageRange;
+      const dayRate = Math.max(lo, Math.min(hi, Math.round((lo + (hi - lo) * (0.15 + 0.85 * skill) - rng.range(0, 10)) / 5) * 5));
+      const w = { id: nid('worker'), name: name || rng.pick(WORKER_NAMES), dayRate, retainer: CONST.retainer, wage: dayRate, skill: +skill.toFixed(2), hiredDay: sim.today(), paid: 0, hoursToday: 0, daysWorked: 0 };
       E.workers.push(w);
       E.version++;
       return { ...w };
+    },
+    /** a hand worked `hours` game hours today (field work, jobs …); settles into wages the next morning */
+    logWork(workerId, hours) {
+      const w = E.workers.find((x) => x.id === workerId);
+      if (!w || !(hours > 0)) return w ? w.hoursToday : 0;
+      w.hoursToday = Math.min(24, (w.hoursToday || 0) + hours);
+      return w.hoursToday;
     },
     fireWorker(id) {
       const i = E.workers.findIndex((w) => w.id === id);
       if (i < 0) return false;
       const w = E.workers[i];
+      settleWorker(w);
       E.workers.splice(i, 1);
-      api.charge(w.wage, 'wages', `Final day's pay — ${w.name}`, { force: true });
+      for (const j of (sim.world.jobs.list || [])) if (j.assignee === id && j.status === 'accepted') j.assignee = null;
+      E.version++;
       return true;
     },
-    workers() { return E.workers.map((w) => ({ ...w })); },
+    workers() {
+      const jobs = sim.world.jobs.list || [];
+      return E.workers.map((w) => ({ ...w, assignedJobs: jobs.filter((j) => j.assignee === w.id && j.status === 'accepted').map((j) => j.id) }));
+    },
+    /** insolvency state: an overdraft beyond the credit headroom counts days; 30 → blocked, 60 → the bank sells assets */
+    solvency() {
+      return { overLimit: overLimit(), daysOverLimit: E.overLimitDays || 0, blocked: sim.blocked(), overdraft: Math.max(0, -E.money), creditLimit: api.creditLimit() };
+    },
   });
 
   /** daily running costs; called at the start of each new game day */
   function economyDay(day) {
     const doy = ((day % YEAR_DAYS) + YEAR_DAYS) % YEAR_DAYS;
-    for (const w of E.workers) { api.charge(w.wage, 'wages', `Wages — ${w.name}`, { force: true }); w.paid += w.wage; }
+    for (const w of E.workers) settleWorker(w);
     for (const a of E.assets) {
       if (a.mode === 'owned' && a.upkeepPerDay > 0) api.charge(a.upkeepPerDay, 'upkeep', `Upkeep — ${a.name}`, { force: true });
       if (a.mode === 'leased') api.charge(a.leasePerDay, 'lease', `Lease — ${a.name}`, { force: true });
@@ -271,18 +298,79 @@ export function installEconomy(sim) {
     if (E.money < 0) {
       api.charge(-E.money * CONST.overdraftRate / YEAR_DAYS, 'interest', 'Overdraft interest', { force: true });
       E.negativeDays++;
-      sim.emit('economy:bankrupt-warning', { money: E.money, daysNegative: E.negativeDays, creditLimit: api.creditLimit() });
     } else E.negativeDays = 0;
+    // insolvency: over the limit = an overdraft the credit headroom no longer covers
+    if (overLimit()) {
+      E.overLimitDays = (E.overLimitDays || 0) + 1;
+      const n = E.overLimitDays;
+      const stage = n >= CONST.overLimitSeizeDays ? 'seizure' : n >= CONST.overLimitBlockDays ? 'blocked' : 'warning';
+      sim.emit('economy:bankrupt-warning', { money: E.money, daysNegative: E.negativeDays, daysOverLimit: n, stage, creditLimit: api.creditLimit() });
+      if (n >= CONST.overLimitSeizeDays && (n - CONST.overLimitSeizeDays) % 3 === 0) seizeOne();
+    } else {
+      E.overLimitDays = 0;
+      if (E.money < 0) sim.emit('economy:bankrupt-warning', { money: E.money, daysNegative: E.negativeDays, daysOverLimit: 0, stage: 'overdraft', creditLimit: api.creditLimit() });
+    }
+  }
+
+  function overLimit() {
+    if (E.money >= 0) return false;
+    // headroom not counting the overdraft itself
+    const land = sim.landValue ? sim.landValue() : 0;
+    const mach = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
+    const debt = E.loans.reduce((a, l) => a + l.balance, 0);
+    const income = Math.max(0, api.summary(YEAR_DAYS).operatingNet);
+    const head = CONST.creditLimitBase + CONST.creditIncomeMult * income + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt;
+    return -E.money > head;
+  }
+  sim.blocked = () => (E.overLimitDays || 0) >= CONST.overLimitBlockDays;
+
+  /** the bank sells the least valuable owned asset (machines first, then land) at 85 % of value */
+  function seizeOne() {
+    const mach = E.assets.filter((a) => a.mode === 'owned').map((a) => ({ a, v: assetValue(a) })).sort((x, y) => x.v - y.v);
+    if (mach.length) {
+      const { a, v } = mach[0];
+      E.assets.splice(E.assets.indexOf(a), 1);
+      const got = v * CONST.seizeValue;
+      api.credit(got, 'assetSale', `Bank sale (insolvency): ${a.name}`);
+      settleLinked({ assetId: a.id });
+      sim.emit('economy:asset-seized', { kind: 'machine', id: a.id, name: a.name, amount: got });
+      return true;
+    }
+    if (sim.seizeLand) return sim.seizeLand(CONST.seizeValue);
+    return false;
+  }
+
+  /** repay loans secured on an asset/parcel from its sale proceeds; returns € repaid */
+  function settleLinked(link) {
+    let paid = 0;
+    for (const l of E.loans.slice()) {
+      if ((link.assetId && l.assetId === link.assetId) || (link.parcelId && l.parcelId === link.parcelId)) {
+        const p = l.balance;
+        sim.record(-p, 'loanRepay', `Loan settled from the sale — ${l.memo || 'secured loan'}`);
+        E.loans.splice(E.loans.indexOf(l), 1);
+        paid += p;
+      }
+    }
+    return paid;
+  }
+
+  function settleWorker(w) {
+    const h = w.hoursToday || 0;
+    const half = CONST.hoursPerDayHand / 2;
+    const pay = h >= half ? w.dayRate : h > 0 ? w.dayRate / 2 : w.retainer;
+    api.charge(pay, 'wages', h > 0 ? `Wages — ${w.name}, ${h.toFixed(1)} h` : `Retainer — ${w.name}`, { force: true });
+    w.paid += pay;
+    if (h > 0) w.daysWorked = (w.daysWorked || 0) + 1;
+    w.hoursToday = 0;
   }
 
   /** a loan secured on a specific asset (mortgage); bypasses the unsecured credit limit. Internal. */
-  function securedLoan(amount, months, memo) {
-    if (E.money + amount < 0) return null;
-    const loan = { id: nid('loan'), principal: amount, balance: amount, rate: CONST.loanRate, takenDay: sim.today(), months, monthly: amount / months, interestPaid: 0, secured: true };
+  function securedLoan(amount, months, memo, link = {}) {
+    const loan = { id: nid('loan'), principal: amount, balance: amount, rate: CONST.loanRate, takenDay: sim.today(), months, monthly: amount / months, interestPaid: 0, secured: true, memo, ...link };
     E.loans.push(loan);
     sim.record(amount, 'loan', `${memo} — €${Math.round(amount).toLocaleString('en-GB')} over ${+(months / 12).toFixed(1)} years`);
     return loan.id;
   }
 
-  sim.economy = { initEconomy, economyDay, nid, securedLoan };
+  sim.economy = { initEconomy, economyDay, nid, securedLoan, settleLinked, assetValue };
 }

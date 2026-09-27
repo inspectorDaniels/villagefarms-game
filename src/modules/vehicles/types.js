@@ -113,6 +113,10 @@ export const IMPLEMENTS = {
     kind: 'implement', name: 'Round baler', catalog: 'baler', register: { category: 'hay', price: 24000 }, mount: 'trailed', len: 3.2, wid: 2.5, height: 2.4, tongue: 3.1, axleY: 0.5, mass: 2800,
     work: { tool: 'bale', width: 2.0, speed: 9 * KMH, needHp: 80 }, look: 'baler',
   },
+  root_harvester: {
+    kind: 'implement', name: '2-row root harvester (potato/beet)', catalog: 'root_harvester', register: { category: 'harvester', price: 65000 }, mount: 'trailed', len: 6.2, wid: 3.0, height: 3.2, tongue: 5.2, axleY: 1.2, mass: 7500,
+    work: { tool: 'harvest', width: 1.5, speed: 5 * KMH, needHp: 130 }, capacity: 6000, look: 'rootHarvester',
+  },
   trailer_grain: {
     kind: 'trailer', name: '14 t tipping trailer', catalog: 'trailer', mount: 'trailed', len: 6.4, wid: 2.5, height: 2.3, tongue: 5.0, axleY: 0.9, mass: 4200,
     capacity: 14000, look: 'grainTrailer',
@@ -136,7 +140,7 @@ export const KITS = {
   tillage_s: ['plough_s', 'seeder_s'], tillage_l: ['plough_l', 'seeder_l'],
   sprayer: ['sprayer', 'spreader'], trailer: ['trailer_grain'], mower: ['mower'],
   pickup: ['pickup'], cultivator: ['cultivator'], rake: ['rake'], baler: ['baler'],
-  trailer_flat: ['trailer_flat'], front_loader: ['loader'],
+  trailer_flat: ['trailer_flat'], front_loader: ['loader'], root_harvester: ['root_harvester'],
 };
 
 // upgrades: cost as a fraction of the machine's list price (min €)
@@ -149,3 +153,6 @@ export const UPGRADES = {
 export const FUEL_TIME = 2;        // 1 real second of engine time burns 2 machine-seconds of diesel
 export const WEAR_PER_HOUR = 0.05; // wear per real hour of engine time at full load
 export const REPAIR_FRAC = 0.12;   // full repair (wear 1 → 0) costs 12 % of list price
+
+// field efficiency (turns, overlaps, headlands) used for area rates: ha/h = width × speed × 0.36 × FIELD_EFF
+export const FIELD_EFF = 0.8;

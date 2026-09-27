@@ -3,7 +3,7 @@
 import { CROPS, CROP_IDS, YEAR_DAYS, UNITS, monthOfDoy, inSowWindow, calendarGrowth } from './data.js';
 import { createModel } from './model.js';
 import { createTiles } from './tiles.js';
-import { createRenderer } from './render.js';
+import { createRenderer, insetPoly } from './render.js';
 import { PRESETS, stageShowcase } from './showcase.js';
 
 export const manifest = {
@@ -98,7 +98,8 @@ export async function init(ctx) {
     createField(poly, opts = {}) {
       const id = model.createField(poly, opts);
       const t = mod('terrain');
-      if (t && t.paintSurface && opts.paintTerrain !== false) t.paintSurface({ poly }, 'soil');
+      const inner = insetPoly(poly, 1.3); // the outer metre stays verge grass (the field edge is feathered onto it)
+      if (t && t.paintSurface && opts.paintTerrain !== false && inner) t.paintSurface({ poly: inner }, 'soil');
       return id;
     },
     removeField: (id) => model.removeField(id),

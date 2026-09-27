@@ -290,6 +290,20 @@ export function createPainter(art, P) {
           g.strokeStyle = S(red, 0.3); g.lineWidth = 0.04; g.beginPath(); g.arc(0, L / 2 - 0.8, 0.55, Math.PI, 0); g.stroke();
           break;
         }
+        case 'rootHarvester': {
+          g.strokeStyle = S(frame, -0.2); g.lineWidth = 0.14;
+          g.beginPath(); g.moveTo(0, -L / 2 - 0.1); g.lineTo(-0.9, -L / 2 + 1.6); g.stroke();
+          dot(g, 0, -L / 2 - 0.05, 0.09, S(frame, -0.3));
+          // lifting shares + web (front-left, over the rows), bunker (rear)
+          metal(g, rng, -W / 2, -L / 2 + 1.4, 1.7, 0.5, 0.08, S(steel, -0.1));
+          g.strokeStyle = S(steel, -0.45); g.lineWidth = 0.03;
+          for (let yy = -L / 2 + 1.95; yy < -L / 2 + 3.3; yy += 0.12) { g.beginPath(); g.moveTo(-W / 2 + 0.15, yy); g.lineTo(-W / 2 + 1.5, yy); g.stroke(); }
+          panel(g, rng, -W / 2 + 0.1, -L / 2 + 1.9, 1.5, 1.5, 0.08, S(red, -0.1));
+          panel(g, rng, -W / 2 + 0.2, -L / 2 + 3.3, W - 0.4, L / 2 - 0.2 + 0.1, 0.15, red, { gloss: 0.2 });
+          rrect(g, -W / 2 + 0.4, -L / 2 + 3.5, W - 0.8, L / 2 - 0.7, 0.08); g.fillStyle = S(red, -0.5); g.fill();
+          for (const s2 of [-1, 1]) dot(g, s2 * (W / 2 - 0.3), L / 2 - 0.08, 0.06, '#a8392f');
+          break;
+        }
         case 'grainTrailer':
         case 'flatbed': {
           const c = I.look === 'grainTrailer' ? P.paint.tractorRed : P.timber[0];

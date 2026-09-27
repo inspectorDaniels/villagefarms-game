@@ -22,108 +22,112 @@ Files:
 - Daily processing runs once per new game day. It is triggered by `clock:day`, with a catch-up in `update`.
 - The catch-up processes at most 72 days at once. Any days beyond that are skipped with a `ctx.warn`.
 
+## r3 time model — READ THIS FIRST (vehicles, crops, characters)
+- The clock runs at 60× (1 real second = 1 game minute).
+- **The player's own driving is real-time physics.** A 3 m plough at 8 km/h × 0.8 field efficiency covers 1.92 ha per **real** hour, which is 0.032 ha per game hour.
+- **Hired hands and contractors work abstractly.** Their rate is the physical rate per **game** hour × `AI_WORK_FACTOR` (0.25). A t1 plough is then 0.48 ha per game hour, about 4.8 ha per 10-hour game day.
+- The player can only work small areas. **Hands are how the farm scales.**
+- `workRates()` is the single source for all of these numbers. Jobs, the harness, and the vehicles/characters AI should all read it.
+
+`workRates()` returns:
+```
+{ clockScale: 60, aiWorkFactor: 0.25, hoursPerDay: 10,            // hands/contractors work 10 game-h per game day
+  fieldEff: 0.8,
+  kit:  { plough:{widthM:[3,4.2,6], kmh:[8,8,8]}, cultivate:{widthM:[3,4,6],kmh:[10,10,10]},
+          sow:{widthM:[3,4,6],kmh:[10,10,10]}, spray:{widthM:18,kmh:10,eff:0.6}, mow:{widthM:3,kmh:12},
+          harvest:{combine_s:{widthM:4.5,kmh:5}, combine_l:{widthM:7.5,kmh:6}}, lift:{widthM:1.5,kmh:5,eff:0.7},
+          bale:{widthM:3,kmh:12,eff:0.8}, haul:{trailerT:14, kmh:25, loadH:0.05} },
+  physical: { op: ha per REAL hour, [t1,t2,t3] for plough/cultivate/sow (tier = tractor tier), number for others },
+  ai:       { op: ha per GAME hour for a hand/contractor  (= physical × aiWorkFactor) },
+  player:   { op: ha per GAME hour for the player driving (= physical / clockScale) },
+  contractor: { op: { perHa €, leadDays:[min,max], peakLeadDays:[min,max], peakMonths:[...] } },
+  plough: [...], sow: [...], mow: [...],   // legacy: AI game-hours per ha by tier
+}
+```
+Ops: `plough cultivate sow spray mow harvest lift bale`. `harvest` means cereals/rapeseed/maize with a combine. `lift` means sugar beet/potatoes with the root harvester.
+
 ## API (all via `ctx.modules.get('simulation')`)
+Everything from r2 still works. New in r3 are marked **(r3)**.
+
 **Money**
-- `money()` → €.
-- `canAfford(x)` → bool.
-- `charge(amount, category, memo, opts?)` → bool. It returns false and charges nothing if the money isn't there, unless `opts.force`.
+- `money()`, `canAfford(x)`.
+- `charge(amount, category, memo, opts?)` → bool. It refuses when money is short, unless `opts.force`.
 - `credit(amount, category, memo)`.
-- `ledger(n=20)` → newest first: `{t, day, amount (signed), category, memo, balance}`.
-- `summary(periodDays=36)` → `{income, expenses, net, operatingIncome, operatingExpenses, operatingNet, byCategory, days}`. "Operating" leaves out the capital and financing categories `loan, loanRepay, land, landSale, machinery, assetSale`.
-- `netWorth()` → `{cash, land, machinery, stock, debt, total}`. Land is at market value, machinery at resale value, and stock at 95 % of the quote.
+- `ledger(n)`, `summary(periodDays)` → `{income, expenses, net, operating*, byCategory}`.
+- `netWorth()` → `{cash, land, machinery, stock, debt, total}`.
 
 **Market**
-- `price(item, sellPointId?)` → €/unit, including the buyer's bias, daily jitter and glut.
-  - It returns `undefined` when that buyer doesn't take the item (wheat at the dairy).
-  - Without a sell point you get the anonymous spot market, which pays −3 % and takes produce but not diesel or fertiliser.
-- `priceHistory(item)` → `[[day, refPrice], …]`, up to 144 days.
-- `sell(item, qty, sellPointId?, {fromInventory=true})` → € received. It returns 0 if the buyer refuses the item.
-  - Big lots are priced along the saturation curve.
-  - Diesel and fertiliser can't be sold.
-- `buy(item, qty)` → € spent. Diesel and fertiliser are bought at the quote. Produce costs +15 % retail.
-- `defineSellPoint(id, {name, x, y, accepts:[items], bias:{item: mult}})`.
-- `sellPoints()`.
-- `yieldTable()` → per crop: `{name, product, yield t/ha, straw, seed, fertiliser, spray (€/ha), dieselL, sowMonths, harvestMonths}`.
-- `inputCost(crop)`, `buyInputs(crop, ha, parts?)`.
-- `workRates()` → machine hours per ha by tractor tier, contractor rates, and hours per working day.
+- `price(item, sellPointId?)` → € per unit, or `undefined` when that buyer doesn't take the item.
+- `priceHistory(item)`.
+- `sell(item, qty, sellPointId?)` → € received. **(r3)** It always sells from farm inventory. The old `fromInventory:false` option is ignored, because that path created money from goods the farm didn't have. Producers such as animals and crops call `addInventory` first, then `sell`.
+- `buy(item, qty)`.
+- `defineSellPoint(id, {name, x, y, accepts, bias})`, `sellPoints()`.
+- `yieldTable()`, `inputCost(crop)`, `buyInputs(crop, ha, parts?)`.
 
-Items (€): wheat 210/t, barley 185, oats 200, rapeseed 430, maize 195, potatoes 160, sugar beet 42,
-hay 120 (`grass` is an alias), straw 70; milk 0.46 €/l; eggs 0.22 €/ea; wool 1.8 €/kg;
-diesel 1.25 €/l; fertiliser (CAN) 420 €/t.
-
-**Inventory**
-- `inventory()`.
-- `addInventory(item, qty)` → amount stored (limited by capacity).
-- `removeInventory`.
-- `setCapacity(item, qty|null)`.
-- `storageRoom(item)`.
+**Inventory / storage**
+- `inventory()`, `addInventory(item, qty)` → stored qty, `removeInventory`, `setCapacity(item, qty|null)`, `storageRoom(item)`.
+- **(r3)** Bulk crops (wheat, barley, oats, rapeseed, maize) share one farm store. The old barn holds 80 t. Buying the catalog items `grain_store` (+400 t) or `grain_store_l` (+1000 t) raises it. `bulkRoom()` → t free.
 
 **Catalog / assets**
-- `registerCatalogItem({id, category, name, price, leasePerDay?, upkeepPerDay?, meta?})`. Default upkeep is 1.5 % of the list price per year. The default lease is 20 % of the price per year.
-- `catalog(category?)`.
-- `purchase(id, {finance?})` → bool. With `finance:true` it is dealer finance:
-  - you pay 25 % now;
-  - the other 75 % becomes a 5-year loan secured on the machine;
-  - it needs credit headroom, counting the new machine as collateral.
-- `lease(id)`: the first day is paid now.
-- `grantAsset(id, {boughtDay?})` gives a starter kit or gift.
-- `assets()` → items with their resale `value`. Resale is 90 % of list − 5 % per year, with a floor of 20 %.
-- `releaseAsset(assetId)` sells an owned item or hands back a leased one.
+- `registerCatalogItem`, `catalog(category?)`, `lease(id)`, `grantAsset(id)`, `assets()`.
+- `purchase(id, {finance?})` → bool. Finance means 25 % down and a 5-year loan secured on the machine.
+- `releaseAsset(assetId)` → € net. **(r3)** A financed machine's loan is repaid from the sale proceeds first.
+- **(r3)** New catalog entries:
+  - `root_harvester` (category `harvester`, beet/potato lifter, €68k);
+  - `baler` (category `baler`, €30k);
+  - `cultivator` (category `cultivator`, €12k);
+  - `grain_store` and `grain_store_l` (category `storage`, `meta.capacity` in t).
 
-**Loans**
-- `takeLoan(amount, {months=60, rate=0.045})` → id or null. The rate is clamped to 2–12 %/yr.
-  - The unsecured credit limit is €25k, plus 60 % of the last 12 months' operating result, plus 60 % of owned land value, plus 50 % of machinery value, minus debt.
-- `repayLoan(id, amount?)`.
-- `loans()`.
-- `creditLimit()`.
-- Interest is charged daily (balance × rate / 36). Instalments are due monthly.
+**Contractors (r3)**
+- `contractorQuote(parcelId, op)` → `{parcelId, op, ha, price, leadDays, days}`, or null when the op or parcel is unknown.
+- `hireContractor(parcelId, op)` → booking `{id, parcelId, op, ha, price, bookedDay, startDay, doneDay, status:'booked'}`, or null if you can't pay or the purchase is blocked.
+  - The booking is paid when made.
+  - The work starts after the lead time, which is longer in peak months, and takes `ha / (ai rate × hoursPerDay)` days.
+  - When it is done it emits `economy:contractor-done {booking}`. **The crops module should apply the operation to the parcel's fields on that event.**
+  - Completion also counts as field work for CAP.
+- `contractorBookings(status?)`, `cancelContractor(id)`. Cancelling refunds in full before `startDay`; after that it is refused.
+- Prices (€/ha): plough 110, cultivate 65, sow 75, spray 28 (per pass), mow 60, harvest 170, lift 430, bale 55.
 
-**Land** (`world.land.parcels`, plus a regional land index in `world.land.index`)
-- `defineParcel({poly, name, state, soil (0..1 | {quality}), price?, rentPerHaYear?, owner?, id?, tradeable?})` → id.
-  - States are `owned | rented | forSale | forRent | npc`.
-  - Market value is ha × €12–22k by soil × land index.
-  - The asking rent is €450–750/ha/yr by soil² × √index, about 3 % of value. Rents follow half the land-price growth (the Belgian Pachtwet caps rent rises).
-- `parcels()`, `parcel(id)`, `parcelAt(x, y)`, `canUse(x, y)` (owned or rented).
-- `landMarket()` → `{index, indexHistory, forRent:[ids], forSale:[ids], capAccruedHa}`.
-  - Listings are scarce: at most 3 to let and 2 for sale at a time.
-  - Each month there is a chance a neighbour's parcel is listed (to let 50 %, for sale 40 %).
-  - Unanswered listings are withdrawn after 3–8 months.
-  - The land index grows about 3 %/yr, with monthly noise.
-- `buyParcel(id, {mortgage?})` works only on `forSale` parcels and costs the price + 4 % fees.
-  - With `mortgage:true`, the bank lends up to 75 % of the price over 15 years.
-  - You bring the rest and the fees in cash.
-- `rentParcel(id)` works only on `forRent` parcels. Rent is charged **monthly in advance**, starting now, at the rate signed.
-  - The **minimum term is one game year**.
-- `leaseExitCost(id)` → € it costs to end the lease today.
-- `endLease(id)` hands the parcel back.
-  - Before the minimum term is up, this costs min(the unpaid rest of the term, 3 months' rent).
-- `sellParcel(id)` → 97 % of market value.
-- **CAP** is €450/ha-year (game scale; basic income support + eco-schemes + young-farmer top-up).
-  - It accrues **per hectare-day held** (owned or rented), and the accrued amount is paid on 1 October.
+**Field work & CAP (r3)**
+- `recordFieldWork(parcelId, op, {workerId?, hours?})`. Call it whenever a field operation is done on a parcel, by the player, a hand or anything else. It marks the parcel as worked this CAP year. With `workerId` + `hours`, it also logs the hand's paid hours.
+- **CAP pays only on parcels worked at least once since the last CAP day.** It is paid pro rata by days held, on 1 October, at €450/ha-year.
 
-**Jobs** (`world.jobs.list`)
-- A job is `{id, type, client, clientFarm, title, pay, deadlineDay, expiresDay, parcelId, from, to, x, y, crop, amount, unit, km?, cargo?, requiresMachine, needs, progress, status}`.
-- Every job has a destination (`to`), and area jobs point to a real parcel.
-- Types: `plough sow harvest mow transport deliver animalCare shopHelp villageWork snowClear`.
-- Pay follows machine rates:
-  - plough €105/ha, drill €72/ha, combine €160/ha (lifting roots ×1.6), mow €58/ha;
-  - haul €4.5/t + €1.2/t·km; deliver €110/load;
-  - odd jobs €14.5–19/h; snow clearing €72/h (snow ×4 more likely in `snow` weather).
-- Offers: 2–4 new per day, at most 8 open, and **at most 3 accepted at once**.
-- `jobs(filter)` takes a status string, a match object or a predicate.
-- `acceptJob`, `reportProgress(id, delta)` (completes at 1), `tickPresence(id, gameSeconds)`.
-- `completeJob(id)` needs ≥ 90 % done. It pays pro-rata, +5 % if the job is finished before the deadline day.
-- `failJob(id)` costs a 10 % penalty and reputation.
-- `reputation()`:
-  - success adds with diminishing returns: +3 % of the distance to 1;
-  - a failure costs −0.08;
-  - everything drifts back toward 0.5 by 4 % a month;
-  - reputation scales pay ×0.92–1.08.
+**Workers / hands (r3 wage model)**
+- `hireWorker(name?)` → `{id, name, dayRate, retainer, wage (=dayRate), skill}`. `dayRate` is €150–220 per game day worked; the retainer is €35 per idle day.
+- `logWork(workerId, gameHours)` records hours a hand worked today. The characters/vehicles AI and the harness call it.
+- Settlement happens at the start of the next day:
+  - ≥ 5 h worked → full `dayRate`;
+  - some work → half the `dayRate`;
+  - none → the retainer.
+- `fireWorker(id)`, `workers()` → each also carries `hoursToday` and `assignedJobs`.
 
-**Workers**
-- `hireWorker(name?)` → `{id, name, wage €830–1060/day (≈ €30–38k/yr), skill}`.
-- `fireWorker(id)` pays one final day.
-- `workers()`.
+**Jobs (r3)**
+- Every job has world coordinates `x, y` (and `to.x/to.y`). The site is resolved in this order:
+  1. a parcel;
+  2. the client's farm (`defineClientFarm`, or the centroid of a parcel the client owns);
+  3. a deterministic point inside `world.bounds`.
+- **Player-sized offers** take about 5–20 **real** minutes for the player. The area comes from `workRates().physical` and the player's best machine for that job. Presence jobs last 4–12 game hours. Transport is one trailer load.
+- **Crew-sized offers** (`crew: true`) take about 1–2 hand-days at the AI rate. They are meant for delegation.
+- Each job also carries:
+  - `estPlayerMin`: real minutes if the player does it;
+  - `estAiHours`: game hours for a hand;
+  - pay: machine rate × area, plus a call-out fee.
+- `assignJob(jobId, assigneeId|null)` → bool. Pass a hired-hand id from `workers()` to delegate. **The simulation itself then works the job at the AI rate**, each game day, with the hand's hours not already logged that day and a free owned machine of the required category. `null` hands the job back to the player. Any other id (e.g. a character id) only records the assignee; the caller then reports progress.
+- `activeJobCap()` → 2 + hired hands. `acceptJob` refuses beyond it.
+- `defineClientFarm(name, {x, y})` places a client's farm.
+- `jobs(filter)`, `acceptJob`, `reportProgress`, `tickPresence`, `completeJob`, `failJob`, `reputation()` work as in r2.
+
+**Loans & insolvency (r3)**
+- `takeLoan(amount, {months, rate})`, `repayLoan`, `loans()`.
+- `creditLimit()`: an overdraft (negative cash) counts as debt. No new loans can be taken while over the limit.
+- `solvency()` → `{overLimit, daysOverLimit, blocked, overdraft, creditLimit}`. When `money < 0` and the overdraft exceeds the headroom:
+  - **30 days over the limit:** purchases, land deals, rentals, hires and contractor bookings are blocked (they return false/null), and `economy:bankrupt-warning {stage:'blocked'}` is emitted.
+  - **60 days over the limit:** the bank sells the least valuable asset (machines first, then land) at 85 % of value, repaying its secured loan first. It repeats every 3 days while still over the limit, and emits `economy:asset-seized`.
+- Selling a mortgaged parcel (`sellParcel`) repays its mortgage from the proceeds first.
+
+**Land**
+- `defineParcel`, `parcels()`, `parcel(id)`, `parcelAt`, `canUse`, `landMarket()`.
+- `buyParcel(id, {mortgage})`, `rentParcel`, `leaseExitCost`, `endLease`, `sellParcel`. These are as in r2, plus the loan settlement above.
 
 `today()` → the economy's absolute day index.
 

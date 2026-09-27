@@ -1,5 +1,10 @@
 // Paid contract jobs from seeded NPC neighbours.
+// r3: offers are sized from workRates() — player-sized (≈5–20 real minutes of the player's own
+// driving/walking) or crew-sized (≈1–2 hand-days, meant to be delegated with assignJob). Every job has
+// world coordinates. Jobs assigned to a hired hand are worked by the simulation at the AI rate.
 import { JOB_TYPES, CLIENTS, CROPS, ITEMS, CONST, YEAR_DAYS, MONTH_DAYS } from './data.js';
+import { haPerGameHour, haulTripHours } from './work.js';
+import { hashString } from './util.js';
 
 const PRESENCE = ['animalCare', 'shopHelp', 'villageWork'];
 const AREA = ['plough', 'sow', 'harvest', 'mow'];
@@ -7,6 +12,8 @@ const CROP_FOR = {
   sow: ['wheat', 'barley', 'maize', 'sugarBeet', 'oats'],
   harvest: ['wheat', 'barley', 'rapeseed', 'maize', 'potatoes', 'sugarBeet', 'oats'],
 };
+const ROOTS = ['potatoes', 'sugarBeet'];
+const h01 = (s) => hashString(String(s)) / 4294967296;
 
 export function installJobs(sim) {
   const J = sim.world.jobs;
@@ -16,26 +23,66 @@ export function installJobs(sim) {
     J.list = [];
     J.nextId = 1;
     J.clients = {};
+    J.clientFarms = J.clientFarms || {};
     for (const c of CLIENTS) J.clients[c.name] = { rep: 0.5, done: 0, failed: 0 };
     J.reputation = 0.5;
-    J.stats = { offered: 0, completed: 0, failed: 0, expired: 0, earned: 0 };
+    J.stats = { offered: 0, completed: 0, failed: 0, expired: 0, earned: 0, delegated: 0 };
   }
 
   const find = (id) => J.list.find((j) => j.id === id);
   const month = (day) => Math.floor((((day % YEAR_DAYS) + YEAR_DAYS) % YEAR_DAYS) / MONTH_DAYS);
   const pub = (j) => ({ ...j, from: j.from && { ...j.from }, to: j.to && { ...j.to } });
+  const E = () => sim.world.economy;
+  const owned = (cat) => (E().assets || []).filter((a) => a.mode === 'owned' && a.category === cat);
+  const hands = () => (E().workers || []).length;
+  const bounds = () => sim.world.bounds || { w: 1024, h: 1024 };
 
   function place(spOrParcel) {
     if (!spOrParcel) return null;
     if (spOrParcel.poly) return { kind: 'parcel', id: spOrParcel.id, name: spOrParcel.name, x: spOrParcel.center[0], y: spOrParcel.center[1] };
     return { kind: 'sellPoint', id: spOrParcel.id, name: spOrParcel.name, x: spOrParcel.x, y: spOrParcel.y };
   }
+  /** a deterministic point inside the world (keeps 12 % off the edges) */
+  function hashedPoint(key) {
+    const b = bounds();
+    return { x: Math.round(b.w * (0.12 + 0.76 * h01('x:' + key))), y: Math.round(b.h * (0.12 + 0.76 * h01('y:' + key))) };
+  }
+  /** where a client's farm is: defineClientFarm, else a parcel they own, else a hashed point */
+  function clientFarm(client) {
+    const f = J.clientFarms[client.name];
+    if (f) return { kind: 'farm', name: client.farm, x: f.x, y: f.y };
+    const own = sim.world.land.parcels.filter((p) => p.owner === client.name);
+    if (own.length) { const p = own[Math.floor(h01(client.name) * own.length)]; return { kind: 'farm', name: client.farm, x: p.center[0], y: p.center[1] }; }
+    return { kind: 'farm', name: client.farm, ...hashedPoint(client.name) };
+  }
+
+  // ---------- sizing from workRates() ----------
+  const rates = () => sim.rates;
+  function playerTier() { return Math.max(1, ...owned('tractor').map((a) => (a.meta && a.meta.tier) || 1)); }
+  function opOf(type, crop) { return type === 'harvest' ? (ROOTS.includes(crop) ? 'lift' : 'harvest') : type; }
+  function combineId() { return owned('combine').some((a) => a.itemId === 'combine_l') ? 'combine_l' : 'combine_s'; }
+  /** ha per game hour for this job's operation by 'player' | 'ai' */
+  function areaRate(j, who) {
+    const tier = j.type === 'plough' || j.type === 'sow' ? Math.min(playerTier(), owned('tillage').some((a) => a.meta && a.meta.size === 2) ? 3 : 1) : playerTier();
+    return haPerGameHour(rates(), j.op, who, tier, combineId());
+  }
+  /** game hours of work for the rest of this job by 'player' | 'ai' */
+  function workHours(j, who) {
+    const left = 1 - (j.progress || 0);
+    const R = rates();
+    if (AREA.includes(j.type)) { const r = areaRate(j, who); return r > 0 ? (j.amount * left) / r : Infinity; }
+    if (j.type === 'transport' || j.type === 'deliver') {
+      const trips = j.type === 'transport' ? Math.ceil(j.amount / R.kit.haul.trailerT) : j.amount;
+      const realH = trips * haulTripHours(j.km || 3);
+      return (who === 'player' ? realH * R.clockScale : realH / R.aiWorkFactor) * left;
+    }
+    return (j.unit === 'h' ? j.amount : 4) * left; // presence / snow: game hours either way
+  }
 
   function makeOffer(day, rng) {
     const m = month(day);
     const weather = sim.world.environment && sim.world.environment.weather;
     const snowy = weather && weather.kind === 'snow';
-    // presence odd jobs are for farmhands without machines: offered, but less often than machine work
     const types = Object.entries(JOB_TYPES).map(([k, t]) => [k, t.months[m] * (k === 'snowClear' ? (snowy ? 4 : 0.5) : t.machine ? 1 : 0.45)]).filter((x) => x[1] > 0);
     const type = rng.weighted(types);
     const T = JOB_TYPES[type];
@@ -43,82 +90,90 @@ export function installJobs(sim) {
     const pool = CLIENTS.filter((c) => (village ? c.kind === 'village' : c.kind === 'farm'));
     const client = rng.pick(pool);
     const rec = J.clients[client.name] || (J.clients[client.name] = { rep: 0.5, done: 0, failed: 0 });
-    const npcParcels = sim.world.land.parcels.filter((p) => p.state === 'npc');
-    const sps = Object.values(sim.world.economy.sellPoints || {});
+    const npc = sim.world.land.parcels.filter((p) => p.state === 'npc');
+    const theirs = npc.filter((p) => p.owner === client.name);
+    const sps = Object.values(E().sellPoints || {});
+    const farm = clientFarm(client);
+    // crew-sized offers become more common with more hands (and with reputation)
+    const crew = T.machine && type !== 'snowClear' && rng.chance(Math.min(0.75, 0.3 + 0.15 * hands() + 0.2 * Math.max(0, J.reputation - 0.5)));
 
     const job = {
       id: `simulation:job:${J.nextId++}`, type, client: client.name, clientFarm: client.farm,
       unit: T.unit, requiresMachine: T.machine, progress: 0, status: 'offered', offeredDay: day,
-      parcelId: null, from: null, to: null, crop: null, x: null, y: null, needs: T.needs || null,
+      parcelId: null, from: null, to: null, crop: null, x: farm.x, y: farm.y, needs: T.needs || null, op: type,
+      crew, assignee: null,
     };
-    let amount = rng.range(T.amount[0], T.amount[1]);
-    let km = 0;
-    if (AREA.includes(type) && npcParcels.length) {
-      const p = rng.pick(npcParcels);
-      job.parcelId = p.id; job.x = p.center[0]; job.y = p.center[1];
-      amount = Math.max(0.3, p.area / 1e4);
-      job.to = place(p);
-    } else if (AREA.includes(type) || PRESENCE.includes(type) || type === 'snowClear') {
-      job.to = { kind: 'farm', name: client.farm }; // always somewhere to go
-    }
     if (type === 'sow' || type === 'harvest') {
       const opts = CROP_FOR[type].filter((c) => (type === 'sow' ? CROPS[c].sowMonths : CROPS[c].harvestMonths).includes(m));
       job.crop = opts.length ? rng.pick(opts) : rng.pick(CROP_FOR[type]);
     }
-    if (type === 'transport') {
+    job.op = opOf(type, job.crop);
+    if (job.op === 'lift') job.needs = 'harvester';
+    let km = 0;
+    if (AREA.includes(type)) {
+      const p = theirs.length ? rng.pick(theirs) : npc.length ? rng.pick(npc) : null;
+      if (p) { job.parcelId = p.id; job.x = p.center[0]; job.y = p.center[1]; job.to = place(p); } else job.to = { ...farm };
+      // area from the rates: player-sized = 5–20 real minutes of the player's own driving; crew-sized = 8–20 hand-hours
+      const r = crew ? areaRate(job, 'ai') * rng.range(8, 20) : areaRate(job, 'player') * rng.range(5, 20);
+      job.amount = Math.max(0.1, +r.toFixed(2));
+      if (p) job.amount = Math.min(job.amount, Math.max(0.1, +(p.area / 1e4).toFixed(2)));
+    } else if (type === 'transport') {
       const crop = rng.pick(['wheat', 'barley', 'maize', 'potatoes', 'sugarBeet', 'straw', 'hay']);
       job.crop = crop;
-      const src = npcParcels.length ? rng.pick(npcParcels) : null;
+      const src = theirs.length ? rng.pick(theirs) : npc.length ? rng.pick(npc) : null;
       const dsts = sps.filter((s) => !s.accepts || s.accepts.includes(crop));
-      const dst = dsts.length ? rng.pick(dsts) : (sps.length ? rng.pick(sps) : null);
-      job.from = place(src) || { kind: 'farm', name: client.farm };
-      job.to = place(dst) || { kind: 'place', name: 'Coöperatie depot' };
-      if (job.from.x != null && job.to.x != null) {
-        const d = Math.hypot(job.to.x - job.from.x, job.to.y - job.from.y);
-        km = 1.5 + (d / 1000) * 1.4; // by road, plus the yard-to-gate part
-      }
-      else km = 3;
-      if (crop === 'sugarBeet' || crop === 'potatoes') amount *= 1.6;
+      const dst = dsts.length ? rng.pick(dsts) : sps.length ? rng.pick(sps) : null;
+      job.from = place(src) || { ...farm };
+      job.to = place(dst) || { kind: 'place', name: 'Coöperatie depot', ...hashedPoint('depot') };
+      km = 1.5 + (Math.hypot(job.to.x - job.from.x, job.to.y - job.from.y) / 1000) * 1.4; // by road, plus yard-to-gate
+      const load = CONSTS_LOAD(crop);
+      job.amount = Math.round(crew ? load * rng.int(3, 7) : load * rng.range(0.6, 1));
       job.x = job.from.x; job.y = job.from.y;
-    }
-    if (type === 'deliver') {
+    } else if (type === 'deliver') {
       const src = sps.length ? rng.pick(sps) : null;
-      job.from = place(src) || { kind: 'place', name: 'Landbouwaanvoer Ter Beek' };
-      job.to = { kind: 'farm', name: client.farm };
-      amount = Math.round(amount);
+      job.from = place(src) || { kind: 'place', name: 'Landbouwaanvoer Ter Beek', ...hashedPoint('supplier') };
+      job.to = { ...farm };
+      km = 1.5 + (Math.hypot(job.to.x - job.from.x, job.to.y - job.from.y) / 1000) * 1.4;
+      job.amount = crew ? rng.int(2, 4) : 1;
       job.cargo = rng.pick(['fence posts', 'feed pellets', 'seed potatoes', 'lime', 'bagged fertiliser', 'a workbench', 'barrels of cider']);
+      job.x = job.from.x; job.y = job.from.y;
+    } else {
+      job.to = { ...farm };
+      job.amount = Math.round(rng.range(PRESENCE.includes(type) ? 4 : 2, PRESENCE.includes(type) ? 12 : 6) * 2) / 2;
     }
-    if (PRESENCE.includes(type) || type === 'snowClear') amount = Math.round(amount * 2) / 2;
-    job.amount = type === 'transport' ? Math.round(amount) : +amount.toFixed(type === 'deliver' ? 0 : 1);
+    if (km) job.km = +km.toFixed(1);
 
     const repMult = 0.92 + 0.16 * rec.rep;
     const unitRate = type === 'transport' ? T.rate + T.perTkm * km : T.rate;
     let pay = unitRate * job.amount * repMult * (1 + T.spread * (rng.float() * 2 - 1));
-    if (type === 'harvest' && (job.crop === 'potatoes' || job.crop === 'sugarBeet')) { pay *= 1.6; job.needs = 'harvester'; } // lifting roots
-    if (km) job.km = +km.toFixed(1);
+    if (job.op === 'lift') pay *= 1.6;
+    if (T.machine && type !== 'snowClear') pay += rng.range(CONST.callout[0], CONST.callout[1]); // the trip is paid too
     job.pay = Math.max(40, Math.round(pay / 5) * 5);
+    job.estPlayerMin = Math.round(workHours(job, 'player')); // 1 game hour = 1 real minute at 60×
+    job.estAiHours = +workHours(job, 'ai').toFixed(1);
     const quick = PRESENCE.includes(type) || type === 'snowClear';
-    job.deadlineDay = day + (quick ? rng.int(1, 2) : rng.int(2, 4));
-    job.expiresDay = Math.min(job.deadlineDay - 1, day + rng.int(1, 3));
-    if (quick) job.expiresDay = day + 1;
+    job.deadlineDay = day + (quick ? rng.int(1, 2) : crew ? Math.ceil(job.estAiHours / CONST.hoursPerDayHand) + rng.int(1, 3) : rng.int(1, 3));
+    job.expiresDay = quick ? day + 1 : Math.min(job.deadlineDay - 1, day + rng.int(1, 3));
     job.title = titleFor(job);
     J.list.push(job);
     J.stats.offered++;
-    sim.world.economy.version++;
+    E().version++;
     sim.emit('jobs:offered', pub(job));
     return job;
   }
+  const CONSTS_LOAD = (crop) => (crop === 'straw' || crop === 'hay' ? 8 : 14); // t per trailer load
 
   function titleFor(j) {
     const T = JOB_TYPES[j.type];
     const cropName = j.crop ? (CROPS[j.crop] ? CROPS[j.crop].name : (ITEMS[j.crop] || {}).name || j.crop).toLowerCase() : '';
+    const a = j.amount < 1 ? j.amount.toFixed(2) : j.amount.toFixed(1);
     switch (j.type) {
-      case 'plough': return `Plough ${j.amount.toFixed(1)} ha`;
-      case 'sow': return `Drill ${j.amount.toFixed(1)} ha of ${cropName}`;
-      case 'harvest': return `${j.crop === 'potatoes' || j.crop === 'sugarBeet' ? 'Lift' : 'Combine'} ${j.amount.toFixed(1)} ha of ${cropName}`;
-      case 'mow': return `Mow ${j.amount.toFixed(1)} ha of grass`;
+      case 'plough': return `Plough ${a} ha`;
+      case 'sow': return `Drill ${a} ha of ${cropName}`;
+      case 'harvest': return `${j.op === 'lift' ? 'Lift' : 'Combine'} ${a} ha of ${cropName}`;
+      case 'mow': return `Mow ${a} ha of grass`;
       case 'transport': return `Haul ${j.amount} t of ${cropName}`;
-      case 'deliver': return `Deliver ${j.cargo}`;
+      case 'deliver': return j.amount > 1 ? `Deliver ${j.amount} loads of ${j.cargo}` : `Deliver ${j.cargo}`;
       case 'snowClear': return `Clear snow, ${j.amount} h`;
       default: return `${T.title}, ${j.amount} h`;
     }
@@ -126,13 +181,13 @@ export function installJobs(sim) {
 
   function settleRep(j, delta) {
     const c = J.clients[j.client];
-    // diminishing returns on success, sharp loss on failure; see jobsDay for the slow decay toward neutral
     if (c) { c.rep = Math.max(0, Math.min(1, delta > 0 ? c.rep + delta * (1 - c.rep) : c.rep + delta)); if (delta > 0) c.done++; else c.failed++; }
     J.reputation = Math.max(0, Math.min(1, delta > 0 ? J.reputation + 0.03 * (1 - J.reputation) : J.reputation - 0.08));
   }
+  const activeCap = () => CONST.jobCapBase + hands();
 
   Object.assign(api, {
-    /** filter: status string, {status,type,client,requiresMachine}, or predicate */
+    /** filter: status string, {status,type,client,requiresMachine,assignee}, or predicate */
     jobs(filter) {
       let list = J.list;
       if (typeof filter === 'string') list = list.filter((j) => j.status === filter);
@@ -140,13 +195,34 @@ export function installJobs(sim) {
       else if (filter && typeof filter === 'object') list = list.filter((j) => Object.entries(filter).every(([k, v]) => (Array.isArray(v) ? v.includes(j[k]) : j[k] === v)));
       return list.map(pub);
     },
+    /** max accepted jobs at once: 2 + hired hands */
+    activeJobCap() { return activeCap(); },
     acceptJob(id) {
       const j = find(id);
       if (!j || j.status !== 'offered') return false;
-      if (J.list.filter((x) => x.status === 'accepted').length >= CONST.maxActiveJobs) return false;
+      if (J.list.filter((x) => x.status === 'accepted').length >= activeCap()) return false;
       j.status = 'accepted'; j.acceptedDay = sim.today();
-      sim.world.economy.version++;
+      E().version++;
       sim.emit('jobs:accepted', pub(j));
+      return true;
+    },
+    /** delegate an accepted (or offered → accepts it) job to a hired hand (worked by the sim at the AI rate),
+     *  to another character id (caller reports progress), or null (back to the player) */
+    assignJob(id, assigneeId) {
+      const j = find(id);
+      if (!j) return false;
+      if (j.status === 'offered' && !api.acceptJob(id)) return false;
+      if (j.status !== 'accepted') return false;
+      if (assigneeId && String(assigneeId).startsWith('simulation:worker:') && !(E().workers || []).some((w) => w.id === assigneeId)) return false;
+      j.assignee = assigneeId || null;
+      if (j.assignee) J.stats.delegated++;
+      E().version++;
+      return true;
+    },
+    /** place a client's farm (job coordinates for their odd jobs, deliveries and hauls) */
+    defineClientFarm(name, pos) {
+      if (!name || !pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return false;
+      J.clientFarms[name] = { x: pos.x, y: pos.y };
       return true;
     },
     /** add delta (0..1) of progress; completes automatically at 1. Returns new progress. */
@@ -164,14 +240,13 @@ export function installJobs(sim) {
       const need = (j.unit === 'h' ? j.amount : 2) * 3600;
       return api.reportProgress(id, gameSeconds / need);
     },
-    /** pays out (pro-rata if ≥ 90 % done). Returns € paid, 0 if not completable. */
     completeJob(id) {
       const j = find(id);
       if (!j || j.status !== 'accepted' || j.progress < 0.9) return 0;
       const early = sim.today() < j.deadlineDay;
       const paid = Math.round(j.pay * Math.min(1, j.progress) * (early ? 1.05 : 1));
       j.status = 'completed'; j.completedDay = sim.today(); j.paid = paid; j.progress = Math.min(1, j.progress);
-      api.credit(paid, 'jobs', `${j.title} — ${j.clientFarm}`); // early bonus is in j.paid / the event
+      api.credit(paid, 'jobs', `${j.title} — ${j.clientFarm}`);
       settleRep(j, 0.12);
       J.stats.completed++; J.stats.earned += paid;
       sim.emit('jobs:completed', pub(j));
@@ -191,16 +266,43 @@ export function installJobs(sim) {
     reputation() { return { overall: J.reputation, clients: JSON.parse(JSON.stringify(J.clients)) }; },
   });
 
+  /** hands work their delegated jobs with the hours they did not log yesterday (runs before wages settle) */
+  function workDelegated() {
+    const W = E().workers || [];
+    const tractors = owned('tractor').length;
+    let tractorsUsed = 0;
+    for (const w of W) {
+      let free = CONST.hoursPerDayHand - (w.hoursToday || 0);
+      for (const j of J.list) {
+        if (free <= 0.05) break;
+        if (j.status !== 'accepted' || j.assignee !== w.id) continue;
+        if (j.requiresMachine) {
+          const needsTractor = j.op !== 'harvest';
+          if (needsTractor && tractorsUsed >= tractors) continue;
+          if (j.needs && j.needs !== 'tractor' && !owned(j.needs).length) continue;
+          if (needsTractor) tractorsUsed++;
+        }
+        const need = workHours(j, 'ai');
+        if (!Number.isFinite(need) || need <= 0) continue;
+        const h = Math.min(free, need);
+        free -= h;
+        api.logWork(w.id, h);
+        const done = h / need * (1 - j.progress);
+        if (j.unit === 'h') api.tickPresence(j.id, h * 3600);
+        else api.reportProgress(j.id, done + 1e-9);
+      }
+    }
+  }
+
   function jobsDay(day) {
     for (const j of J.list) {
       if (j.status === 'offered' && day > j.expiresDay) { j.status = 'expired'; J.stats.expired++; }
       else if (j.status === 'accepted' && day > j.deadlineDay) api.failJob(j.id);
     }
-    // archive finished jobs after 12 days
     J.list = J.list.filter((j) => !((j.status === 'expired' && day - j.expiresDay > 2) || ((j.status === 'completed' || j.status === 'failed') && day - (j.completedDay || j.failedDay || day) > 12)));
     const rng = sim.rngFor('jobs:' + day);
     const open = J.list.filter((j) => j.status === 'offered').length;
-    if (((day % YEAR_DAYS) + YEAR_DAYS) % MONTH_DAYS === 0) { // monthly drift back toward neutral
+    if (((day % YEAR_DAYS) + YEAR_DAYS) % MONTH_DAYS === 0) {
       J.reputation += (0.5 - J.reputation) * 0.04;
       for (const c of Object.values(J.clients)) c.rep += (0.5 - c.rep) * 0.04;
     }
@@ -209,5 +311,5 @@ export function installJobs(sim) {
     for (let i = 0; i < n; i++) makeOffer(day, rng);
   }
 
-  sim.jobs = { initJobs, jobsDay, makeOffer };
+  sim.jobs = { initJobs, jobsDay, makeOffer, workDelegated, workHours };
 }
