@@ -52,6 +52,51 @@ export async function init(ctx) {
     }
   }
   registerCatalog();
+
+  // ---------------------------------------------------------------- work widths/speeds from simulation.workRates().kit
+  // simulation is the single source for field-work rates (r3 time model); physics uses the same numbers.
+  const KMH = 1 / 3.6;
+  function applySimKit() {
+    const sim = mod('simulation');
+    const wr = sim && sim.workRates ? sim.workRates() : null;
+    const kit = wr && wr.kit;
+    if (!kit) return false;
+    const pick = (a, i) => (Array.isArray(a) ? a[Math.min(i, a.length - 1)] : a);
+    const set = (type, op, tier, { resize = true, minWid } = {}) => {
+      const k = kit[op];
+      const I = IMPLEMENTS[type];
+      if (!k || !I || !I.work) return;
+      const w = +pick(k.widthM, tier), sp = +pick(k.kmh, tier);
+      if (w > 0) I.work.width = w;
+      if (sp > 0) I.work.speed = sp * KMH;
+      if (k.eff) I.work.eff = k.eff;
+      if (resize && w > 0) I.wid = Math.max(minWid || 0, w);
+    };
+    set('plough_s', 'plough', 0, { resize: false });
+    set('plough_l', 'plough', 1, { resize: false });
+    for (const t of ['plough_s', 'plough_l']) {
+      const I = IMPLEMENTS[t];
+      I.wid = +(I.work.width * 0.92 + 0.25).toFixed(2);
+      I.furrows = Math.max(3, Math.round(I.work.width / 0.45));
+      I.len = +(1.2 + I.work.width * 0.75).toFixed(2); I.hitch = +(I.len / 2 + 0.05).toFixed(2);
+    }
+    set('cultivator', 'cultivate', 0);
+    set('seeder_s', 'sow', 0); set('seeder_l', 'sow', 1);
+    set('sprayer', 'spray', 0, { resize: false }); set('spreader', 'spray', 0, { resize: false });
+    set('mower', 'mow', 0);
+    set('baler', 'bale', 0, { resize: false });
+    set('root_harvester', 'lift', 0, { resize: false });
+    if (kit.harvest) {
+      for (const id of ['combine_s', 'combine_l']) {
+        const h = kit.harvest[id];
+        if (!h) continue;
+        if (h.widthM > 0) TYPES[id].header.width = h.widthM;
+        if (h.kmh > 0) TYPES[id].workSpeed = h.kmh * KMH;
+      }
+    }
+    return true;
+  }
+  const kitApplied = applySimKit();
   function catalogEntry(itemId) {
     const sim = mod('simulation');
     const all = (sim && sim.catalog && sim.catalog()) || [];
@@ -123,7 +168,8 @@ export async function init(ctx) {
     const crops = mod('crops');
     let cells = 0;
     if (crops && crops.work) {
-      const r = crops.work(tw.tool, cx, cy, tw.width, imp.rot, len + 0.1);
+      imp._inField = crops.fieldAt ? !!crops.fieldAt(wx, wy) : true;
+      const r = crops.work(tw.tool, cx, cy, tw.width + 0.2, imp.rot, len + 0.1); // 10 cm overlap each side, like a driver
       if (r && typeof r === 'object') {
         cells = r.cellsChanged || 0;
         const kg = +r.yieldKg || 0;
@@ -224,16 +270,29 @@ export async function init(ctx) {
     }
     return true;
   }
-  /** a walkable spot next to the driver's door (left), else right, rear, front, then further out */
+  /** a walkable spot next to the driver's door (left), else right, rear, front, then further out.
+   *  Also clear of the rig's axis-aligned box, which is what walkers collide with. */
   function exitPosition(id) {
     const v = byId.get(id);
     if (!v) return null;
     const T = ALL[v.type];
     const hw = T.wid / 2, hl = T.len / 2;
-    const cands = [[-(hw + 0.7), -hl * 0.1], [hw + 0.7, -hl * 0.1], [-(hw + 0.7), hl * 0.5], [hw + 0.7, hl * 0.5],
-      [-(hw + 0.7), -hl * 0.6], [0, hl + 1.2], [0, -hl - (T.header ? T.header.depth : 0) - 1.2], [-(hw + 2.2), 0], [hw + 2.2, 0]];
-    for (const [lx, ly] of cands) {
-      const [x, y] = toWorld(v.x, v.y, v.rot, lx, ly);
+    const rig = [v, ...partsOf(v)];
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    for (const u of rig) for (const P of driver.boxesAt(u, u.x, u.y, u.rot)) for (const p of P) { bx0 = Math.min(bx0, p[0]); by0 = Math.min(by0, p[1]); bx1 = Math.max(bx1, p[0]); by1 = Math.max(by1, p[1]); }
+    const r = 0.4;
+    const inBB = (x, y) => x > bx0 - r && x < bx1 + r && y > by0 - r && y < by1 + r;
+    const dirs = [[-1, -0.1], [1, -0.1], [-1, 0.5], [1, 0.5], [0, 1], [0, -1]];
+    for (const grow of [0.7, 1.3, 2.2, 3.4]) {
+      for (const [sx, sy] of dirs) {
+        const lx = sx ? sx * (hw + grow) : 0;
+        const ly = sx ? sy * hl : sy * (hl + grow + (sy < 0 && T.header ? T.header.depth : 0));
+        const [x, y] = toWorld(v.x, v.y, v.rot, lx, ly);
+        if (!inBB(x, y) && isFree(x, y, 0.35)) return { x: +x.toFixed(3), y: +y.toFixed(3) };
+      }
+    }
+    for (const [sx] of dirs) {
+      const [x, y] = toWorld(v.x, v.y, v.rot, sx * (hw + 0.7), 0);
       if (isFree(x, y, 0.35)) return { x: +x.toFixed(3), y: +y.toFixed(3) };
     }
     const [x, y] = toWorld(v.x, v.y, v.rot, -(hw + 0.7), 0);
@@ -465,9 +524,9 @@ export async function init(ctx) {
   }
   /** physical work rate of a type or of a live rig (tractor + implement): width m, speed m/s, ha/h, h/ha.
    *  Rig speed is the implement's working speed limited by the tractor's power (same rule as driving). */
-  function rateFor(width, speed) {
-    const haH = width * speed * 0.36 * FIELD_EFF;
-    return { width, speed: +speed.toFixed(3), kmh: +(speed * 3.6).toFixed(1), haPerHour: +haH.toFixed(3), hoursPerHa: haH > 0 ? +(1 / haH).toFixed(3) : null, fieldEfficiency: FIELD_EFF };
+  function rateFor(width, speed, eff = FIELD_EFF) {
+    const haH = width * speed * 0.36 * eff;
+    return { width, speed: +speed.toFixed(3), kmh: +(speed * 3.6).toFixed(1), haPerHour: +haH.toFixed(3), hoursPerHa: haH > 0 ? +(1 / haH).toFixed(3) : null, fieldEfficiency: eff, source: kitApplied ? 'simulation.workRates().kit' : 'vehicles defaults' };
   }
   function workRate(what, withType) {
     let v = byId.get(what);
@@ -483,12 +542,12 @@ export async function init(ctx) {
     const w = T.work || (T.header ? { tool: 'harvest', width: T.header.width, speed: T.workSpeed, needHp: 0 } : null);
     if (!w) return null;
     const pr = hp && w.needHp ? Math.max(0.35, Math.min(1, hp / w.needHp)) : 1;
-    return { type, tool: w.tool, needHp: w.needHp || null, ...rateFor(w.width, w.speed * pr) };
+    return { type, tool: w.tool, needHp: w.needHp || null, ...rateFor(w.width, w.speed * pr, w.eff || FIELD_EFF) };
   }
   function typesApi() {
     const out = {};
     for (const [k, T] of Object.entries(ALL)) {
-      out[k] = { kind: T.kind, name: T.name, len: T.len, wid: T.wid, hp: T.hp || null, vmax: T.vmax || null, tank: T.tank || null, mount: T.mount || null, work: T.work ? { ...T.work, ...rateFor(T.work.width, T.work.speed) } : T.header ? { tool: 'harvest', width: T.header.width, ...rateFor(T.header.width, T.workSpeed) } : null, capacity: T.capacity || T.grainTank || null, item: itemOf(k) };
+      out[k] = { kind: T.kind, name: T.name, len: T.len, wid: T.wid, hp: T.hp || null, vmax: T.vmax || null, tank: T.tank || null, mount: T.mount || null, work: T.work ? { ...T.work, ...rateFor(T.work.width, T.work.speed, T.work.eff || FIELD_EFF) } : T.header ? { tool: 'harvest', width: T.header.width, ...rateFor(T.header.width, T.workSpeed) } : null, capacity: T.capacity || T.grainTank || null, item: itemOf(k) };
     }
     return out;
   }
@@ -613,7 +672,7 @@ export async function init(ctx) {
 const internals = new WeakMap();
 
 export const showcase = {
-  deps: ['terrain', 'environment', 'roads', 'effects'],
+  deps: ['terrain', 'environment', 'roads', 'effects', 'crops'],
   presets: PRESETS,
   async stage(ctx, presetName) {
     await stageShowcase(ctx, presetName, internals.get(ctx));

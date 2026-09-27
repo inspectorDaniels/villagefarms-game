@@ -43,19 +43,19 @@ export const TYPES = {
     hitchR: 2.9, hitchF: -2.9, paint: 'tractorBlue', cab: 'big', beacon: true, engine: 'engine-tractor',
   },
   combine_s: {
-    kind: 'combine', name: 'Compact combine (6 m)', catalog: 'combine_s', price: 118000, hp: 230, fourWD: false, rearSteer: true,
+    kind: 'combine', name: 'Compact combine', catalog: 'combine_s', price: 118000, hp: 230, fourWD: false, rearSteer: true,
     len: 7.6, wid: 3.1, height: 3.9, fy: -1.9, ry: 2.2, maxSteer: 0.55, vmax: 25 * KMH, vrev: 8 * KMH,
     accel: 0.9, brake: 3.5, roll: 1.4, mass: 13000, tank: 420, burnIdle: 4, burnMax: 42,
     tyreF: { d: 1.6, w: 0.62, x: 1.12 }, tyreR: { d: 1.0, w: 0.42, x: 1.0 },
-    header: { width: 6, depth: 1.9 }, grainTank: 7000, workSpeed: 6 * KMH, tool: 'harvest',
+    header: { width: 4.5, depth: 1.9 }, grainTank: 7000, workSpeed: 5 * KMH, tool: 'harvest',
     paint: 'tractorGreen', beacon: true, engine: 'engine-combine',
   },
   combine_l: {
-    kind: 'combine', name: 'Large combine (9 m)', catalog: 'combine_l', price: 260000, hp: 420, fourWD: true, rearSteer: true,
+    kind: 'combine', name: 'Large combine', catalog: 'combine_l', price: 260000, hp: 420, fourWD: true, rearSteer: true,
     len: 8.8, wid: 3.5, height: 4.0, fy: -2.3, ry: 2.5, maxSteer: 0.52, vmax: 30 * KMH, vrev: 8 * KMH,
     accel: 0.9, brake: 3.5, roll: 1.4, mass: 18000, tank: 750, burnIdle: 5, burnMax: 70,
     tyreF: { d: 1.9, w: 0.8, x: 1.25 }, tyreR: { d: 1.2, w: 0.55, x: 1.1 },
-    header: { width: 9, depth: 2.0 }, grainTank: 11000, workSpeed: 7 * KMH, tool: 'harvest',
+    header: { width: 7.5, depth: 2.0 }, grainTank: 11000, workSpeed: 6 * KMH, tool: 'harvest',
     paint: 'tractorRed', beacon: true, engine: 'engine-combine',
   },
   pickup: {
@@ -74,32 +74,32 @@ export const TYPES = {
 // work: { tool, width (m), speed (m/s cap while lowered), needHp (hp for full work speed) }.
 export const IMPLEMENTS = {
   plough_s: {
-    kind: 'implement', name: '3-furrow plough', kit: 'tillage_s', mount: 'rear', len: 2.6, wid: 1.6, height: 1.2, hitch: 1.35, mass: 700,
-    work: { tool: 'plough', width: 1.35, speed: 8 * KMH, needHp: 85, trail: 'furrow' }, look: 'plough', furrows: 3,
+    kind: 'implement', name: '7-furrow reversible plough (3 m)', kit: 'tillage_s', mount: 'rear', len: 3.45, wid: 3.0, height: 1.2, hitch: 1.78, mass: 1300,
+    work: { tool: 'plough', width: 3.0, speed: 8 * KMH, needHp: 90, trail: 'furrow' }, look: 'plough', furrows: 7,
   },
   plough_l: {
-    kind: 'implement', name: '5-furrow plough', kit: 'tillage_l', mount: 'rear', len: 3.9, wid: 2.4, height: 1.3, hitch: 1.95, mass: 1500,
-    work: { tool: 'plough', width: 2.2, speed: 9 * KMH, needHp: 160, trail: 'furrow' }, look: 'plough', furrows: 5,
+    kind: 'implement', name: '9-furrow reversible plough (4.2 m)', kit: 'tillage_l', mount: 'rear', len: 4.35, wid: 4.1, height: 1.3, hitch: 2.2, mass: 2100,
+    work: { tool: 'plough', width: 4.2, speed: 8 * KMH, needHp: 170, trail: 'furrow' }, look: 'plough', furrows: 9,
   },
   cultivator: {
     kind: 'implement', name: '3 m cultivator', catalog: 'cultivator', register: { category: 'tillage', price: 7500 }, mount: 'rear', len: 1.9, wid: 3.0, height: 1.0, hitch: 1.0, mass: 900,
-    work: { tool: 'cultivate', width: 3.0, speed: 11 * KMH, needHp: 110, trail: 'track' }, look: 'cultivator',
+    work: { tool: 'cultivate', width: 3.0, speed: 10 * KMH, needHp: 110, trail: 'track' }, look: 'cultivator',
   },
   seeder_s: {
     kind: 'implement', name: '3 m seed drill', kit: 'tillage_s', mount: 'rear', len: 2.1, wid: 3.0, height: 1.6, hitch: 1.1, mass: 1100,
-    work: { tool: 'seed', width: 3.0, speed: 12 * KMH, needHp: 80, trail: 'track' }, look: 'seeder',
+    work: { tool: 'seed', width: 3.0, speed: 10 * KMH, needHp: 80, trail: 'track' }, look: 'seeder',
   },
   seeder_l: {
     kind: 'implement', name: '4 m seed drill', kit: 'tillage_l', mount: 'rear', len: 2.3, wid: 4.0, height: 1.7, hitch: 1.2, mass: 1600,
-    work: { tool: 'seed', width: 4.0, speed: 12 * KMH, needHp: 110, trail: 'track' }, look: 'seeder',
+    work: { tool: 'seed', width: 4.0, speed: 10 * KMH, needHp: 110, trail: 'track' }, look: 'seeder',
   },
   sprayer: {
-    kind: 'implement', name: '12 m sprayer', kit: 'sprayer', mount: 'rear', len: 1.9, wid: 2.4, height: 2.1, hitch: 1.0, mass: 900,
-    work: { tool: 'spray', width: 12, speed: 14 * KMH, needHp: 60 }, look: 'sprayer', foldW: 2.4,
+    kind: 'implement', name: '18 m sprayer', kit: 'sprayer', mount: 'rear', len: 1.9, wid: 2.4, height: 2.1, hitch: 1.0, mass: 900,
+    work: { tool: 'spray', width: 18, speed: 10 * KMH, needHp: 60 }, look: 'sprayer', foldW: 2.4,
   },
   spreader: {
     kind: 'implement', name: 'Fertiliser spreader', kit: 'sprayer', mount: 'rear', len: 1.5, wid: 2.2, height: 1.4, hitch: 0.8, mass: 500,
-    work: { tool: 'fertilise', width: 12, speed: 14 * KMH, needHp: 50 }, look: 'spreader',
+    work: { tool: 'fertilise', width: 18, speed: 10 * KMH, needHp: 50 }, look: 'spreader',
   },
   mower: {
     kind: 'implement', name: '3 m disc mower', catalog: 'mower', mount: 'rear', len: 1.4, wid: 3.0, height: 0.9, hitch: 0.75, mass: 700,
@@ -111,7 +111,7 @@ export const IMPLEMENTS = {
   },
   baler: {
     kind: 'implement', name: 'Round baler', catalog: 'baler', register: { category: 'hay', price: 24000 }, mount: 'trailed', len: 3.2, wid: 2.5, height: 2.4, tongue: 3.1, axleY: 0.5, mass: 2800,
-    work: { tool: 'bale', width: 2.0, speed: 9 * KMH, needHp: 80 }, look: 'baler',
+    work: { tool: 'bale', width: 3.0, speed: 12 * KMH, needHp: 80 }, look: 'baler',
   },
   root_harvester: {
     kind: 'implement', name: '2-row root harvester (potato/beet)', catalog: 'root_harvester', register: { category: 'harvester', price: 65000 }, mount: 'trailed', len: 6.2, wid: 3.0, height: 3.2, tongue: 5.2, axleY: 1.2, mass: 7500,

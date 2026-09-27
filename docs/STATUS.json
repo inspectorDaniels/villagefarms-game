@@ -189,11 +189,12 @@
     },
     "vehicles": {
       "wave": 2,
-      "status": "pending",
+      "status": "built-unreviewed",
       "score": null,
       "pass": false,
       "rounds": [],
-      "openIssues": []
+      "openIssues": [],
+      "note": "built 2026-09-27: 24/24 drive mechanics + 13/13 characters-integration checks (tests/*.test.cjs), deterministic replay, save/load, economy via simulation, widths/speeds from simulation.workRates(). Registered. Gaps: no AI driving, no tipping, no slopes, combine harvests root crops. Should set spatial item polys (core now supports it)."
     },
     "characters": {
       "wave": 2,
@@ -258,6 +259,10 @@
     {
       "t": "2026-09-27",
       "event": "session wrap-up at user request: in-flight agents stopped; all 7 showcases + full game load with 0 errors, 0 contract issues, lint OK; applied ui core requests (placeholder text position, shots.js --extra)."
+    },
+    {
+      "t": "2026-09-27",
+      "event": "iteration 2 integrator: Linux tooling, F.shadow.cloud, cloud/object shadow max-composite, spatial poly colliders, registry += characters, vehicles"
     }
   ],
   "resume": [

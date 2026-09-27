@@ -3,7 +3,7 @@
 // wind sheen, snow veil and round bales.
 import { S, CROPS, CROP_IDS, stageOf } from './data.js';
 
-const CH = 32;                 // chunk size, metres
+const CPX = 256;               // chunk canvas size in px (≤ 256 px canvases blit far cheaper); metres = CPX / res
 const LEVELS = [4, 8, 16, 32]; // px per metre
 const MAX_BYTES = 160 * 1048576;
 
@@ -18,36 +18,44 @@ export function createRenderer(ctx, model, tiles) {
   let lastSeason = null;
 
   // ------------------------------------------------------------ chunk bookkeeping
-  function chunkRange(f, k) {
+  function chunkRange(f, k, CH) {
     const [x, y] = model.cellCenter(f, k);
     const r = f.grid.cell * 0.75 + 0.05;
     return [Math.floor((x - r) / CH), Math.floor((y - r) / CH), Math.floor((x + r) / CH), Math.floor((y + r) / CH)];
+  }
+  /** chunk set of a field for one LOD level (built lazily) */
+  function chunksOf(f, res) {
+    let chunks = f.rs.sets.get(res);
+    if (chunks) return chunks;
+    const CH = CPX / res;
+    chunks = new Map();
+    const st = f.cells.state;
+    for (let k = 0; k < st.length; k++) {
+      if (!st[k]) continue;
+      const [a, b, c, d] = chunkRange(f, k, CH);
+      for (let cx = a; cx <= c; cx++) for (let cy = b; cy <= d; cy++) {
+        const key = cx + ',' + cy;
+        let ch = chunks.get(key);
+        if (!ch) { ch = { cx, cy, size: CH, list: [] }; chunks.set(key, ch); }
+        ch.list.push(k);
+      }
+    }
+    for (const ch of chunks.values()) { ch.cells = Int32Array.from(ch.list); delete ch.list; }
+    f.rs.sets.set(res, chunks);
+    return chunks;
   }
   function onField(f, change) {
     if (change === 'remove') {
       for (const [key, e] of [...entries]) if (e.f === f) dropEntry(key, e);
       return;
     }
-    const chunks = new Map();
-    const st = f.cells.state;
-    for (let k = 0; k < st.length; k++) {
-      if (!st[k]) continue;
-      const [a, b, c, d] = chunkRange(f, k);
-      for (let cx = a; cx <= c; cx++) for (let cy = b; cy <= d; cy++) {
-        const key = cx + ',' + cy;
-        let ch = chunks.get(key);
-        if (!ch) { ch = { cx, cy, list: [] }; chunks.set(key, ch); }
-        ch.list.push(k);
-      }
-    }
-    for (const ch of chunks.values()) ch.cells = Int32Array.from(ch.list), delete ch.list;
-    f.rs = { chunks, shadowV: -1, shadowAt: -99, segs: [], edgePath: null };
+    f.rs = { sets: new Map(), shadowV: -1, shadowAt: -99, segs: [], edgePath: null };
   }
   function onDirty(f, k) {
     if (!f.rs) return;
-    const [a, b, c, d] = chunkRange(f, k);
-    for (let cx = a; cx <= c; cx++) for (let cy = b; cy <= d; cy++) {
-      for (const res of LEVELS) {
+    for (const res of f.rs.sets.keys()) {
+      const [a, b, c, d] = chunkRange(f, k, CPX / res);
+      for (let cx = a; cx <= c; cx++) for (let cy = b; cy <= d; cy++) {
         const e = entries.get(f.id + '|' + res + '|' + cx + ',' + cy);
         if (e && e.built) e.dirty.add(k);
       }
@@ -55,6 +63,8 @@ export function createRenderer(ctx, model, tiles) {
   }
   function dropEntry(key, e) {
     entries.delete(key);
+    if (e.bmp && e.bmp.close) e.bmp.close();
+    e.bmp = null; e.paintV = -1;
     if (e.canvas) { bytes -= e.canvas.width * e.canvas.height * 4; if (pool.length < 10) pool.push(e.canvas); }
   }
   function evict() {
@@ -109,8 +119,9 @@ export function createRenderer(ctx, model, tiles) {
 
   /** paint a chunk fully (cells = null) or only the given dirty cells */
   function paintChunk(e, dirty) {
+    e.paintV = (e.paintV || 0) + 1;
     const f = e.f, ch = e.ch, res = e.res, g = e.g;
-    const x0 = ch.cx * CH, y0 = ch.cy * CH;
+    const x0 = ch.cx * ch.size, y0 = ch.cy * ch.size;
     const seasonName = season();
     const c = f.cells;
     g.save();
@@ -159,10 +170,11 @@ export function createRenderer(ctx, model, tiles) {
     const key = f.id + '|' + res + '|' + ch.cx + ',' + ch.cy;
     let e = entries.get(key);
     if (!e) {
-      const px = CH * res;
+      const px = CPX;
       let canvas = pool.pop();
       if (!canvas || canvas.width !== px) { canvas = document.createElement('canvas'); canvas.width = px; canvas.height = px; }
-      e = { canvas, g: canvas.getContext('2d'), res, built: false, dirty: new Set(), used: frame, f, ch };
+      e = { key, canvas, g: canvas.getContext('2d', { willReadFrequently: true }), res, // CPU-backed: GPU canvases cost a readback per blit into the main canvas
+      built: false, dirty: new Set(), used: frame, f, ch };
       entries.set(key, e);
       bytes += px * px * 4;
     }
@@ -178,6 +190,7 @@ export function createRenderer(ctx, model, tiles) {
   const inView = (b, v, pad = 0) => !(b.x1 < v.x0 - pad || b.x0 > v.x1 + pad || b.y1 < v.y0 - pad || b.y0 > v.y1 + pad);
 
   function drawGround(g, view, budgetCells = 2200) {
+    if (globalThis.__NOGROUND) return;
     frame++;
     const sn = season();
     if (lastSeason && sn !== lastSeason) invalidateAll(); // grass/margins are seasonal
@@ -190,8 +203,8 @@ export function createRenderer(ctx, model, tiles) {
     const blits = [];
     for (const f of model.W.fields) {
       if (!f.rs || !inView(f.bbox, view)) continue;
-      for (const ch of f.rs.chunks.values()) {
-        const x0 = ch.cx * CH, y0 = ch.cy * CH;
+      for (const ch of chunksOf(f, res).values()) {
+        const CH = ch.size, x0 = ch.cx * CH, y0 = ch.cy * CH;
         if (x0 > view.x1 || x0 + CH < view.x0 || y0 > view.y1 || y0 + CH < view.y0) continue;
         const e = ensure(f, ch, res);
         if (!e.built) {
@@ -205,14 +218,22 @@ export function createRenderer(ctx, model, tiles) {
           for (const k of take) e.dirty.delete(k);
           budget -= take.length * 9;
         }
-        let src = e.built ? e : null;
-        if (!src) for (const r of LEVELS) { const o = entries.get(f.id + '|' + r + '|' + ch.cx + ',' + ch.cy); if (o && o.built) { src = o; o.used = frame; break; } }
-        if (src) blits.push([src.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0)]);
+        const src = e.built ? e : null;
+        if (src) {
+          // snapshot the finished canvas into an ImageBitmap (immutable: the compositor can keep it resident)
+          if (src.bmpV !== src.paintV && !src.bmpPending && typeof createImageBitmap === 'function') {
+            src.bmpPending = true;
+            const v = src.paintV;
+            createImageBitmap(src.canvas).then((bm) => { src.bmpPending = false; if (src.paintV === v && entries.has(src.key)) { if (src.bmp && src.bmp.close) src.bmp.close(); src.bmp = bm; src.bmpV = v; } else if (bm.close) bm.close(); }, () => { src.bmpPending = false; });
+          }
+          blits.push([!globalThis.__NOBMP && src.bmp && src.bmpV === src.paintV ? src.bmp : src.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0)]);
+        }
       }
     }
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.imageSmoothingEnabled = true;
-    for (const b of blits) g.drawImage(b[0], b[1], b[2], b[3], b[4]);
+    if (!globalThis.__SKIPBLIT) for (const b of blits) g.drawImage(b[0], b[1], b[2], b[3], b[4]);
+    globalThis.__NBLIT = blits.length;
     g.setTransform(m);
     stats.lastCellPaints = stats.cellPaints - stats.lastCellPaints;
     // snow veil (fields have no terrain snow of their own)
@@ -235,10 +256,9 @@ export function createRenderer(ctx, model, tiles) {
 
   // wind: soft light gusts travelling across tall, flexible crops (close zoom only)
   function drawSway(g, view) {
-    if (view.zoom < 10) return;
+    if (view.zoom < 10 || globalThis.__NOSWAY) return;
     const envApi = ctx.modules.get('environment');
     const W = env().weather;
-    const sheen = tiles.sheen();
     const t = view.time || 0;
     for (const f of model.W.fields) {
       if (!f.crop || !inView(f.bbox, view)) continue;
@@ -250,28 +270,18 @@ export function createRenderer(ctx, model, tiles) {
       const sp = Math.max(0.4, w.speed || Math.hypot(w.x, w.y));
       const dx = w.x / sp, dy = w.y / sp;
       const ang = Math.atan2(dy, dx);
-      const gap = 10, lane = 6.5;
-      const phase = (t * (0.9 + sp * 0.45)) % gap;
+      const a = Math.min(0.26, 0.07 + sp * 0.03) * (C.kind === 'grass' ? 0.7 : 1);
+      // one pattern fill per field: a toroidal 48 m sheet of soft gust highlights drifting downwind
+      const pat = g.createPattern(tiles.gustSheet(), 'repeat');
+      const drift = t * (0.9 + sp * 0.45);
+      const M = new DOMMatrix().rotateSelf(ang * 180 / Math.PI).translateSelf(drift, 0).scaleSelf(48 / 192, 48 / 192);
+      if (pat.setTransform) pat.setTransform(M);
       g.save();
       polyPath(g, f.poly); g.clip();
-      const x0 = Math.max(view.x0, f.bbox.x0) - gap, x1 = Math.min(view.x1, f.bbox.x1) + gap;
-      const y0 = Math.max(view.y0, f.bbox.y0) - gap, y1 = Math.min(view.y1, f.bbox.y1) + gap;
-      const a = Math.min(0.22, 0.05 + sp * 0.025) * (C.kind === 'grass' ? 0.7 : 1);
-      // lattice in wind space
-      const pc = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(([x, y]) => [x * dx + y * dy, -x * dy + y * dx]);
-      const a0 = Math.min(...pc.map((p) => p[0])), a1 = Math.max(...pc.map((p) => p[0]));
-      const b0 = Math.min(...pc.map((p) => p[1])), b1 = Math.max(...pc.map((p) => p[1]));
-      let n = 0;
-      for (let b = Math.floor(b0 / lane) * lane; b <= b1 && n < 260; b += lane) {
-        const off = ((b / lane) * 3.7) % gap;
-        for (let s = Math.floor(a0 / gap) * gap + phase + off; s <= a1; s += gap) {
-          const x = s * dx - b * dy, y = s * dy + b * dx;
-          const gust = 0.6 + 0.4 * Math.sin(b * 0.37 + s * 0.11);
-          g.globalAlpha = a * gust;
-          art.draw(g, sheen, x, y, 7.5, 2.6, ang + Math.PI / 2);
-          n++;
-        }
-      }
+      g.globalAlpha = a;
+      g.fillStyle = pat;
+      g.fillRect(Math.max(view.x0, f.bbox.x0), Math.max(view.y0, f.bbox.y0), Math.min(view.x1, f.bbox.x1) - Math.max(view.x0, f.bbox.x0), Math.min(view.y1, f.bbox.y1) - Math.max(view.y0, f.bbox.y0));
+      g.globalAlpha = 1;
       g.restore();
     }
   }
@@ -329,6 +339,7 @@ export function createRenderer(ctx, model, tiles) {
     return segs;
   }
   function collect(view, F) {
+    if (globalThis.__NOCOLLECT) return;
     const sun = env().sun;
     const sdx = sun ? sun.dirX : 0, sdy = sun ? sun.dirY : -1;
     for (const f of model.W.fields) {
@@ -355,8 +366,8 @@ export function createRenderer(ctx, model, tiles) {
     const res = pickRes(g.getTransform().a);
     for (const f of model.W.fields) {
       if (!f.rs || !inView(f.bbox, view)) continue;
-      for (const ch of f.rs.chunks.values()) {
-        const x0 = ch.cx * CH, y0 = ch.cy * CH;
+      for (const ch of chunksOf(f, res).values()) {
+        const CH = ch.size, x0 = ch.cx * CH, y0 = ch.cy * CH;
         if (x0 > view.x1 || x0 + CH < view.x0 || y0 > view.y1 || y0 + CH < view.y0) continue;
         const e = ensure(f, ch, res);
         if (!e.built) { paintChunk(e, null); e.built = true; e.dirty.clear(); }

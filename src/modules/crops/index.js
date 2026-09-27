@@ -153,6 +153,7 @@ export async function init(ctx) {
 
   const inst = { model, renderer, tiles, api, setBudget: (b) => { budget = b; } };
   INSTANCES.set(ctx, inst);
+  if (ctx.params.cropsdebug) globalThis.__CROPS__ = inst; // dev: profiling hooks
 
   return {
     api,

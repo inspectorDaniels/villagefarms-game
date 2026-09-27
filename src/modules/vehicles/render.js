@@ -194,6 +194,8 @@ export function createRender({ ctx, W, byId, painter, driver, mod, fxRng, isDark
       for (const p of parts) {
         const I = ALL[p.type];
         if (!p.lowered || !I.work || !I.work.trail) continue;
+        // crops draws the worked cells itself; ribbons only as the no-crops fallback
+        if (mod('crops') || p._inField === false) continue;
         const [x, y] = toWorld(p.x, p.y, p.rot, 0, I.len / 2 - 0.1);
         fxm.trail(p.id + ':w', x, y, p.rot, I.work.width, I.work.trail);
         if (I.work.tool === 'plough' && (n % 8) === 0) fxm.emit('clods', x + (fxRng.float() - 0.5) * I.work.width, y, { count: 1, size: 0.18, z: 0.3 });

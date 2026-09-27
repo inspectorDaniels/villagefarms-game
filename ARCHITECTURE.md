@@ -113,7 +113,7 @@ export const showcase = {
 | `ctx.renderer` | `addLayer(layer, drawFn, order?)`, `addCollector(fn)` (see §4) |
 | `ctx.camera` | `x, y, zoom`, `worldToScreen`, `screenToWorld`, `view()`, `follow(fn)`, `setPreset` |
 | `ctx.input` | `down(action)`, `pressed(action)`, `mouse {sx,sy,x,y,buttons}`, `on('click'|'wheel'|'key', fn)` |
-| `ctx.spatial` | `insert(item)`, `update(item)`, `remove(id)`, `queryRect`, `queryCircle`, `queryPoint` |
+| `ctx.spatial` | `insert(item)`, `update(item)`, `remove(id)`, `queryRect`, `queryCircle`, `queryPoint`; items are AABBs (`x0,y0,x1,y1`) or circles (`x,y,r`); optional `poly`/`polys` (polygons in metres) make `queryCircle` test the precise oriented shape |
 | `ctx.art` | sprite cache & painting helpers (see §7) |
 | `ctx.palette` | shared colour palette tokens |
 | `ctx.modules.get(id)` | another module's **guarded** API, or `null` if absent/failed |

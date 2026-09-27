@@ -55,7 +55,11 @@ export class Spatial {
   }
   queryCircle(x, y, r, filter) {
     return this.queryRect(x - r, y - r, x + r, y + r, (it) => {
-      if (it.x0 != null) {
+      if (it.poly || it.polys) {
+        // precise test against oriented shapes (convex or simple polygons [[x,y],...])
+        const polys = it.polys || [it.poly];
+        if (!polys.some((p) => circleHitsPoly(p, x, y, r))) return false;
+      } else if (it.x0 != null) {
         const dx = Math.max(it.x0 - x, 0, x - it.x1), dy = Math.max(it.y0 - y, 0, y - it.y1);
         if (dx * dx + dy * dy > r * r) return false;
       } else {
@@ -78,4 +82,19 @@ export class Spatial {
       queryPoint: (...a) => s.queryPoint(...a),
     };
   }
+}
+
+function circleHitsPoly(p, x, y, r) {
+  if (!p || p.length < 3) return false;
+  let inside = false;
+  const r2 = r * r;
+  for (let i = 0, j = p.length - 1; i < p.length; j = i++) {
+    const [xi, yi] = p[i], [xj, yj] = p[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    const ex = xi - xj, ey = yi - yj, L = ex * ex + ey * ey;
+    const t = L > 0 ? Math.max(0, Math.min(1, ((x - xj) * ex + (y - yj) * ey) / L)) : 0;
+    const dx = xj + t * ex - x, dy = yj + t * ey - y;
+    if (dx * dx + dy * dy <= r2) return true;
+  }
+  return inside;
 }

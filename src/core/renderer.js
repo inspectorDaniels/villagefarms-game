@@ -239,13 +239,21 @@ export class Renderer {
         this.health.guard(s.owner, 'shadow cloud', s.fn, null, [cg, sun, view]);
         cg.restore();
       }
-      // cut object shadows out of the cloud buffer so the two never stack
+      // union without stacking and without halos: approximate max(cloud·cs, object·strength)
+      // by cutting the weaker layer's coverage out where the stronger one is
+      const cs = Math.max(0, Math.min(1, sun.cloudShadowStrength == null ? strength : sun.cloudShadowStrength));
       cg.setTransform(1, 0, 0, 1, 0, 0);
-      cg.globalCompositeOperation = 'destination-out';
-      cg.drawImage(this.shadowCanvas, 0, 0);
-      cg.globalCompositeOperation = 'source-over';
-      const cs = sun.cloudShadowStrength == null ? strength : sun.cloudShadowStrength;
-      g.globalAlpha = Math.max(0, Math.min(1, cs));
+      if (cs > strength) {
+        sg.setTransform(1, 0, 0, 1, 0, 0);
+        sg.globalCompositeOperation = 'destination-out';
+        sg.drawImage(this.cloudCanvas, 0, 0);
+        sg.globalCompositeOperation = 'source-over';
+      } else {
+        cg.globalCompositeOperation = 'destination-out';
+        cg.drawImage(this.shadowCanvas, 0, 0);
+        cg.globalCompositeOperation = 'source-over';
+      }
+      g.globalAlpha = cs;
       g.drawImage(this.cloudCanvas, 0, 0, this.canvas.width, this.canvas.height);
     }
     g.globalAlpha = strength;

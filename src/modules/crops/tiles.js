@@ -358,6 +358,18 @@ export function createTiles(art, palette) {
       g.fillStyle = gr; g.beginPath(); g.arc(0, 0, W / 2, 0, Math.PI * 2); g.fill();
     });
   }
+  function gustSheet() {
+    return art.sprite('crops:gusts', 192, 192, (g, W, H, rng) => {
+      for (let i = 0; i < 16; i++) {
+        const x = rng.float() * W, y = rng.float() * H, rx = rng.range(14, 26), ry = rng.range(4, 8);
+        for (const dx of [-W, 0, W]) for (const dy of [-H, 0, H]) {
+          const gr = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+          gr.addColorStop(0, 'rgba(255,248,220,0.9)'); gr.addColorStop(1, 'rgba(255,248,220,0)');
+          g.save(); g.translate(x + dx, y + dy); g.scale(1, ry / rx); g.fillStyle = gr; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill(); g.restore();
+        }
+      }
+    });
+  }
   function marginTile(season) {
     return art.sprite('crops:margin:' + season, 64, 64, (g, W, H, rng) => paintGrass(g, W, H, rng, season, false, 9));
   }
@@ -367,5 +379,5 @@ export function createTiles(art, palette) {
       for (let i = 0; i < 30; i++) dab(g, W, H, rng.float() * W, rng.float() * H, rng.range(2, 6), rng.range(1, 3), 0, '#c8d4e0', 0.35);
     });
   }
-  return { get, key, bale, sheen, marginTile, snowTile, PX };
+  return { get, key, bale, sheen, gustSheet, marginTile, snowTile, PX };
 }

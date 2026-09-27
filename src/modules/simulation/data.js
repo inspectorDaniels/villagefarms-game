@@ -29,7 +29,7 @@ export const CONST = {
   landFees: 0.04,             // purchase fees
   landResale: 0.97,           // selling nets 97 % of market value
   landPerHa: [12000, 22000],  // market value by soil quality 0..1 (× regional land index)
-  rentPerHaYear: [450, 750],  // by soil quality (× land index at signing) ≈ 3.5 % of value
+  rentPerHaYear: [450, 650],  // by soil quality (× land index at signing) ≈ 3.5 % of value
   landGrowthYear: 0.03,       // mean appreciation of the land index
   landGrowthSd: 0.012,        // monthly noise (log)
   leaseMinDays: 36,           // minimum lease term: one game year
@@ -86,14 +86,14 @@ export const CONSUMABLES = ['diesel', 'fertiliser']; // buy-only: no buyer takes
 
 // Per-hectare agronomy and input costs (€/ha, litres/ha). Months are 0-based (0 = January).
 export const CROPS = {
-  wheat:     { name: 'Winter wheat', product: 'wheat',    yield: 8.5, straw: 3.5, seed: 80,  fertiliser: 220, spray: 115, dieselL: 95,  sowMonths: [9, 10], harvestMonths: [7] },
-  barley:    { name: 'Winter barley', product: 'barley',  yield: 7.5, straw: 3.0, seed: 70,   fertiliser: 180, spray: 95, dieselL: 90,  sowMonths: [8, 9], harvestMonths: [6] },
-  oats:      { name: 'Spring oats', product: 'oats',      yield: 6.0, straw: 3.5, seed: 60,   fertiliser: 120, spray: 50,  dieselL: 85,  sowMonths: [2, 3], harvestMonths: [7] },
-  rapeseed:  { name: 'Oilseed rape', product: 'rapeseed', yield: 4.0, straw: 0,   seed: 115,  fertiliser: 220, spray: 140, dieselL: 90,  sowMonths: [7], harvestMonths: [6] },
-  maize:     { name: 'Grain maize', product: 'maize',     yield: 11,  straw: 0,   seed: 200,  fertiliser: 200, spray: 70, dieselL: 110, sowMonths: [3, 4], harvestMonths: [9] },
-  potatoes:  { name: 'Potatoes', product: 'potatoes',     yield: 45,  straw: 0,   seed: 1000, fertiliser: 300, spray: 420, dieselL: 260, sowMonths: [3], harvestMonths: [8, 9] },
-  sugarBeet: { name: 'Sugar beet', product: 'sugarBeet',  yield: 75,  straw: 0,   seed: 230,  fertiliser: 220, spray: 260, dieselL: 170, sowMonths: [2, 3], harvestMonths: [9, 10] },
-  grass:     { name: 'Grass (hay)', product: 'hay',       yield: 9,   straw: 0,   seed: 30,   fertiliser: 150, spray: 15,  dieselL: 120, sowMonths: [2, 3, 7, 8], harvestMonths: [4, 5, 6, 7] },
+  wheat:     { name: 'Winter wheat', product: 'wheat',    yield: 8.5, straw: 3.5, seed: 70,  fertiliser: 180, spray: 95, dieselL: 95,  sowMonths: [9, 10], harvestMonths: [7] },
+  barley:    { name: 'Winter barley', product: 'barley',  yield: 7.5, straw: 3.0, seed: 60,   fertiliser: 150, spray: 80, dieselL: 90,  sowMonths: [8, 9], harvestMonths: [6] },
+  oats:      { name: 'Spring oats', product: 'oats',      yield: 6.0, straw: 3.5, seed: 50,   fertiliser: 100, spray: 40,  dieselL: 85,  sowMonths: [2, 3], harvestMonths: [7] },
+  rapeseed:  { name: 'Oilseed rape', product: 'rapeseed', yield: 4.0, straw: 0,   seed: 100,  fertiliser: 180, spray: 115, dieselL: 90,  sowMonths: [7], harvestMonths: [6] },
+  maize:     { name: 'Grain maize', product: 'maize',     yield: 11,  straw: 0,   seed: 170,  fertiliser: 170, spray: 60, dieselL: 110, sowMonths: [3, 4], harvestMonths: [9] },
+  potatoes:  { name: 'Potatoes', product: 'potatoes',     yield: 45,  straw: 0,   seed: 850, fertiliser: 250, spray: 350, dieselL: 260, sowMonths: [3], harvestMonths: [8, 9] },
+  sugarBeet: { name: 'Sugar beet', product: 'sugarBeet',  yield: 75,  straw: 0,   seed: 190,  fertiliser: 180, spray: 210, dieselL: 170, sowMonths: [2, 3], harvestMonths: [9, 10] },
+  grass:     { name: 'Grass (hay)', product: 'hay',       yield: 9,   straw: 0,   seed: 25,   fertiliser: 120, spray: 10,  dieselL: 120, sowMonths: [2, 3, 7, 8], harvestMonths: [4, 5, 6, 7] },
 };
 
 // Contract job types (machine-rate pay). rate = € per unit; transport also pays perTkm × km.
@@ -117,7 +117,7 @@ export const JOB_TYPES = {
     months: [0.5, 0.5, 0.6, 0.6, 0.6, 0.7, 0.8, 0.8, 0.6, 0.6, 0.7, 1.0] },
   villageWork:{ title: 'Village odd jobs', unit: 'h', rate: 16.5, spread: 0.1, amount: [3, 8], machine: false,
     months: [0.4, 0.4, 0.6, 0.7, 0.7, 0.7, 0.6, 0.6, 0.7, 0.7, 0.5, 0.4] },
-  snowClear:  { title: 'Clear snow', unit: 'h', rate: 72, spread: 0.1, amount: [2, 5], machine: true, needs: 'tractor',
+  snowClear:  { title: 'Clear snow', unit: 'h', rate: 26, spread: 0.1, amount: [2, 5], machine: true, needs: 'tractor',
     months: [1.0, 0.8, 0.1, 0, 0, 0, 0, 0, 0, 0, 0.2, 0.9] },
 };
 
@@ -133,7 +133,7 @@ export const MACHINES = [
   { id: 'sprayer', category: 'sprayer', name: 'Sprayer & spreader', price: 14000, meta: {} },
   { id: 'trailer', category: 'trailer', name: '14 t tipping trailer', price: 11000, meta: {} },
   { id: 'mower', category: 'mower', name: 'Disc mower', price: 12000, meta: {} },
-  { id: 'combine_s', category: 'combine', name: 'Compact combine', price: 118000, meta: {} },
+  { id: 'combine_s', category: 'combine', name: 'Compact combine (used)', price: 92000, meta: {} },
   { id: 'combine_l', category: 'combine', name: 'Large combine', price: 260000, meta: {} },
   { id: 'root_harvester', category: 'harvester', name: 'Trailed beet & potato lifter', price: 68000, meta: {} },
   { id: 'baler', category: 'baler', name: 'Round baler', price: 30000, meta: {} },

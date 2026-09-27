@@ -27,7 +27,7 @@ export const CONTRACTOR = {
   sow:       { perHa: 75,  leadDays: [1, 2], peakLeadDays: [2, 3], peakMonths: [2, 3, 8, 9] },
   spray:     { perHa: 28,  leadDays: [1, 1], peakLeadDays: [1, 2], peakMonths: [3, 4, 5] },
   mow:       { perHa: 60,  leadDays: [1, 2], peakLeadDays: [2, 3], peakMonths: [4, 5, 6] },
-  harvest:   { perHa: 170, leadDays: [1, 2], peakLeadDays: [2, 4], peakMonths: [6, 7] },
+  harvest:   { perHa: 180, leadDays: [1, 2], peakLeadDays: [2, 4], peakMonths: [6, 7] },
   lift:      { perHa: 430, leadDays: [1, 3], peakLeadDays: [2, 4], peakMonths: [9, 10] },
   bale:      { perHa: 55,  leadDays: [1, 2], peakLeadDays: [2, 3], peakMonths: [6, 7] },
 };

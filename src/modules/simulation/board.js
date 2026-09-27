@@ -224,11 +224,11 @@ export function createBoard(P, art) {
       const storeTop = inv.length ? h - 60 - 21 * Math.min(3, inv.length) : h - 36; // keep room for the store + note
       let y = 100;
       for (const sp of D.sellPoints) {
-        if (y + 20 + 17 * Math.min(3, sp.quotes.length) > storeTop - 18) break;
+        if (y + 20 + 17 * Math.min(2, sp.quotes.length) > storeTop - 18) break;
         drawIcon(P, g, art, sp.id === 'shop' ? 'house' : 'silo', 14, y - 20, 26, rng);
         P.text(g, sp.name, 46, y - 2, { size: 14, bold: true, maxW: w - 60 });
         y += 20;
-        for (const q of sp.quotes.slice(0, 3)) {
+        for (const q of sp.quotes.slice(0, 2)) { // two lines per buyer so all six buyers fit
           P.text(g, ITEMS[q.item].name, 50, y, { size: 13, italic: true, color: INK_SOFT });
           P.text(g, priceStr(q.item, q.price), w - 22, y, { size: 13, align: 'right' });
           if (q.sat > 0.02) P.text(g, `glut −${Math.round(q.sat * 100)}%`, w - 120, y, { size: 11, italic: true, color: INK_RED, align: 'right', font: HAND });
@@ -438,8 +438,8 @@ export function createBoard(P, art) {
         ['Land owned', own.toFixed(1).replace('.', ',') + ' ha'],
         ['Land rented', rent.toFixed(1).replace('.', ',') + ' ha'],
         ['In store', Object.entries(D.inventory).filter(([, q]) => q > 0.05).map(([k, q]) => `${q.toFixed(0)} ${ITEMS[k] ? ITEMS[k].unit : ''} ${k}`).join(', ') || 'empty'],
-        ['Machines', (() => { const m = D.assets.slice().sort((a, b) => b.price - a.price); return m.length ? m.slice(0, 2).map((a) => a.name.replace(/^Used /, '')).join(', ') + (m.length > 2 ? ` +${m.length - 2} more` : '') : 'none'; })()],
-        ['Farmhands', D.workers.length ? D.workers.map((x) => `${x.name} (${euro(x.wage)}/day)`).join(', ') : 'none hired'],
+        ['Machines', (() => { const m = D.assets.slice().sort((a, b) => b.price - a.price); return m.length ? m.slice(0, 1).map((a) => a.name.replace(/^Used /, '')).join(', ') + (m.length > 1 ? ` +${m.length - 1} more` : '') : 'none'; })()],
+        ['Farmhands', D.workers.length ? `${D.workers.length}: ${D.workers.map((x) => x.name).join(', ')} · ${euro(Math.min(...D.workers.map((x) => x.dayRate || x.wage)))}–${euro(Math.max(...D.workers.map((x) => x.dayRate || x.wage)))}/day worked` : 'none hired'],
         ['Reputation', '★'.repeat(Math.round(D.rep * 5)) + '☆'.repeat(5 - Math.round(D.rep * 5))],
       ];
       let y = 66;

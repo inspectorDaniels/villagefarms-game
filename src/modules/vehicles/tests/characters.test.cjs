@@ -61,14 +61,22 @@ const { findChrome, chromeArgs } = require(path.join(root, 'tools/shot.js'));
     key('KeyL', 1);
     check('L toggles lights off', v.lights === false);
     key('KeyF', 1); step(2);
-    const c = CH.get(cid);
+    let c = CH.get(cid);
     const d = Math.hypot(c.x - v.x, c.y - v.y);
     check('F exits beside the vehicle', V.driverOf(tr) === null && !c.vehicleId && d > 1.2 && d < 4, { x: c.x, y: c.y, dist: +d.toFixed(2) });
-    // walk into the parked tractor: character must not pass through it
+    // walk into the parked tractor: character must not pass through it; walking away works
     const [ex, ey] = [c.x, c.y];
-    G.input.press('KeyD'); step(120); G.input.release('KeyD');
+    const toV = [v.x - ex, v.y - ey];
+    const k1 = Math.abs(toV[0]) > Math.abs(toV[1]) ? (toV[0] > 0 ? 'KeyD' : 'KeyA') : (toV[1] > 0 ? 'KeyS' : 'KeyW');
+    const away = { KeyD: 'KeyA', KeyA: 'KeyD', KeyS: 'KeyW', KeyW: 'KeyS' }[k1];
+    G.input.press(k1); step(150); G.input.release(k1);
+    c = CH.get(cid);
     const inside = (() => { const cc = Math.cos(v.rot), ss = Math.sin(v.rot); const dx = c.x - v.x, dy = c.y - v.y; const lx = dx * cc + dy * ss, ly = -dx * ss + dy * cc; return Math.abs(lx) < 1.95 / 2 && Math.abs(ly) < 3.7 / 2; })();
-    check('parked tractor is solid for walkers', !inside, { from: [+ex.toFixed(2), +ey.toFixed(2)], to: [+c.x.toFixed(2), +c.y.toFixed(2)] });
+    check('walking into the parked tractor is blocked', !inside && Math.hypot(c.x - v.x, c.y - v.y) > 1.2, { key: k1, from: [+ex.toFixed(2), +ey.toFixed(2)], to: [+c.x.toFixed(2), +c.y.toFixed(2)] });
+    const [ax, ay] = [c.x, c.y];
+    G.input.press(away); step(90); G.input.release(away);
+    c = CH.get(cid);
+    check('walking away works', Math.hypot(c.x - ax, c.y - ay) > 1.5, { moved: +Math.hypot(c.x - ax, c.y - ay).toFixed(2) });
     return out;
   });
   for (const c of res.checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.info !== undefined ? '  ' + JSON.stringify(c.info) : ''}`);

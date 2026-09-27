@@ -36,7 +36,7 @@ function findSite(terr, bounds) {
 export async function stageShowcase(ctx, preset, I) {
   if (!I) return;
   const api = (id) => ctx.modules.get(id);
-  const terr = api('terrain'), roads = api('roads'), veh = api('vehicles');
+  const terr = api('terrain'), roads = api('roads'), veh = api('vehicles'), crops = api('crops');
   const b = ctx.world.bounds;
   const S = findSite(terr, b);
   const O = { x: S.x - 60, y: S.y - 40 };
@@ -46,7 +46,14 @@ export async function stageShowcase(ctx, preset, I) {
   if (terr && terr.paintSurface) {
     const rect = (x0, y0, x1, y1) => ({ poly: [P(x0, y0), P(x1, y0), P(x1, y1), P(x0, y1)] });
     terr.paintSurface(rect(4, 6, 58, 40), 'farmyard');
-    terr.paintSurface(rect(66, 6, 124, 70), 'soil');
+    if (!crops) terr.paintSurface(rect(66, 6, 124, 46), 'soil');
+  }
+  // ---- crops: a stubble field to plough (west) and ripe wheat for the combine (east)
+  let wheat = null;
+  if (crops && crops.createField) {
+    crops.createField([P(66, 6), P(96, 6), P(96, 46), P(66, 46)], { state: 'stubble', crop: 'wheat' });
+    wheat = crops.createField([P(99, 6), P(126, 6), P(126, 46), P(99, 46)], { state: 'stubble' });
+    if (crops.plantAll) crops.plantAll(wheat, 'wheat', 'ripe');
   }
   // ---- a lane along the south of the yard, a track into the field
   if (roads && roads.generateNetwork) {
@@ -91,11 +98,12 @@ export async function stageShowcase(ctx, preset, I) {
     for (let k = 0; k < steps; k++) { veh.control(wt, { throttle: thr, brake: 0, steer }); I.step(1 / 60); }
   };
   // four adjacent lands, alternating direction (teleported to each headland start)
+  const lw = ALL[I.byId.get(pl).type].work.width;
   for (let pass = 0; pass < 4; pass++) {
     const up = pass % 2 === 0;
-    v.x = O.x + 74 + pass * 2.2; v.y = O.y + (up ? 66 : 10); v.rot = up ? 0 : Math.PI; v.speed = 0; v.steer = 0;
+    v.x = O.x + 70 + pass * lw; v.y = O.y + (up ? 48 : 4); v.rot = up ? 0 : Math.PI; v.speed = 0; v.steer = 0;
     I.driver.settle(v);
-    drivePass(pass === 3 ? 520 : 1250, 1, 0, true);
+    drivePass(pass === 3 ? 560 : 1150, 1, 0, true);
   }
   // combine on the headland, tractor + trailer convoy on the lane, pickup following
   const cv = sp('tractor_t3', 18, 50.5, E, { owner: 'owned' });
@@ -106,9 +114,14 @@ export async function stageShowcase(ctx, preset, I) {
   veh.enter(cv, 'showcase:driver2');
   for (let k = 0; k < 240; k++) { veh.control(cv, { throttle: 1, steer: 0 }); I.step(1 / 60); }
   const pk2 = sp('pickup', 2, 50.8, E, { owner: 'owned', paint: 'maroon' });
-  const cbw = sp('combine_l', 100, 20, Wd, { owner: 'owned' });
-  I.byId.get(cbw).cargo = { item: 'wheat', kg: 6000 };
-  I.byId.get(cbw).lowered = true;
+  // combine opening up the wheat: two passes up the east side with the header down
+  const cbw = sp('combine_l', 122, 50, N, { owner: 'owned', fuel: 600 });
+  const cbv = I.byId.get(cbw);
+  veh.enter(cbw, 'showcase:driver3');
+  veh.setImplement(cbw, true);
+  for (let k = 0; k < 950; k++) { veh.control(cbw, { throttle: 1, steer: 0 }); I.step(1 / 60); }
+  if (!crops) cbv.cargo = { item: 'wheat', kg: 6000 };
+  cbv.ctlHold = true; cbv.ctl = { throttle: 1, brake: 0, steer: 0 };
 
   // keep the working tractor and the convoy moving during the screenshot
   v.ctlHold = true; v.ctl = { throttle: 1, brake: 0, steer: 0 };
@@ -123,14 +136,14 @@ export async function stageShowcase(ctx, preset, I) {
 
   // ---- camera
   const cams = {
-    default: [31, 26],
+    default: [31, 24],
     convoy: [42, 46],
     night: [40, 36],
     closeup: [0, 0],
   };
   let target;
   if (preset === 'closeup') target = () => ({ x: I.byId.get(pl).x * 0.5 + v.x * 0.5, y: I.byId.get(pl).y * 0.5 + v.y * 0.5 });
-  else if (preset === 'working') target = () => ({ x: v.x + 4, y: v.y + 6 });
+  else if (preset === 'working') target = () => ({ x: (v.x + cbv.x) / 2, y: (v.y + cbv.y) / 2 });
   else if (preset === 'convoy') target = () => ({ x: (cvd.x + O.x + 30) / 2, y: O.y + 46 });
   else { const c = cams[preset] || cams.default; target = () => ({ x: O.x + c[0], y: O.y + c[1] }); }
   const t0 = target();

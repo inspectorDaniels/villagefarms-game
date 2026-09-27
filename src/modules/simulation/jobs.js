@@ -139,7 +139,7 @@ export function installJobs(sim) {
       job.x = job.from.x; job.y = job.from.y;
     } else {
       job.to = { ...farm };
-      job.amount = Math.round(rng.range(PRESENCE.includes(type) ? 4 : 2, PRESENCE.includes(type) ? 12 : 6) * 2) / 2;
+      job.amount = Math.round(rng.range(4, 12) * 2) / 2;
     }
     if (km) job.km = +km.toFixed(1);
 
@@ -306,8 +306,10 @@ export function installJobs(sim) {
       J.reputation += (0.5 - J.reputation) * 0.04;
       for (const c of Object.values(J.clients)) c.rep += (0.5 - c.rep) * 0.04;
     }
-    let n = rng.weighted([[2, 3], [3, 3], [4, 1.5]]) + (J.reputation > 0.8 && rng.chance(0.5) ? 1 : 0);
-    n = Math.min(n, CONST.maxOpenOffers - open);
+    // more hands → the neighbours call you more (each hand ≈ +1.2 offers/day); still a limited market
+    const h = hands();
+    let n = rng.weighted([[2, 3], [3, 3], [4, 1.5]]) + (J.reputation > 0.8 && rng.chance(0.5) ? 1 : 0) + Math.floor(h * 1.2 + rng.float());
+    n = Math.min(n, CONST.maxOpenOffers + 2 * h - open);
     for (let i = 0; i < n; i++) makeOffer(day, rng);
   }
 

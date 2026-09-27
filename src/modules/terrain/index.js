@@ -177,7 +177,7 @@ export async function init(ctx) {
     },
     surfaceAt(x, y) {
       if (!T || !fin(x) || !fin(y)) return 'grass';
-      if (x < 0 || y < 0 || x > T.w || y > T.h) return 'grass';
+      // out of bounds: clamped like every other query (heightAt, isWater) so they stay consistent
       const d = depthAt(x, y);
       const code = T.surface[node(x, y)];
       // always consistent with isWater(): 'water'/'shallow' ⇔ depth > 0.02

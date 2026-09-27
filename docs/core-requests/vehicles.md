@@ -20,3 +20,6 @@ Vehicles themselves already test the polygons (SAT).
 **Proposed code:** in `Spatial.queryCircle`, `if (it.poly) return polyCircleOverlap(it.poly, x, y, r) && (!filter || filter(it));`
 
 ## 3. Register `vehicles` in `src/modules/registry.js` (wave 2, after simulation/crops, before characters)
+
+
+**Integrator (iteration 2): #1 APPLIED (renderer composites approx. max of cloud/object shadows, no halos). #2 APPLIED: spatial items may carry `poly` or `polys`; queryCircle tests them precisely — set `polys` on the item itself (not only in `data`). #3 APPLIED.**
