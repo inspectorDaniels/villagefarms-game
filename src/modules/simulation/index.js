@@ -42,6 +42,7 @@ export async function init(ctx) {
     rngFor: (name) => ctx.rng(name),
     emit: (type, payload) => ctx.events.emit(type, payload),
     clockT: () => ctx.clock.t,
+    warn: (msg) => ctx.warn(msg),
   });
   sim.reset(sim.today(), { historyDays: YEAR_DAYS });
   const inst = { sim, view: null };

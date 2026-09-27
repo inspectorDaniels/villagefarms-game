@@ -556,6 +556,7 @@ export async function init(ctx) {
     if (autoSpawn && !ctx.params.showcase) doAutoSpawn();
     const env = W.environment || {};
     const dark = env.daylight != null ? env.daylight < 0.32 : (ctx.clock.timeOfDay > 20.5 || ctx.clock.timeOfDay < 6);
+    if (ctx.input.pressed('switchChar')) cycle();
     const actId = W.player.activeCharacterId;
     const recover = (c, rate) => { c.stamina = Math.min(1, c.stamina + rate * dt); };
     for (const c of C.list) {

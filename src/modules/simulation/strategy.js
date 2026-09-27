@@ -101,12 +101,14 @@ const TILLAGE_PENALTY = 0.96;  // late drilling by a contractor: −4 %
 const DIESEL_LH = { 1: 11, 2: 17, 3: 24, combine: 28 };
 
 /**
- * createManager(sim, { strategy, rng, ids }) → { setup(), day(d), yearReport(), fields, log }
+ * createManager(sim, { strategy, rng, ids, rotation?, jobs? }) → { setup(), day(d), fields, tasks, stats }
+ * (jobs: false = never takes contract work; rotation overrides the default crop rotation)
  */
 export function createManager(sim, opts) {
   const api = sim.api;
   const rng = opts.rng;
   const strat = opts.strategy || 'builder';
+  const ROT = opts.rotation || ROTATION; // opts.rotation: e.g. ['wheat'] for the 5 ha wheat check
   const fields = new Map(); // parcelId -> { crop, stage, tasks }
   const tasks = [];          // {kind, fieldId, ha, hours, left, deadline}
   const jobWork = new Map(); // jobId -> hours left
@@ -145,8 +147,8 @@ export function createManager(sim, opts) {
     // a new field starts with whichever rotation crop can be sown soonest
     const m = Math.floor(doyOf(sim.today()) / MONTH_DAYS);
     let crop = 'wheat', best = 99;
-    for (const c of new Set(ROTATION)) for (const sm of CROPS[c].sowMonths) { const wait = (sm - m + 12) % 12; if (wait < best) { best = wait; crop = c; } }
-    const f = { id: p.id, crop, rot: ROTATION.indexOf(crop), stage: 'fallow', factor: 1, yard: p.id === (opts.ids && opts.ids.yard) };
+    for (const c of new Set(ROT)) for (const sm of CROPS[c].sowMonths) { const wait = (sm - m + 12) % 12; if (wait < best) { best = wait; crop = c; } }
+    const f = { id: p.id, crop, rot: ROT.indexOf(crop), stage: 'fallow', factor: 1, yard: p.id === (opts.ids && opts.ids.yard) };
     fields.set(p.id, f);
     return f;
   }
@@ -201,8 +203,8 @@ export function createManager(sim, opts) {
     if (owned('trailer').length) tasks.push({ kind: 'haul', fieldId: f.id, ha, hours: y * WORK.haulPerT, left: y * WORK.haulPerT, deadline: sim.today() + 3 });
     else contractor(4 * y, `Haulage ${y.toFixed(0)} t (contractor)`);
     f.stage = 'fallow';
-    f.rot = (f.rot + 1) % ROTATION.length;
-    f.crop = ROTATION[f.rot];
+    f.rot = (f.rot + 1) % ROT.length;
+    f.crop = ROT[f.rot];
     sales.harvested(C.product);
   }
 
@@ -289,7 +291,7 @@ export function createManager(sim, opts) {
       else if (t.kind === 'haul' && !done) contractor(t.left / WORK.haulPerT * 4, 'Haulage (contractor)');
     }
     // contract jobs with what is left
-    jobs(d, personH, tractorH, combineH);
+    if (opts.jobs !== false) jobs(d, personH, tractorH, combineH);
   }
 
   function jobHours(j) {

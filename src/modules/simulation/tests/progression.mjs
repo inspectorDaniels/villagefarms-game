@@ -50,6 +50,29 @@ export function runOne(strategy, seed, years = YEARS) {
   return rows;
 }
 
+/** brief self-check: 5 ha of rented winter wheat (plus the 0.6 ha yard), starter kit, no contract work.
+ *  Returns operating net per game year for years 2..years (year 1 has no harvest yet). */
+export function fiveHaWheat(seed, years = 4) {
+  const world = { seed, economy: {}, land: {}, jobs: {}, environment: {} };
+  const sim = createSim(world, { rngFor: (n) => createRng(seed, 'simulation', n), emit: () => {}, clockT: () => 0 });
+  sim.reset(START);
+  sim.virtualT = START * 86400;
+  const { ids } = defineValley(sim.api);
+  sim.api.endLease(ids.start); // no other land
+  sim.api.defineParcel({ id: 'check:5ha', name: 'Five', poly: [[2000, 0], [2250, 0], [2250, 200], [2000, 200]], soil: 0.62, state: 'forRent' });
+  sim.api.rentParcel('check:5ha');
+  const mgr = createManager(sim, { strategy: 'jobs', rng: createRng(seed, 'strategy', 'five'), ids, rotation: ['wheat'], jobs: false });
+  mgr.setup();
+  const out = [];
+  for (let y = 0; y < years; y++) {
+    const d0 = START + y * YEAR_DAYS, d1 = d0 + YEAR_DAYS - 1;
+    sim.fastForward(d0, d1, (d) => mgr.day(d));
+    sim.virtualT = d1 * 86400 + 23 * 3600;
+    if (y > 0) out.push(sim.api.summary(YEAR_DAYS));
+  }
+  return out;
+}
+
 const med = (v) => { const s = v.slice().sort((a, b) => a - b); const n = s.length; return n % 2 ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2; };
 const k = (x) => (Math.abs(x) >= 1e6 ? (x / 1e6).toFixed(2) + 'M' : Math.round(x / 1000) + 'k');
 const perH = (r, v, h) => { const ok = r.filter((x) => x[h] > 5); return ok.length ? String(Math.round(med(ok.map((x) => x[v] / x[h])))) : '–'; };
@@ -85,6 +108,15 @@ function main() {
   const C = all.contractor, R = all.renter;
   console.log(`- contracting plateaus: contractor contract € Y3 ${k(med(C.map((r) => r[2].jobs)))} → Y${YEARS} ${k(med(C.map((r) => r[YEARS - 1].jobs)))}`);
   console.log(`- owning beats renting (Y${YEARS} net worth): builder ${k(med(B.map((r) => r[YEARS - 1].net)))} vs renter ${k(med(R.map((r) => r[YEARS - 1].net)))} vs contractor ${k(med(C.map((r) => r[YEARS - 1].net)))}`);
+  // 5 ha wheat self-check
+  const five = [];
+  for (let i = 0; i < SEEDS; i++) five.push(...fiveHaWheat('harvest-' + (i + 1)));
+  const on = five.map((x) => x.operatingNet);
+  const e = (x) => (x < 0 ? '−€' : '€') + Math.abs(Math.round(x)).toLocaleString('en-GB');
+  const cat = (c) => five.reduce((t, x) => t + (x.byCategory[c] || 0), 0) / five.length;
+  console.log(`\n### 5 ha rented winter wheat, starter kit, no contract work (${five.length} seed-years, years 2–4)`);
+  console.log(`operating net per year: mean ${e(on.reduce((t, x) => t + x, 0) / on.length)}, median ${e(med(on))}, range ${e(Math.min(...on))} … ${e(Math.max(...on))}`);
+  console.log(`mean per year: sales ${e(cat('sales'))}, CAP ${e(cat('subsidy'))}, rent ${e(cat('rent'))}, seed+fertiliser+spray ${e(cat('seed') + cat('fertiliser') + cat('spray'))}, diesel ${e(cat('fuel'))}, contractors ${e(cat('contractor'))}, upkeep ${e(cat('upkeep'))}, overheads ${e(cat('insurance'))}`);
   console.log(`\n(${Object.keys(all).length} strategies × ${SEEDS} seeds × ${YEARS} years in ${process.hrtime(t0)[0]} s)`);
 }
 
