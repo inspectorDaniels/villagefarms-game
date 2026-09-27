@@ -173,7 +173,7 @@ export function createRenderer(ctx, model, tiles) {
       const px = CPX;
       let canvas = pool.pop();
       if (!canvas || canvas.width !== px) { canvas = document.createElement('canvas'); canvas.width = px; canvas.height = px; }
-      e = { key, canvas, g: canvas.getContext('2d', { willReadFrequently: true }), res, // CPU-backed: GPU canvases cost a readback per blit into the main canvas
+      e = { key, canvas, g: canvas.getContext('2d'), res,
       built: false, dirty: new Set(), used: frame, f, ch };
       entries.set(key, e);
       bytes += px * px * 4;
