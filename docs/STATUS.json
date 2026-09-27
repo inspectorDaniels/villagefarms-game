@@ -129,7 +129,7 @@
     },
     "effects": {
       "wave": 1,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -150,7 +150,7 @@
         "**Combine header \"dust\" looks like dirt stains.** Brown puffs at alpha ~0.75 sit on top of the yellow header and cab (harvest_1230, harvest_1630, harvest_combine_56). Header dust should be pale, low-alpha, and pushed forward and sideways off the header, not parked on the machine. Chaff dust is fine.",
         "**Perf: get the in-game cost under the 1 ms brief.** Autumn game median is 1.04 ms (max 1.25). Showcase busy presets reach 2\u20133 ms, but some of that is the backdrop. Cap `leaves` by area rather than a flat 150, and skip landed or offscreen leaves in update. Report a module-only timing, e.g. with `?fxoff=backdrop,props`, in the README."
       ],
-      "note": "round-2 fixes partially applied, builder stopped mid-round (session wrap-up); loads clean; needs finishing + round-2 critic"
+      "note": "r2 (2026-09-27): per-particle seed + trail-join fixes done; puddles/grain/header dust/birds(showcase) fixed; open: no bird flocks in full game at dusk, snow tracks regular width, puddles on mud dark. msAvg 0.47-1.03 showcase, 0.24 game. Critic r2 deferred (visual-heavy module; mechanics-first priority)."
     },
     "crops": {
       "wave": 2,
