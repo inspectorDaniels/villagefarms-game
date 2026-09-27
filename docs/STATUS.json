@@ -59,7 +59,7 @@
     },
     "simulation": {
       "wave": 1,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -87,7 +87,7 @@
         "Set a target progression, e.g. \"first owned parcel by year 3\u20134, second tractor by year 2, combine by year 5\".",
         "Tune to that target, for example:"
       ],
-      "note": "round-2 fixes partially applied, builder stopped mid-round (session wrap-up); loads clean; needs finishing + round-2 critic; last finding: at 60-80 ha farming nets only ~\u20ac25k/yr and loses to pure contracting \u2014 progression retune unfinished (see brief Revision r2)"
+      "note": "r2 builder done: CAP exploit closed (14/14 probes lose), farming > contracting per hour from ~30 ha, owning > renting over 10y; missed: area targets, hired hands 0-1, net worth 300k@y8 vs 1M target (argued unreachable). Harnesses: tests/progression.mjs, tests/exploits.mjs"
     },
     "ui": {
       "wave": 1,
