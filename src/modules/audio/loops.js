@@ -30,24 +30,30 @@ export const ENGINES = {
   },
 };
 
-function engineWaves(ac, R, kind, C, rng) {
+/** engine wave tables. Harmonic weights/phases are fixed per engine kind (seeded once per context). */
+function engineWave(ac, R, kind, C, rng, roll) {
   const N = kind === 'car' ? 110 : 150;
-  const w = [], ph = [];
-  for (let n = 1; n <= N; n++) {
-    let a;
-    if (n % C.cyl === 0) a = 1;
-    else if (n % (C.cyl / 2) === 0) a = 0.32;
-    else a = C.irregular * (0.35 + 0.65 * rng.float());
-    w[n] = a; ph[n] = rng.float() * TAU;
+  R.engW = R.engW || {};
+  if (!R.engW[kind]) {
+    const w = [], ph = [];
+    for (let n = 1; n <= N; n++) {
+      let a;
+      if (n % C.cyl === 0) a = 1;
+      else if (n % (C.cyl / 2) === 0) a = 0.32;
+      else a = C.irregular * (0.35 + 0.65 * rng.float());
+      w[n] = a; ph[n] = rng.float() * TAU;
+    }
+    R.engW[kind] = { w, ph };
   }
-  const mk = (roll) => wave(ac, R, `eng:${kind}:${roll}`, N, (re, im) => {
+  const { w, ph } = R.engW[kind];
+  return wave(ac, R, 'eng:' + kind + ':' + roll, N, (re, im) => {
     for (let n = 1; n <= N; n++) {
       const e = 1 / (1 + Math.pow(n / (C.cyl * 1.5), roll));
       re[n] = w[n] * e * Math.cos(ph[n]); im[n] = w[n] * e * Math.sin(ph[n]);
     }
   });
-  return [mk(C.soft), mk(C.hard)];
 }
+function engineWaves(ac, R, kind, C, rng) { return [engineWave(ac, R, kind, C, rng, C.soft), engineWave(ac, R, kind, C, rng, C.hard)]; }
 
 function engineLoop(kind) {
   return (ac, out, R, o) => {
@@ -552,15 +558,14 @@ export const LOOP_NEEDS = {
 };
 
 /** create cached wave tables ahead of first use (one step per frame after baking finished) */
+/** wave tables created ahead of first use, ONE per call (≈ 1.5–2.5 ms each) — call with step 0.. until it returns false */
+const PREWARM = [];
+for (const kind of ['tractor', 'car', 'combine']) for (const k of ['soft', 'hard']) PREWARM.push((ac, R, mk) => engineWave(ac, R, kind, ENGINES[kind], mk('prewarm:' + kind), ENGINES[kind][k]));
+PREWARM.push((ac, R) => pulseWave(ac, R, 0.14, 28), (ac, R) => pulseWave(ac, R, 0.25, 16), (ac, R) => pulseWave(ac, R, 0.3, 16),
+  (ac, R) => wave(ac, R, 'combine-drum', 64, (re, im) => { for (let k = 1; k <= 64; k++) im[k] = (k % 8 === 0 ? 1 : 0.1) / Math.pow(k, 0.8); }));
+for (const t of [0.7, 0.8, 0.85, 1.0, 1.35]) PREWARM.push((ac, R) => glottalWave(ac, R, t));
 export function prewarm(ac, R, mk, step) {
-  const kinds = ['tractor', 'car', 'combine'];
-  if (step < 3) {
-    const kind = kinds[step];
-    engineWaves(ac, R, kind, ENGINES[kind], mk('prewarm:' + kind));
-    pulseWave(ac, R, 0.14, 28);
-    if (kind === 'combine') { pulseWave(ac, R, 0.25, 16); wave(ac, R, 'combine-drum', 64, (re, im) => { for (let k = 1; k <= 64; k++) im[k] = (k % 8 === 0 ? 1 : 0.1) / Math.pow(k, 0.8); }); }
-  } else {
-    for (const t of [0.7, 0.8, 0.85, 1.0, 1.35]) glottalWave(ac, R, t);
-    pulseWave(ac, R, 0.3, 16);
-  }
+  if (step >= PREWARM.length) return false;
+  PREWARM[step](ac, R, mk);
+  return true;
 }

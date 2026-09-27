@@ -433,7 +433,7 @@ export class TileManager {
       }
     }
     // overview refresh (lowest priority)
-    if (left > 0 && this.overviewSig !== look.sig) {
+    if (left > 0 && budget !== Infinity && this.overviewSig !== look.sig) {
       if (!this.overviewJob || this.overviewJob.sig !== look.sig) this.overviewJob = { sig: look.sig, it: this.overviewGen(look) };
       while (left > 0) { const r = this.overviewJob.it.next(); if (r.done) { this.overviewJob = null; break; } left -= r.value; }
     }

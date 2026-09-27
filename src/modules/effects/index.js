@@ -100,7 +100,7 @@ export async function init(ctx) {
   }
 
   // ---------------- ambient director ----------------
-  const dir = { birdTimer: 6, rainAcc: 0, leafAcc: 0, frame: 0, counts: new Map() };
+  const dir = { birdTimer: 1.5, wasBusy: false, flocked: false, rainAcc: 0, leafAcc: 0, frame: 0, counts: new Map() };
   const AMB = { ambient: true };
   function countAmbient() {
     const P = particles.P;
@@ -153,16 +153,18 @@ export async function init(ctx) {
     // fireflies: summer (and late spring) nights, near water / meadows
     if ((season === 'summer' || (season === 'spring' && clock.month === 4)) && night > 0.55 && !wet && view.zoom >= 6) {
       const target = Math.min(90, Math.round(area * 0.034));
-      let tries = 6;
+      let tries = 10;
       while (have(TID.fireflies) < target && tries-- > 0) {
         const [x, y] = pickIn(view, 2);
         let ok;
         if (hooks.fireflyZones) ok = inZones(hooks.fireflyZones, x, y);
         else {
           const s = surfaceAt(x, y);
-          ok = s == null || s === 'meadow' || s === 'grass' || s === 'shallow' || s === 'forestFloor'
-            || isWater(x + 4, y) || isWater(x - 4, y) || isWater(x, y + 4) || isWater(x, y - 4);
+          // weighted toward water edges and meadows; open grass only rarely
           if (s === 'water') ok = false;
+          else if (s === 'meadow' || s === 'shallow' || s === 'forestFloor' || s === 'sand') ok = true;
+          else if (isWater(x + 5, y) || isWater(x - 5, y) || isWater(x, y + 5) || isWater(x, y - 5)) ok = true;
+          else ok = s == null ? rng.chance(0.5) : (s === 'grass' && rng.chance(0.1));
         }
         if (!ok) continue;
         particles.emit('fireflies', x, y, { count: 1, ambient: true });
@@ -184,7 +186,8 @@ export async function init(ctx) {
 
     // autumn leaves drifting on the wind
     if (season === 'autumn' && view.zoom >= 6) {
-      const target = 150;
+      // capped by the visible area so a zoomed-out autumn view stays cheap
+      const target = Math.min(110, Math.round(area * 0.04));
       if (have(TID.leaves) < target) {
         const rate = Math.min(40, (0.6 + windSpeed * 0.5) * area * 0.003);
         dir.leafAcc += rate * dt;
@@ -207,11 +210,16 @@ export async function init(ctx) {
 
     // bird flocks at dawn and dusk (and occasionally by day)
     const dawn = tod > 5.2 && tod < 9, dusk = tod > 17 && tod < 20.8;
-    if (!(w.kind === 'storm') && day > 0.15) {
+    if (!(w.kind === 'storm') && day > 0.12 && view.zoom >= 4) {
       dir.birdTimer -= dt;
+      const busy = dawn || dusk;
+      if (busy && !dir.wasBusy) dir.birdTimer = Math.min(dir.birdTimer, 0.5); // the first dawn/dusk flock comes at once
+      dir.wasBusy = busy;
       if (dir.birdTimer <= 0) {
-        dir.birdTimer = (dawn || dusk) ? rng.range(14, 30) : rng.range(50, 110);
-        if (have(TID.birds) < 30) spawnFlock(view, rng.int(5, 11));
+        dir.birdTimer = busy ? rng.range(8, 16) : rng.range(35, 70);
+        // the first flock after load / the start of dawn-dusk enters already at the view edge
+        if (have(TID.birds) < 30) spawnFlock(view, rng.int(5, 11), { near: !dir.flocked });
+        dir.flocked = true;
       }
     }
   }
@@ -219,14 +227,15 @@ export async function init(ctx) {
   function spawnFlock(view, n, o) {
     o = o || {};
     const cx = (view.x0 + view.x1) / 2, cy = (view.y0 + view.y1) / 2;
-    const rad = Math.hypot(view.x1 - view.x0, view.y1 - view.y0) / 2 + 12;
+    const half = Math.hypot(view.x1 - view.x0, view.y1 - view.y0) / 2;
+    const rad = o.near ? half * 0.75 : half + 12;
     const a = o.angle != null ? o.angle : rng.float() * Math.PI * 2;
     const dx = -Math.cos(a), dy = -Math.sin(a);
     const off = rng.range(-0.35, 0.35) * rad;
     const x = o.x != null ? o.x : cx + Math.cos(a) * rad - dy * off;
     const y = o.y != null ? o.y : cy + Math.sin(a) * rad + dx * off;
-    const sp = o.speed || rng.range(8.5, 11);
-    return particles.emit('birds', x, y, { count: n, dirX: o.dirX != null ? o.dirX : dx, dirY: o.dirY != null ? o.dirY : dy, speed: sp, z: o.z, life: (rad * 2 + 30) / sp, ambient: true });
+    const sp = o.speed || rng.range(7, 9);
+    return particles.emit('birds', x, y, { count: n, dirX: o.dirX != null ? o.dirX : dx, dirY: o.dirY != null ? o.dirY : dy, speed: sp, z: o.z, life: (half * 2 + 40) / sp, ambient: true });
   }
 
   // ---------------- render hooks ----------------
@@ -298,8 +307,12 @@ export async function init(ctx) {
         const wv = envApi.windAt((view.x0 + view.x1) / 2, (view.y0 + view.y1) / 2);
         if (wv && Number.isFinite(wv.x) && Number.isFinite(wv.y)) frameWind = wv;
       }
-      if (internal.showcaseFrame) internal.showcaseFrame(Math.min(dt, 0.1));
-      step(Math.min(dt, 0.1), view);
+      const rdt = Math.min(dt, 0.1);
+      if (internal.showcaseFrame) internal.showcaseFrame(rdt);
+      // cosmetic time follows the game speed (x0.25..x4) so leaves/birds/emitters keep pace with
+      // game-time trails at fast-forward; a paused/frozen clock keeps real-time animation.
+      const k = clock.paused ? 1 : Math.max(0.25, Math.min(4, (clock.scale || 60) / 60));
+      step(rdt * k, view);
     },
   };
 }

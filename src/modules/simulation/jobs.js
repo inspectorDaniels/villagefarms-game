@@ -35,7 +35,8 @@ export function installJobs(sim) {
     const m = month(day);
     const weather = sim.world.environment && sim.world.environment.weather;
     const snowy = weather && weather.kind === 'snow';
-    const types = Object.entries(JOB_TYPES).map(([k, t]) => [k, t.months[m] * (k === 'snowClear' ? (snowy ? 4 : 0.5) : 1)]).filter((x) => x[1] > 0);
+    // presence odd jobs are for farmhands without machines: offered, but less often than machine work
+    const types = Object.entries(JOB_TYPES).map(([k, t]) => [k, t.months[m] * (k === 'snowClear' ? (snowy ? 4 : 0.5) : t.machine ? 1 : 0.45)]).filter((x) => x[1] > 0);
     const type = rng.weighted(types);
     const T = JOB_TYPES[type];
     const village = type === 'shopHelp' || type === 'villageWork' || type === 'snowClear' || type === 'deliver';

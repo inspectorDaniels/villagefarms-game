@@ -84,17 +84,17 @@ export const CROPS = {
 // Contract job types (machine-rate pay). rate = € per unit; transport also pays perTkm × km.
 // needs = machine category required; months = offer weight by month (12 entries).
 export const JOB_TYPES = {
-  plough:     { title: 'Plough', unit: 'ha', rate: 95, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'tillage',
+  plough:     { title: 'Plough', unit: 'ha', rate: 105, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'tillage',
     months: [0.2, 0.6, 1.0, 0.8, 0.2, 0, 0, 0.5, 1.0, 1.0, 0.7, 0.2] },
-  sow:        { title: 'Drill', unit: 'ha', rate: 65, spread: 0.15, amount: [1.5, 7], machine: true, needs: 'tillage',
+  sow:        { title: 'Drill', unit: 'ha', rate: 72, spread: 0.15, amount: [1.5, 7], machine: true, needs: 'tillage',
     months: [0, 0.2, 1.0, 1.0, 0.7, 0, 0, 0.4, 0.9, 1.0, 0.3, 0] },
-  harvest:    { title: 'Combine', unit: 'ha', rate: 150, spread: 0.13, amount: [2, 7], machine: true, needs: 'combine',
+  harvest:    { title: 'Combine', unit: 'ha', rate: 160, spread: 0.13, amount: [2, 7], machine: true, needs: 'combine',
     months: [0, 0, 0, 0, 0, 0.2, 1.0, 1.0, 0.8, 0.7, 0.3, 0] },
-  mow:        { title: 'Mow', unit: 'ha', rate: 52, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'tractor',
+  mow:        { title: 'Mow', unit: 'ha', rate: 58, spread: 0.15, amount: [1.5, 6], machine: true, needs: 'tractor',
     months: [0, 0, 0, 0.3, 1.0, 1.0, 0.8, 0.6, 0.4, 0.1, 0, 0] },
-  transport:  { title: 'Haul', unit: 't', rate: 3.5, perTkm: 0.9, spread: 0.12, amount: [20, 60], machine: true, needs: 'trailer',
+  transport:  { title: 'Haul', unit: 't', rate: 4.5, perTkm: 1.2, spread: 0.12, amount: [20, 60], machine: true, needs: 'trailer',
     months: [0.4, 0.4, 0.5, 0.5, 0.4, 0.6, 1.0, 1.0, 1.0, 1.0, 0.7, 0.4] },
-  deliver:    { title: 'Deliver', unit: 'load', rate: 85, spread: 0.2, amount: [1, 3], machine: true, needs: 'trailer',
+  deliver:    { title: 'Deliver', unit: 'load', rate: 110, spread: 0.2, amount: [1, 3], machine: true, needs: 'trailer',
     months: [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.9] },
   animalCare: { title: 'Mind livestock', unit: 'h', rate: 19, spread: 0.1, amount: [4, 10], machine: false,
     months: [0.7, 0.7, 0.8, 0.8, 0.6, 0.6, 0.7, 0.7, 0.6, 0.6, 0.7, 0.9] },
@@ -108,23 +108,23 @@ export const JOB_TYPES = {
 
 // Work rates (machine hours) for the farm-manager model; exposed through workRates().
 export const WORK = {
-  plough: [1.2, 0.7, 0.5],   // h/ha by tractor tier 1..3 (tier ≥ 2 needs the large tillage set)
-  sow: [0.6, 0.35, 0.25],
+  plough: [1.6, 1.0, 0.7],   // h/ha (incl. stubble + seedbed passes) by tractor tier 1..3 (tier ≥ 2 needs the large tillage set)
+  sow: [0.9, 0.5, 0.35],
   mow: [0.5, 0.32, 0.25],
-  care: 0.35,                // all spreader/sprayer passes of a season, h/ha
+  care: 0.8,                 // all spreader/sprayer passes of a season, h/ha
   harvest: { combine_s: 0.7, combine_l: 0.4 },
-  haulPerT: 0.035, haulPerTkm: 0.02, deliverPerLoad: 1.5,
-  hoursPerDay: 10,           // one person's working day
+  haulPerT: 0.05, haulPerTkm: 0.02, deliverPerLoad: 1.5,
+  hoursPerDay: 12,           // one person's working day in season
   contractor: { tillage: 175, care: 90, harvest: 165, lift: 480 }, // €/ha when you hire it done
 };
 
 // Machinery catalog (registered by default; other modules may override entries by id).
 export const MACHINES = [
   { id: 'tractor_t1', category: 'tractor', name: 'Used 95 hp tractor', price: 26000, meta: { tier: 1 } },
-  { id: 'tractor_t2', category: 'tractor', name: '180 hp tractor', price: 98000, meta: { tier: 2 } },
+  { id: 'tractor_t2', category: 'tractor', name: '180 hp tractor', price: 78000, meta: { tier: 2 } },
   { id: 'tractor_t3', category: 'tractor', name: '300 hp tractor', price: 185000, meta: { tier: 3 } },
   { id: 'tillage_s', category: 'tillage', name: 'Plough & 3 m drill', price: 9000, meta: { size: 1 } },
-  { id: 'tillage_l', category: 'tillage', name: '5-furrow plough & 4 m drill', price: 38000, meta: { size: 2 } },
+  { id: 'tillage_l', category: 'tillage', name: '5-furrow plough & 4 m drill', price: 24000, meta: { size: 2 } },
   { id: 'sprayer', category: 'sprayer', name: 'Sprayer & spreader', price: 16000, meta: {} },
   { id: 'trailer', category: 'trailer', name: '14 t tipping trailer', price: 11000, meta: {} },
   { id: 'mower', category: 'mower', name: 'Disc mower', price: 12000, meta: {} },

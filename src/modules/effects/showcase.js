@@ -134,7 +134,7 @@ function makePainter(ctx, season, preset) {
         c = pal(wetTrack ? wetDirt : dirt, a * 0.7 + b * 0.3);
         c = lerp(c, rut, rutK * 0.18);
         c = lerp(c, pal(grass, a), Math.max(mid * 0.8, edge));
-        if (winter) c = lerp(pal(snow, b), [150, 140, 128], rutK * 0.5 + 0.08);
+        if (winter) c = lerp(pal(snow, b), [176, 190, 208], rutK * 0.25 + 0.06);
         break;
       }
       case 'farmyard': c = pal(yard, a * 0.6 + b * 0.4); if (wetTrack) c = lerp(c, wetDirt[0], 0.4); if (winter) c = lerp(pal(snow, a), c, 0.12); break;
@@ -490,6 +490,7 @@ export const showcase = {
     const terr = ctx.modules.get('terrain');
     hooks.surfaceAt = (x, y) => {
       const r = regionAt(x, y, season);
+      if (season === 'winter' && r !== 'water' && r !== 'shallow') return 'snow';
       if (r === 'track') return preset === 'rain' ? 'mud' : 'soil';
       if (r === 'wheat' || r === 'stubble' || r === 'crop') return 'soil';
       if (r === 'farmyard') return 'farmyard';
@@ -617,15 +618,18 @@ export const showcase = {
       vehicles.push(cmb);
       const chaff = api.emitter('chaff', { rate: 17, speed: 3.0, spread: 0.8 });
       const chDust = api.emitter('dust', { rate: 7, size: 1.8, color: '#d8c08a' });
-      const hdDust = api.emitter('dust', { rate: 5, size: 1.2, color: '#c9ad78' });
+      // header dust: pale, thin, airborne — thrown off the header ends, never parked on the machine
+      const hdL = api.emitter('dust', { rate: 3, size: 1.3, color: '#ece2c0', alpha: 0.3, z: 0.9, speed: 1.4, spread: 0.5 });
+      const hdR = api.emitter('dust', { rate: 3, size: 1.3, color: '#ece2c0', alpha: 0.3, z: 0.9, speed: 1.4, spread: 0.5 });
       const exh = api.emitter('exhaust', { rate: 4, z: 3.8 });
       E.push(() => {
         const b = local(cmb, 0, 1);
         const [sx, sy] = local(cmb, 0, 4.6);
         chaff.setPosition(sx, sy).setDir(b[0] - cmb.x, b[1] - cmb.y);
         chDust.setPosition(sx, sy).setDir(b[0] - cmb.x, b[1] - cmb.y);
-        const hs = local(cmb, (T.t * 7 % 6) - 3, -4.2);
-        hdDust.setPosition(hs[0], hs[1]);
+        const side = local(cmb, 1, -0.6), sx2 = side[0] - cmb.x, sy2 = side[1] - cmb.y;
+        hdL.setPosition(...local(cmb, -3.7, -3.9)).setDir(-sx2, -sy2);
+        hdR.setPosition(...local(cmb, 3.7, -3.9)).setDir(sx2, sy2);
         exh.setPosition(...local(cmb, 1.0, 3.2));
         api.trail('sc:cmb:l', ...local(cmb, -1.6, 3.3), cmb.rot, 0.75, 'tyre');
         api.trail('sc:cmb:r', ...local(cmb, 1.6, 3.3), cmb.rot, 0.75, 'tyre');
@@ -643,8 +647,8 @@ export const showcase = {
         pDust.setPosition(cx, cy);
         for (let k = 0; k < 3; k++) api.trail('sc:pl:f' + k, ...local(pl, -0.4 + k * 0.62, 4.6), pl.rot, 0.5, 'furrow');
       });
-      api.decal('spill', 94, 72.5, 0.3, { size: 1.6, color: '#d9b95c' });
-      api.decal('spill', 92.6, 73.2, 1.2, { size: 0.9, color: '#d9b95c' });
+      api.decal('spill', 94, 72.5, 0.3, { size: 2.2, color: '#b8862e' });
+      api.decal('spill', 92.4, 73.4, 1.2, { size: 1.3, color: '#a87a2a' });
     }
     if (preset === 'rain') {
       const tR = trackVehicle('sc:tR', 62, 0, palette.paint.tractorRed);
@@ -659,7 +663,7 @@ export const showcase = {
     if (preset === 'autumn') {
       api.decal('scorch', 44.5, 56, 0.4, { size: 3 });
       api.emitter('chimney', { x: 44.5, y: 56, rate: 4, z: 0.4, size: 0.8, color: '#9d9a92' });
-      api.emitter('sparkle', { x: 44.5, y: 56, rate: 3, color: '#ffb060' });
+      api.emitter('sparkle', { x: 44.5, y: 56, rate: 5, color: '#ff9a40', size: 0.35, speed: 0.6 });
     }
     // petals from the blossom tree in spring
     if (season === 'spring') {
@@ -690,7 +694,6 @@ export const showcase = {
         api.decal('puddle', 50, 49, 0.2, { size: 3.2, variant: 1 });
         api.decal('puddle', 57, 53.5, 0.8, { size: 2.2, variant: 2 });
       }
-      if (preset === 'default') api.decal('spill', 49, 41, 0, { size: 0.9, color: '#3a3430' }); // oil drip in the yard
       // older tyre tracks: a vehicle passed along the track earlier
       for (let s = 10; s < 118; s += 0.5) {
         api.trail('sc:old:l', s, trackY(s) - 0.95, Math.PI / 2, 0.5, 'tyre');

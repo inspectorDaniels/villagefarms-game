@@ -12,17 +12,17 @@ export const manifest = {
   namespaces: ['economy', 'land', 'jobs'],
   api: [
     // money
-    'money', 'canAfford', 'charge', 'credit', 'ledger', 'summary',
+    'money', 'canAfford', 'charge', 'credit', 'ledger', 'summary', 'netWorth',
     // market
-    'price', 'priceHistory', 'sell', 'buy', 'defineSellPoint', 'sellPoints', 'yieldTable', 'inputCost', 'buyInputs',
+    'price', 'priceHistory', 'sell', 'buy', 'defineSellPoint', 'sellPoints', 'yieldTable', 'inputCost', 'buyInputs', 'workRates',
     // inventory
     'inventory', 'addInventory', 'removeInventory', 'setCapacity', 'storageRoom',
     // catalog & assets
-    'registerCatalogItem', 'catalog', 'purchase', 'lease', 'assets', 'releaseAsset',
+    'registerCatalogItem', 'catalog', 'purchase', 'lease', 'grantAsset', 'assets', 'releaseAsset',
     // loans
     'takeLoan', 'repayLoan', 'loans', 'creditLimit',
     // land
-    'defineParcel', 'parcels', 'parcel', 'parcelAt', 'buyParcel', 'rentParcel', 'endLease', 'sellParcel', 'canUse',
+    'defineParcel', 'parcels', 'parcel', 'parcelAt', 'buyParcel', 'rentParcel', 'endLease', 'leaseExitCost', 'sellParcel', 'canUse', 'landMarket',
     // jobs
     'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation',
     // workers

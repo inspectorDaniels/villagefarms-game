@@ -130,12 +130,12 @@ export function gustRecipe(name, dur, scales) {
         const f = (i / n) * pts, k = Math.floor(f), t = f - k;
         const a = v[k % pts], c = v[(k + 1) % pts];
         d[i] += (a + (c - a) * (1 - Math.cos(t * Math.PI)) / 2) * amp;
-        if ((i & 2047) === 2047) yield 2048;
+        if ((i & 4095) === 4095) yield 1024; // cheap per-sample work → weighted low
       }
     }
     let lo = 1e9, hi = -1e9;
     for (let i = 0; i < n; i++) { if (d[i] < lo) lo = d[i]; if (d[i] > hi) hi = d[i]; }
-    for (let i = 0; i < n; i++) { d[i] = Math.pow((d[i] - lo) / (hi - lo || 1), 1.6); if ((i & 2047) === 2047) yield 2048; }
+    for (let i = 0; i < n; i++) { d[i] = Math.pow((d[i] - lo) / (hi - lo || 1), 1.6); if ((i & 4095) === 4095) yield 1024; }
   }, 8000);
 }
 
@@ -329,4 +329,12 @@ export function voice(ac, out, t, R, rng, s, p = 1, amp = 1) {
     chain(tr, tg, e.gain);
   }
   chain(last, e, out);
+}
+
+/** move the jobs for these keys to the front of the bake queue (a loop is waiting for them) */
+export function prioritize(R, keys) {
+  want(R, keys);
+  const front = [], rest = [];
+  for (const j of R.jobs) (keys.includes(j.key) ? front : rest).push(j);
+  if (front.length) R.jobs = front.concat(rest);
 }

@@ -291,6 +291,16 @@ export function buildCss(P, tex) {
 .hv-ui svg.chart text { font: 10.5px 'Segoe UI', system-ui, sans-serif; fill: var(--ink2); }
 .hv-ui .spark { width: 92px; height: 26px; display: block; overflow: visible; }
 
+/* market */
+.hv-ui .hv-mkt { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 22px; }
+.hv-ui .hv-mkt .hv-row { gap: 8px; }
+.hv-ui .hv-mkt .hv-row:last-child { border-bottom: 1px dotted rgba(116,96,63,.4); }
+.hv-ui .hv-mkt .meta b { color: var(--ink); font-weight: 600; }
+.hv-ui .hv-mkt .spark { width: 56px; height: 24px; }
+.hv-ui .hv-mkt .meta .hv-ic { width: 12px; height: 12px; color: #9a6c16; }
+.hv-ui .hv-mkt .ttl { display: flex; align-items: center; gap: 6px; }
+.hv-ui .hv-mkt .hv-row .ico .hv-ic { width: 21px; height: 21px; }
+
 /* jobs */
 .hv-ui .hv-jobs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hv-ui .hv-job { position: relative; padding: 13px 13px 11px; border-radius: 3px; background-color: var(--note, #f8f1df); background-image: var(--tex); background-blend-mode: multiply;

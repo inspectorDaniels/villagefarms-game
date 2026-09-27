@@ -123,7 +123,8 @@ export async function init(ctx) {
       const d = v - M.target;
       if (Math.abs(d) >= 0.005) {
         M.deltaSum = M.deltaT > 0 ? M.deltaSum + d : d;
-        M.deltaT = 3.2;
+        M.deltaT = M.hold || 3.2;
+        M.hold = 0;
         mDelta.textContent = money(M.deltaSum, { sign: true });
         mDelta.className = 'delta on ' + (M.deltaSum >= 0 ? 'pos' : 'neg');
       }
@@ -649,7 +650,7 @@ export async function init(ctx) {
   window.addEventListener('resize', onResize);
   function frame(dt) {
     dt = Math.min(0.1, dt || 0);
-    if (demoDelay > 0) { demoDelay -= dt; if (demoDelay <= 0) { const v = data.money(); if (v != null) { M.shown = v - demoDelta; M.target = v - demoDelta; } } }
+    if (demoDelay > 0) { demoDelay -= dt; if (demoDelay <= 0) { const v = data.money(); if (v != null) { M.shown = v - demoDelta; M.target = v - demoDelta; M.deltaT = 0; M.deltaSum = 0; M.hold = 30; } } }
     updateMoney(dt);
     layoutT += dt;
     if (layoutT >= 0.5) { layoutT = 0; layout(); }

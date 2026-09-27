@@ -26,9 +26,9 @@ Files: `index.js` (manifest/init/API/HUD), `panels.js` (built-in panels + format
 | `formatMoney(v, { sign?, dec?, compact? })` | `€18,240.50`, `−€1,234.50`, `€12.4k` |
 | `setSpeed(mult)` (0 = pause, 1/3/10) · `getSpeed()` | clock.scale = 60 × mult |
 
-Keys: Space pause, `+`/`−` speed, O Finances, P Market, J Jobs, M Land, H Help, Esc closes
+Keys (ignored while Ctrl/Alt/Meta is held; handled keys set `ev.stop`): Space pause, `+`/`−` speed, O Finances, P Market, J Jobs, M Land, H Help, Esc closes
 panel/dialog, toolbar hotkeys. `ctx.input.uiCapturing` is true while the pointer is over any
-interactive UI element (or a dialog is open).
+interactive UI element (or a dialog is open); it is re-evaluated with `elementFromPoint` when a panel or dialog closes. Transparent gaps in the bottom-centre stack do not capture clicks.
 
 ## Events
 Emits `ui:action` (`{id:'job-accepted'|'parcel-bought'|'parcel-rented'|'minimap-jump', ...}`),
@@ -51,11 +51,13 @@ illustration + sentence; minimap shows a painted parchment wash).
 ## Showcase
 Presets: `default` (HUD, toasts, money delta, labels, prompt), `finances`, `market`, `jobs`, `land`,
 `confirm` (land + dialog), `help`, `empty` (no economy → empty states), `night` (23:00).
-`showcase.deps = ['simulation','environment','terrain']`; add `&uisolo=1` to load the ui alone over
+`showcase.deps = ['simulation','environment','terrain']` (manifest optionalDeps: simulation, environment, terrain, roads); add `&uisolo=1` to load the ui alone over
 its own painted farm backdrop (useful while other modules are mid-build). When simulation is
 absent/stub, the showcase uses a seeded sample dataset from `data.js` (only in the showcase).
 
 ## Known limitations
 - Balance history is reconstructed backwards from the ledger (no API for historic balances).
 - Minimap has no zoom; clicking jumps the camera and drops camera follow.
-- Panels are fixed-width (≤ 700 px) centred sheets; not tuned for < 1000 px windows.
+- Layout: panel width is clamped between the side HUD columns (360–700 px) and its height ends above whatever bottom HUD sits under it; toasts sit above panels and narrow to the space right of an open sheet. Below ~900 px wide toasts may overlap the sheet (still on top).
+- World labels fade out when they would overlap a HUD card, a toast or an open panel.
+- `empty` preset forces the no-economy path via `data.forceEmpty()` (showcase only).

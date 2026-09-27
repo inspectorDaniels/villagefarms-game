@@ -8,13 +8,13 @@ const CAM = { x: 60, y: 57, zoom: 20 };
 export const SHOWCASE_PRESETS = {
   default: { camera: CAM, time: '10:30', day: 10, weather: 'cloudy', intensity: 0.6 },
   noon: { camera: CAM, time: '13:00', day: 16, weather: 'clear', intensity: 0.1 },
-  golden: { camera: CAM, time: '19:10', day: 20, weather: 'clear', intensity: 0.1 },
+  golden: { camera: CAM, time: '19:55', day: 20, weather: 'clear', intensity: 0.1 },
   night: { camera: CAM, time: '23:30', day: 22, weather: 'clear', intensity: 0.1 },
   rain: { camera: CAM, time: '15:00', day: 28, weather: 'rain', intensity: 0.75 },
   fog: { camera: CAM, time: '08:40', day: 31, weather: 'fog', intensity: 0.8 },
   snow: { camera: CAM, time: '11:30', day: 1, weather: 'snow', intensity: 0.65 },
   storm: { camera: CAM, time: '17:30', day: 20, weather: 'storm', intensity: 0.9 },
-  closeup: { camera: { x: 64, y: 58, zoom: 44 }, time: '21:50', day: 20, weather: 'clear', intensity: 0.1 },
+  closeup: { camera: { x: 64, y: 58, zoom: 44 }, time: '21:15', day: 20, weather: 'clear', intensity: 0.1 },
 };
 
 // scene extents (metres)
@@ -584,16 +584,20 @@ export async function stageShowcase(ctx, presetName, inst) {
     if (a < 0.02) return;
     const sky = env.sky, amb = env.ambient;
     // reflected sky, pre-divided by the ambient so the lighting pass doesn't darken it twice
-    const comp = (i) => Math.sqrt(255 / Math.max(40, amb[i]));
-    const water = [44, 56, 62];
-    const rr = Math.min(220, (sky[0] * 0.5 + water[0] * 0.5) * comp(0)), gg = Math.min(225, (sky[1] * 0.5 + water[1] * 0.5) * comp(1)), bb = Math.min(232, (sky[2] * 0.5 + water[2] * 0.5) * comp(2));
+    // water reflects ~45% of the sky over its own dark body; only a mild ambient compensation so
+    // puddles glint at night without turning into lamps, and never go paper-white by day
+    const comp = (i) => Math.pow(255 / Math.max(40, amb[i]), 0.3);
+    const water = [40, 50, 56];
+    const nightSky = [92, 108, 150];            // moonlit sky sheen so night puddles read as water, not holes
+    const refl = (i) => Math.min(200, Math.max((water[i] + (sky[i] - water[i]) * 0.45) * comp(i), nightSky[i] * (env.darkness || 0)));
+    const rr = refl(0), gg = refl(1), bb = refl(2);
     const k = 0.45 + 0.55 * a;
     for (const p of puddleShapes) {
       if (!inView(p.x, p.y, p.rx * 1.4, view)) continue;
-      // dark wet-mud rim
-      g.globalAlpha = a * 0.75;
+      // soft wet-mud margin (two feathered passes, no hard outline)
       g.fillStyle = palette.soil.wet;
-      puddlePath(g, p, k * 1.18); g.fill();
+      g.globalAlpha = a * 0.28; puddlePath(g, p, k * 1.22); g.fill();
+      g.globalAlpha = a * 0.4; puddlePath(g, p, k * 1.09); g.fill();
       // sky reflection: darker toward the near bank, bright band of sky beyond
       g.globalAlpha = a * 0.92;
       const gr = g.createLinearGradient(p.x, p.y - p.rx, p.x, p.y + p.rx);
@@ -615,7 +619,9 @@ export async function stageShowcase(ctx, presetName, inst) {
           g.beginPath(); g.ellipse(p.x + ox, p.y + oy, 0.05 + ph * 0.45, 0.04 + ph * 0.3, 0, 0, 6.283); g.stroke();
         }
       } else {
-        puddlePath(g, p, k * 0.9); g.stroke();
+        // a single soft sky glint along the far bank
+        g.globalAlpha = a * 0.22; g.lineWidth = 0.08;
+        g.beginPath(); g.ellipse(p.x, p.y - p.rx * 0.18 * k, p.rx * 0.55 * k, p.rx * 0.2 * k, 0, 3.5, 5.9); g.stroke();
       }
       g.restore();
       g.globalAlpha = 1;
@@ -645,7 +651,7 @@ export async function stageShowcase(ctx, presetName, inst) {
       } });
       if (lamp > 0.01) {
         const Ld = SHED.h / 2 + 1.1, dx = SHED.x - Ld * s, dy = SHED.y + Ld * c;
-        F.light({ x: dx - 1.2, y: dy, radius: 6.5, color: [255, 200, 130], intensity: 0.75 * lamp, glow: 0.5, glowRadius: 1.4 });
+        F.light({ x: dx - 1.2, y: dy, radius: 6.5, color: [255, 170, 118], intensity: 0.7 * lamp, glow: 0.5, glowRadius: 1.4 });
       }
     }
 
@@ -694,7 +700,7 @@ export async function stageShowcase(ctx, presetName, inst) {
           g.globalAlpha = 1;
         }
       } });
-      if (lamp > 0.01) F.light({ x: LAMP.x, y: LAMP.y, radius: 12, color: palette.lamp, intensity: 0.95 * lamp, glow: 0.9, glowRadius: 2.2 });
+      if (lamp > 0.01) F.light({ x: LAMP.x, y: LAMP.y, radius: 12, color: [255, 178, 122], intensity: 0.9 * lamp, glow: 0.9, glowRadius: 2.2 });
     }
 
     // windsock: pole + a striped sock streaming downwind

@@ -38,10 +38,9 @@ export function installLand(sim) {
 
   function reprice(p) {
     p.price = Math.round((ha(p) * p.valuePerHa * L.index) / 100) * 100;
-    if (p.state !== 'rented') {
-      p.rentPerHaYear = Math.round(p.rentBasePerHa * L.index);
-      p.rentPerDay = Math.round((ha(p) * p.rentPerHaYear / YEAR_DAYS) * 100) / 100;
-    }
+    // current asking rent (a running lease keeps the rate it was signed at, in p.lease)
+    p.rentPerHaYear = Math.round(p.rentBasePerHa * L.index);
+    p.rentPerDay = Math.round((ha(p) * p.rentPerHaYear / YEAR_DAYS) * 100) / 100;
   }
 
   sim.landValue = () => L.parcels.reduce((a, p) => a + (p.state === 'owned' ? p.price : 0), 0);
@@ -94,11 +93,17 @@ export function installLand(sim) {
       }
       return null;
     },
-    /** buy a parcel listed for sale: market value + 4 % fees. */
-    buyParcel(id) {
+    /** buy a parcel listed for sale: market value + 4 % fees.
+     *  opts.mortgage: borrow up to 70 % of the price over 15 years, secured on the parcel; you pay the rest. */
+    buyParcel(id, opts = {}) {
       const p = find(id);
       if (!p || p.state !== 'forSale') return false;
       const fees = p.price * CONST.landFees;
+      if (opts.mortgage) {
+        const loan = Math.min(p.price * CONST.creditLandLTV, Math.max(0, p.price + fees - Math.max(0, sim.world.economy.money)));
+        if (sim.world.economy.money + loan < p.price + fees) return false;
+        if (loan > 0) sim.economy.securedLoan(Math.ceil(loan / 100) * 100, 180, `Mortgage on ${p.name}`);
+      }
       if (!api.canAfford(p.price + fees)) return false;
       api.charge(p.price, 'land', `Bought ${p.name} (${ha(p).toFixed(2)} ha)`);
       api.charge(fees, 'land', `Notary & fees — ${p.name}`);

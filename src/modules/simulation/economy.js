@@ -263,5 +263,13 @@ export function installEconomy(sim) {
     } else E.negativeDays = 0;
   }
 
-  sim.economy = { initEconomy, economyDay, nid };
+  /** a loan secured on a specific asset (mortgage); bypasses the unsecured credit limit. Internal. */
+  function securedLoan(amount, months, memo) {
+    const loan = { id: nid('loan'), principal: amount, balance: amount, rate: CONST.loanRate, takenDay: sim.today(), months, monthly: amount / months, interestPaid: 0, secured: true };
+    E.loans.push(loan);
+    sim.record(amount, 'loan', `${memo} — €${Math.round(amount).toLocaleString('en-GB')} over ${months / 12} years`);
+    return loan.id;
+  }
+
+  sim.economy = { initEconomy, economyDay, nid, securedLoan };
 }

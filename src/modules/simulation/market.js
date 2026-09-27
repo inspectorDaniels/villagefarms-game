@@ -1,7 +1,7 @@
 // Market: seasonal price curves × mean-reverting random walk × per-sell-point bias × saturation.
 // Pure logic operating on world.economy; installed onto the shared `sim` object.
 import { hashString } from './util.js';
-import { ITEMS, ITEM_ALIASES, CROPS, CONST, YEAR_DAYS, CONSUMABLES } from './data.js';
+import { ITEMS, ITEM_ALIASES, CROPS, CONST, YEAR_DAYS, CONSUMABLES, WORK } from './data.js';
 
 export const resolveItem = (item) => ITEM_ALIASES[item] || item;
 const mod = (a, n) => ((a % n) + n) % n;
@@ -150,6 +150,8 @@ export function installMarket(sim) {
       api.addInventory(item, qty);
       return cost;
     },
+    /** machine hours per ha by operation/tier, contractor rates, hours per working day */
+    workRates() { return JSON.parse(JSON.stringify(WORK)); },
     yieldTable() {
       const out = {};
       for (const [id, c] of Object.entries(CROPS)) out[id] = { ...c, sowMonths: c.sowMonths.slice(), harvestMonths: c.harvestMonths.slice() };

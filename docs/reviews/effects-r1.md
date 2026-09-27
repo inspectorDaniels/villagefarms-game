@@ -1,0 +1,47 @@
+# effects — review round 1
+Score: 6/10   Pass: no
+Screenshots examined:
+- shots/effects/review-r1/default_0700.png, default_1230.png, default_2330.png, harvest_1230.png (plus JSON for all 28 preset×time shots)
+- shots/review/effects-r1/night_2230.png, autumn_1100.png, harvest_1630.png, rain_1500.png, closeup_0930.png, winter_1130.png
+- close-ups: shots/review/effects-r1/harvest_combine_56.png, harvest_plough_60.png, chimney_56.png, night_pond_56.png, autumn_leaves_56.png, rain_puddle_60.png, winter_tracks_56.png
+- full game: shots/review/effects-r1/game_1100.png, game_rain.png, game_rain_close.png, game_night_jul.png, game_dusk_jul.png, game_dusk_birds.png, game_autumn.png, game_autumn_close.png (+ JSON for game_autumn_2/3, game_night_2, game_night_close)
+
+Perf (headless, noisy: other agents share the machine):
+- Showcase, 28 shots: frameMsAvg 1.3–4.6, p95 ≤ 13.5, drawCalls 32–222. Effects msAvg median **1.16 ms**, max 3.1 ms (harvest 19:30), autumn 1.8–2.9 ms. These numbers include the showcase backdrop and props, which run under the effects ctx, so they overstate the module's own cost.
+- Full game, 12 shots: effects msAvg 0.13–1.25 ms, median ≈ 0.67 ms. The autumn game view comes in at 1.04 / 0.49 / 1.25 ms over three samples (median 1.04 ms), which is over the brief's ≤ 1 ms. Particle count stays far below 3000; the pool is capped correctly.
+Errors: 0 console, 0 page errors in all 40 shots.   Contract: 0 issues for effects (the only game contract issue belongs to simulation).   Lint: `lint OK`.
+
+## Verdict
+The core of the module is good. The smoke and dust puffs are soft, lobed and grainy, not pixel noise. Chimney smoke rises and bends downwind (chimney_56). Fireflies are the best effect here: they pulse with a green-white core and light the ground at night (night_2230, game_night_jul). Autumn leaves tumble, and chaff streams out behind the combine (harvest_combine_56).
+
+The decals and trails bring it down. Puddles read as grey-blue boulders with a specular highlight, and a player would try to drive around them (closeup_0930, rain_1500, rain_puddle_60). The grain spill is a cartoon ink splat. Snow tyre tracks look like railway tracks. Bird shadows, which the brief asks for explicitly, never appear in any frame. In the real game, ambient life mostly works: fireflies, butterflies, leaves, and rain rings/ripples all appear. But no bird flock showed up in any of the five game shots taken in daylight, two of them at the 19:30–19:45 dusk window. Rain splashes on grass are almost invisible at normal zoom. Perf is borderline against the 1 ms brief. This is solid engineering with several art assets a player would notice immediately, so it does not pass.
+
+## Must fix
+1. **Puddles look like stones.** The `puddle` sprite in sprites.js has a diagonal light-to-dark gradient, a hard dark rim and a centred highlight, which makes it read as a domed rock (closeup_0930 right, rain_1500 on the yard and track, rain_puddle_60). Make it flat and low-contrast: tint it toward the ground colour with a soft wet-dark ring and no outline, reflect the sky colour (use the environment ambient where available), keep only a faint edge glint, and add some transparency so the mud shows through. In dry weather it should almost vanish.
+2. **Bird shadows never visible.** Birds fly at z 18–30 m, so the shadow lands `z × shadowLen` away: 11–45 m at midday and up to 200 m at 07:00, always off-screen or far from the flock. The shadow pass also never shows a bird shape in any shot (default_1230, harvest_1630, autumn_1100, winter_tracks_56). The brief requires flocks "with ground shadows". Either fly lower (6–12 m) or clamp the shadow offset (e.g. ≤ 6 m) and soften and scale the shadow. Then verify with a close-up screenshot that the shadows show on screen next to the flock.
+3. **Snow tyre tracks read as rails** (winter_1130, winter_tracks_56). They are thin, uniformly dark brown-grey, have evenly spaced lugs, and the white rim is invisible. Compressed snow should be a wider, pale blue-grey trough with a lighter bright rim of pushed-up snow on both sides and softer tread.
+4. **Dark knots in trails where chunks join.** Adjacent chunks with different alpha levels fall into different buckets, so their round caps overlap and double-darken. This shows as dark blobs along the tracks (winter_tracks_56 at x≈1030 on both tracks, winter_1130 at x≈915, closeup_0930 along the fresh trail). Use butt caps between chunks, or draw each ribbon as one continuous path with the fade as a gradient.
+5. **Particle behaviour depends on the pool index, which swap-remove changes.** In particles.js, firefly pulse (`i * 0.7`), firefly wander (`i * 1.7`, `i * 2.3`), butterfly target orbit and height (`+ i`), and the chimney-shadow selection (`i & 1`) all use `i`. Whenever any particle dies, these jump: fireflies blink out of rhythm, butterflies teleport their target, and puff shadows pop on and off. Store a per-particle seed at spawn (`spr2`/`phase` already exist) and use that.
+6. **Grain spill decal is a starburst splat** (harvest_combine_56, top right). It is also almost invisible on stubble at normal zoom (harvest_1630). Paint it as a scatter of individual grains and kernels with a soft darker core, not a spiky blob.
+7. **Combine header "dust" looks like dirt stains.** Brown puffs at alpha ~0.75 sit on top of the yellow header and cab (harvest_1230, harvest_1630, harvest_combine_56). Header dust should be pale, low-alpha, and pushed forward and sideways off the header, not parked on the machine. Chaff dust is fine.
+8. **Perf: get the in-game cost under the 1 ms brief.** Autumn game median is 1.04 ms (max 1.25). Showcase busy presets reach 2–3 ms, but some of that is the backdrop. Cap `leaves` by area rather than a flat 150, and skip landed or offscreen leaves in update. Report a module-only timing, e.g. with `?fxoff=backdrop,props`, in the README.
+
+## Should fix
+- **Decal ring-buffer perf cliff.** Once 900 decals exist, every new `decal()` call runs `invalidateTiles()`. Unbuilt tiles then rebuild without the one-per-frame budget, so a vehicle stamping prints costs a full rebake of all visible tiles every call. `expire()` splicing also breaks the `dHead` ring order. Use a proper ring with lazy expiry and invalidate only the tiles the new decal overlaps.
+- **Rain splashes on grass are almost invisible** at 16–24 px/m (game_rain, game_1100). You only see them at 56 px/m (game_rain_close). Make the crown a bit bigger and brighter, or add a quick vertical droplet flick.
+- **Sprayer mist doesn't read** (default_1230, default_0700). At alpha 0.3 on a white-ish colour, the 12 m boom produces no visible band. It needs a denser, larger, slower-fading drift plume that bends with the wind.
+- **Clods at 32 px/m are brown specks** (harvest_1230). At 60 px/m they are fine (harvest_plough_60). They need a slightly larger minimum on-screen size, or a shadow while airborne to sell the arc.
+- **Fireflies cover all grass uniformly in the game** (game_night_jul). Surface 'grass' qualifies everywhere, so "near water/meadows" isn't expressed. Weight spawns toward water edges and meadow, and thin them out over open grass.
+- **Autumn bonfire scorch is a flat black blob** (autumn_1100). The embers (sparkle) don't read in daylight.
+- **Decal tiles are baked at 20 px/m**, so at 56–64 px/m puddles and footprints are visibly soft and blurry. Bake at 32 px/m (art.PPM), or bake only when zoomed out.
+- **Showcase staging:** the bird flock is staged unconditionally, so it appears at 23:30 (default_2330). The brief's `night` preset works. The stand-in backdrop has detached "lollipop" tree shadows and a boxy cottage shadow. That's the backdrop, not effects art, so this is noted only.
+- The ambient director and particle physics run in `frame(dt)` with real dt. That is fine for cosmetics, but at 10× game speed the leaves, birds and emitters don't speed up while trails and decals (game time) do. Document it or scale it.
+
+## What works
+- API matches the brief exactly: `emit`, `emitter` (with setPosition/setRate/setDir/stop plus `set`, `alive`), `decal` with all six types, `trail(id,x,y,rot,width,type)`, `clear`, `count`, and extras `endTrail`, `types`. All 16 particle types are present. Contract clean, lint OK, zero errors. Randomness goes only through `ctx.rng('fx')` and showcase streams.
+- The SoA pool with swap-remove has no per-particle allocation and a hard cap of 3000. Culling is correct, and optional deps (environment, terrain) are null-checked everywhere with fallbacks.
+- Puff sprites are genuinely painted: lobed silhouettes, fbm edges, lighter core, grain. Dust billows and drifts with the wind (closeup_0930, harvest_plough_60). Chimney and bonfire smoke rise and bend downwind nicely (chimney_56, autumn_1100).
+- Fireflies are lovely: pulsing additive glow, capped `F.light` submissions, correctly on the glow layer (night_2230, night_pond_56, game_night_jul).
+- Leaves and butterflies: the leaves use autumn palette variants, flutter via x-scale, land and linger (autumn_leaves_56). The butterfly species variants read as butterflies at 56 px/m.
+- Chaff is straw slivers in a wind-blown plume behind the combine (harvest_combine_56). Furrow trails behind the plough read well. Pond and river ripples in rain are clean rings (rain_1500, game_rain_close).
+- In the real game, ambient life is present: fireflies, butterflies, autumn leaves, and rain rings/ripples all appear. Only birds were missing in every game shot.

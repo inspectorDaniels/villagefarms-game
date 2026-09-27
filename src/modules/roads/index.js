@@ -319,9 +319,10 @@ export async function init(ctx) {
     }
     for (const J of D.junctions) {
       if (J.cls === 'track' || !bboxHit(J.bbox, view.x0, view.y0, view.x1, view.y1)) continue;
-      g.beginPath(); pathFrom(g, J.poly, true);
-      g.fillStyle = `rgba(18,24,36,${0.22 * wet})`; g.fill();
-      g.fillStyle = `rgba(160,180,205,${0.07 * wet})`; g.fill();
+      let jp = D.paths.get(J);
+      if (!jp) { jp = new Path2D(); pathFrom(jp, J.poly, true); D.paths.set(J, jp); }
+      g.fillStyle = `rgba(18,24,36,${0.22 * wet})`; g.fill(jp);
+      g.fillStyle = `rgba(160,180,205,${0.07 * wet})`; g.fill(jp);
     }
     for (const q of D.puddles) {
       if (q.x < view.x0 - 2 || q.x > view.x1 + 2 || q.y < view.y0 - 2 || q.y > view.y1 + 2) continue;
@@ -475,8 +476,8 @@ export async function init(ctx) {
       });
     }
     for (const r of rails) {
-      for (let i0 = 0; i0 < r.length - 1; i0 += 6) {
-        const seg = r.slice(i0, Math.min(r.length, i0 + 7));
+      for (let i0 = 0; i0 < r.length - 1; i0 += 12) {
+        const seg = r.slice(i0, Math.min(r.length, i0 + 13));
         const ys = seg.map((p) => p[1]);
         const minX = Math.min(...seg.map((p) => p[0])), maxX = Math.max(...seg.map((p) => p[0]));
         if (maxX < view.x0 - 2 || minX > view.x1 + 2 || Math.max(...ys) < view.y0 - 2 || Math.min(...ys) > view.y1 + 2) continue;

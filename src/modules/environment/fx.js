@@ -5,7 +5,7 @@
 import { clamp, smooth } from './sky.js';
 
 const FIELD_N = 160;          // cloud / fog noise field resolution (tileable)
-const CLOUD_PERIOD = 720;     // metres per cloud tile
+const CLOUD_PERIOD = 520;     // metres per cloud tile
 const FOG_PERIOD_A = 240;     // metres per fog bank tile (banks)
 const FOG_PERIOD_B = 96;      // smaller wisps
 const FOG_PERIOD_C = 900;     // valley-scale density variation
@@ -72,7 +72,7 @@ export function createFx(ctx) {
     for (let i = 0; i < cloudField.length; i++) {
       const v = cloudField[i];
       // soft rim, denser core, slight internal variation (thin vs thick cloud)
-      const a = smooth(th - 0.05, th + 0.09, v) * (0.72 + 0.28 * smooth(th, th + 0.25, v)) * (0.9 + 0.1 * detailField[i]);
+      const a = smooth(th - 0.03, th + 0.035, v) * (0.8 + 0.2 * smooth(th, th + 0.2, v)) * (0.92 + 0.08 * detailField[i]);
       const o = i * 4;
       d[o] = shadowRgb[0]; d[o + 1] = shadowRgb[1]; d[o + 2] = shadowRgb[2];
       d[o + 3] = Math.round(clamp(a, 0, 1) * 255);
@@ -129,7 +129,8 @@ export function createFx(ctx) {
   // ---------- precipitation tables (deterministic) ----------
   const prng = ctx.rng('precip');
   const DROPS = [];
-  for (let i = 0; i < 160; i++) DROPS.push({ rx: prng.float(), ry: prng.float(), ph: prng.float(), sp: prng.range(0.8, 1.25), len: prng.range(0.7, 1.3), near: prng.chance(0.35) });
+  for (let i = 0; i < 160; i++) DROPS.push({ rx: prng.float(), ry: prng.float(), ph: prng.float(), sp: prng.range(0.75, 1.3), len: prng.range(0.55, 1.45), layer: prng.weighted([[0, 0.5], [1, 0.33], [2, 0.17]]), ang: prng.range(-0.07, 0.07) });
+  const clumpNoise = ctx.noise('rain-clumps');
   const cellHash = (ix, iy) => {
     let h = (ix * 374761393 + iy * 668265263) | 0;
     h = Math.imul(h ^ (h >>> 13), 1274126177);
@@ -151,26 +152,35 @@ export function createFx(ctx) {
     const rate = 2.6;
     const ix0 = Math.floor(view.x0 / C) - 1, iy0 = Math.floor((view.y0 - travel) / C) - 1;
     const ix1 = Math.floor(view.x1 / C), iy1 = Math.floor(view.y1 / C);
-    const paths = [[], [], [], []];                     // far-edge, far-core, near-edge, near-core
+    // layers: 0 far haze ticks (short, faint), 1 mid, 2 near drops (long, bright); ×2 for fade-in/out edges
+    const paths = [[], [], [], [], [], []];
+    const LEN = [0.45, 1.0, 1.9];
+    // gust sheets: density clumps that sweep downwind
+    const cs = 1 / (70 + 60 * (1 - amt));
+    const sx = wind.x * t * 1.6, sy = wind.y * t * 1.6;
     for (let iy = iy0; iy <= iy1; iy++) for (let ix = ix0; ix <= ix1; ix++) {
       const h = cellHash(ix, iy);
-      for (let k = 0; k < K; k++) {
+      const clump = clumpNoise.fbm(((ix + 0.5) * C - sx) * cs, ((iy + 0.5) * C - sy) * cs, 2);
+      const Kc = Math.round(K * clamp(0.45 + clump * 1.1 + 0.25 * w.storm, 0.2, 1.6));
+      for (let k = 0; k < Kc; k++) {
         const d = DROPS[(h + k * 7) % DROPS.length];
         const life = (t * rate * d.sp + d.ph + (h & 255) / 255) % 1;
-        const x = ix * C + d.rx * C + dx * travel * life;
-        const y = iy * C + d.ry * C + dy * travel * life;
-        const L = streak * d.len * (d.near ? 1.5 : 1);
+        const ddx = dx + d.ang, ddy = dy - d.ang * dx;
+        const x = ix * C + d.rx * C + ddx * travel * life;
+        const y = iy * C + d.ry * C + ddy * travel * life;
+        const L = streak * d.len * LEN[d.layer];
         if (x < view.x0 - L || x > view.x1 + L || y < view.y0 - L || y > view.y1 + L) continue;
         const edge = life < 0.18 || life > 0.82;
-        paths[(d.near ? 2 : 0) + (edge ? 0 : 1)].push(x, y, x - dx * L, y - dy * L);
+        paths[d.layer * 2 + (edge ? 0 : 1)].push(x, y, x - ddx * L, y - ddy * L);
       }
     }
     const styles = [
-      [`rgba(196,210,226,${0.12 + 0.08 * amt})`, 0.9], [`rgba(206,218,232,${0.26 + 0.14 * amt})`, 1.0],
-      [`rgba(214,226,238,${0.16 + 0.1 * amt})`, 1.5], [`rgba(226,236,246,${0.36 + 0.16 * amt})`, 1.7],
+      [`rgba(190,204,222,${0.08 + 0.06 * amt})`, 0.8], [`rgba(200,214,230,${0.16 + 0.1 * amt})`, 0.9],
+      [`rgba(206,218,232,${0.14 + 0.08 * amt})`, 1.1], [`rgba(214,226,240,${0.28 + 0.14 * amt})`, 1.2],
+      [`rgba(222,232,244,${0.18 + 0.1 * amt})`, 1.8], [`rgba(234,242,250,${0.42 + 0.16 * amt})`, 2.0],
     ];
-    g.lineCap = 'butt';
-    for (let p = 0; p < 4; p++) {
+    g.lineCap = 'round';
+    for (let p = 0; p < 6; p++) {
       const arr = paths[p];
       if (!arr.length) continue;
       g.strokeStyle = styles[p][0];
@@ -295,6 +305,12 @@ export function createFx(ctx) {
       g.globalCompositeOperation = 'overlay';
       g.fillStyle = `rgba(255,190,120,${0.12 * golden})`;
       g.fillRect(0, 0, W, H);
+      // push chroma up a little (low sun light is richly coloured; keeps greens from going khaki)
+      g.globalCompositeOperation = 'saturation';
+      g.globalAlpha = 0.2 * golden;
+      g.fillStyle = '#d8661c';
+      g.fillRect(0, 0, W, H);
+      g.globalAlpha = 1;
     }
     // blue hour and night: a cool lift (screen), never a darkening
     if (dusk > 0.02) {

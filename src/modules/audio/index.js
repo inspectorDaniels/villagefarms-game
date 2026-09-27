@@ -3,7 +3,7 @@
 // showcase), every audio call is wrapped, and loop handles are "virtual" until a context exists.
 // Main-thread budget: play()/loop() only create nodes; all sample generation is baked in small
 // work-bounded slices from frame() (see synth.bake), and loops start once their buffers are baked.
-import { resources, gain, filt, clamp, bake, want, allReady, recipeKeys } from './synth.js';
+import { resources, gain, filt, clamp, bake, want, allReady, recipeKeys, prioritize } from './synth.js';
 import { ONESHOTS, ONESHOT_IDS, GRAIN_KEYS, PRINTS, THUNDER_DIST } from './oneshots.js';
 import { LOOPS, LOOP_IDS, LOOP_NEEDS, LOOP_PRINTS, prewarm } from './loops.js';
 import { ambienceLevels, readWeather, muffleCutoff } from './director.js';
@@ -23,7 +23,7 @@ export const manifest = {
 const BUS_OF = (id) => (id === 'thunder' ? 'ambience' : 'sfx');
 const LOOP_BUS = { river: 'ambience', wind: 'ambience', rain: 'ambience', crickets: 'ambience', birds: 'ambience', owl: 'ambience', music: 'music' };
 const MAX_ONESHOTS = 32;
-const BAKE_BUDGET = 6000;      // work units (≈ samples) per frame — see README for measured ms
+const BAKE_BUDGET = 16000;     // work units (≈ samples) per frame — see README for measured ms
 const PRINT_SR = 32000;        // one-shot prints are rendered offline at 32 kHz (resampled on playback)
 const CULL_GAIN = 0.003;       // ≈ -50 dB: positional loops quieter than this for CULL_S are virtualised
 const CULL_S = 2;
@@ -47,7 +47,7 @@ export async function init(ctx) {
 
   // ------------------------------------------------------------------ context & buses
   const S = { ac: null, R: null, buses: null, analysers: null, failed: false, emitted: false, prewarmStep: 0,
-    printQueue: [], printBusy: false };
+    printQueue: [], printBusy: 0 };
   // print order: one-shots (UI + footsteps first), then scheduled birds/owl, then music phrases
   for (const id of ONESHOT_IDS) { const [dur, n] = PRINTS[id] || [1, 2]; for (let i = 0; i < n; i++) S.printQueue.push({ key: id, i, dur, build: (ac, out, t, R2, rng, dist) => ONESHOTS[id](ac, out, t, R2, { rng, p: 1, dist }) }); }
   for (const [key, [dur, n, fn]] of Object.entries(LOOP_PRINTS)) for (let i = 0; i < n; i++) S.printQueue.push({ key, i, dur, build: (ac, out, t, R2, rng) => fn(ac, out, t, R2, rng) });
@@ -137,7 +137,7 @@ export async function init(ctx) {
   function materialize(v) {
     if (!S.ac || v.live || v.stopped) return;
     const needs = LOOP_NEEDS[v.id] || [];
-    if (needs.length && !allReady(S.R, needs)) { v.pending = true; return; }
+    if (needs.length && !allReady(S.R, needs)) { v.pending = true; prioritize(S.R, needs); return; }
     v.pending = false;
     if (v.x != null && spatial(v.x, v.y).g * v.volume < CULL_GAIN) { v.culled = true; return; }
     v.culled = false; v.quiet = 0;
@@ -279,23 +279,40 @@ export async function init(ctx) {
   }
   /** render one one-shot variant offline (audio render thread); called from frame() one at a time */
   function printStep() {
-    if (S.printBusy || !S.printQueue.length) return;
+    if (S.printBusy >= 2 || !S.printQueue.length) return;
     const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
     if (!OAC) { S.printQueue.length = 0; return; }
-    const job = S.printQueue.shift(), id = job.key, i = job.i;
-    const oac = new OAC(1, Math.ceil(job.dur * PRINT_SR), PRINT_SR);
-    const R2 = resources(oac, mk, { share: S.R });
-    const out = gain(oac, 1); out.connect(oac.destination);
+    const job = S.printQueue[0];
+    let cur = S.printCur;
+    if (!cur || cur.key !== job.key) {
+      // one offline context per sound id; its variants are laid out in time slots, one variant built per frame
+      let n = 0; while (n < S.printQueue.length && S.printQueue[n].key === job.key) n++;
+      const slot = job.dur + 0.05, oac = new OAC(1, Math.ceil(slot * n * PRINT_SR), PRINT_SR);
+      cur = S.printCur = { key: job.key, n, slot, oac, R2: resources(oac, mk, { share: S.R }), out: gain(oac, 1), done: 0, dists: [] };
+      cur.out.connect(oac.destination);
+      return; // context creation is this frame's work
+    }
+    S.printQueue.shift();
+    const id = job.key, i = job.i;
     const dist = id === 'thunder' ? THUNDER_DIST[i % THUNDER_DIST.length] : undefined;
-    job.build(oac, out, 0.003, R2, ctx.rng('print:' + id + ':' + i), dist);
-    S.printBusy = true;
-    oac.startRendering().then((buf) => {
-      S.printBusy = false;
-      if (!S.R.prints.has(id)) S.R.prints.set(id, []);
-      S.R.prints.get(id).push({ buf, dist });
-      A.prints = (A.prints || 0) + 1;
-    }, () => { S.printBusy = false; });
+    job.build(cur.oac, cur.out, 0.003 + cur.done * cur.slot, cur.R2, ctx.rng('print:' + id + ':' + i), dist);
+    cur.dists.push(dist);
+    if (++cur.done < cur.n) return;
+    S.printCur = null;
+    S.printBusy = (S.printBusy || 0) + 1;
+    cur.oac.startRendering().then((buf) => {
+      const d = buf.getChannelData(0), L = Math.floor(cur.slot * PRINT_SR), list = [];
+      for (let k = 0; k < cur.n; k++) {
+        const b = S.ac.createBuffer(1, L, PRINT_SR);
+        b.copyToChannel(d.subarray(k * L, (k + 1) * L), 0);
+        list.push({ buf: b, dist: cur.dists[k] });
+      }
+      S.R.prints.set(id, list);
+      A.prints = (A.prints || 0) + list.length;
+      S.printBusy--;
+    }, () => { S.printBusy--; });
   }
+
 
   // ------------------------------------------------------------------ ambience director
   const D = { acc: 0, waterAcc: 9, water: 0, waterPos: null, layers: {}, thunderT: 10, lightningSeen: -1e9, realT: 0, weatherOverride: null, enabled: true, W: null };
@@ -403,7 +420,10 @@ export async function init(ctx) {
     an.getFloatTimeDomainData(B.buf);
     let s = 0; for (let i = 0; i < B.buf.length; i++) s += B.buf[i] * B.buf[i];
     const rms = Math.sqrt(s / B.buf.length);
-    return rms > 0 ? 20 * Math.log10(rms) : -120;
+    const db = rms > 0 ? 20 * Math.log10(rms) : -120;
+    const h = B.hold || (B.hold = {});
+    h[name] = Math.max(db, (h[name] == null ? -120 : h[name]) - 1.5); // peak-hold meter, ~90 dB/s fall at 60 fps
+    return h[name];
   }
   ctx.renderer.addLayer('screen', (g, view) => { if (board) board.draw(g, view); }, 50);
 
@@ -448,10 +468,11 @@ export async function init(ctx) {
       let heavy = false;
       A.fw = '';
       S.fc = (S.fc || 0) + 1;
-      const pendingLoops = [...voices].some((v) => v.pending && !v.live);
+      let pendingLoops = false; // a pending loop whose buffers are baked gets every other frame
+      for (const v of voices) if (v.pending && !v.live && (LOOP_NEEDS[v.id] || []).every((k) => S.R.bufs.has(k))) { pendingLoops = true; break; }
       if (pendingLoops && (S.fc & 1)) { /* even split: this frame is for building a loop */ } else if (S.R.jobs.length) { A.bakeJobs = bake(S.R, BAKE_BUDGET); heavy = true; A.fw = 'bake'; }
-      else if (S.prewarmStep < 4) { safe(() => prewarm(S.ac, S.R, mk, S.prewarmStep)); A.fw = 'prewarm' + S.prewarmStep; S.prewarmStep++; A.bakeJobs = 0; heavy = true; }
-      else if (S.printQueue.length && !S.printBusy) { A.fw = 'print:' + S.printQueue[0].key; safe(printStep); heavy = true; }
+      else if (S.prewarmStep >= 0) { A.fw = 'prewarm'; if (!safe(() => prewarm(S.ac, S.R, mk, S.prewarmStep), false)) S.prewarmStep = -1; else S.prewarmStep++; A.bakeJobs = 0; heavy = true; }
+      else if (S.printQueue.length && S.printBusy < 2) { A.fw = 'print:' + S.printQueue[0].key; safe(printStep); heavy = true; }
       // 2) spatial updates + virtualisation (positional loops below -50 dB for 2 s release their nodes)
       spatialAcc += dt || 0.016;
       const doCull = spatialAcc > 0.1; if (doCull) spatialAcc = 0;
@@ -467,7 +488,8 @@ export async function init(ctx) {
           }
         } else if (built < 1 && (v.pending || (v.culled && doCull))) { materialize(v); if (v.live) { built++; A.fw = (A.fw || '') + ' build:' + v.id; } }
       }
-      A.voices = voices.size; A.liveVoices = live; A.printLeft = S.printQueue.length + (S.printBusy ? 1 : 0);
+      if (doCull) A.voiceStates = [...voices].map((v) => v.id + (v.live ? ':live' : v.pending ? ':pending' : v.culled ? ':culled' : ':idle'));
+      A.voices = voices.size; A.liveVoices = live; A.printLeft = S.printQueue.length + (S.printBusy || S.printCur ? 1 : 0);
       A.oneshots = oneshotEnds.length;
     },
     save() { return { volumes: Object.assign({}, A.volumes), muted: A.muted }; },

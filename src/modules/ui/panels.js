@@ -181,18 +181,28 @@ export function builtinPanels(K) {
     render(el) {
       const rows = data.market();
       if (!rows.length) { el.innerHTML = empty('market', 'No prices posted', 'The merchants have not chalked up today’s prices yet. Check back after the morning market opens.'); return; }
-      let h = `<h3>Today’s prices <span class="faint" style="text-transform:none;letter-spacing:0;font:italic 12px Georgia,serif">recent trend</span></h3><div class="hv-rows">`;
-      for (const r of rows) {
-        const pct = (r.change * 100);
-        const dir = Math.abs(pct) < 0.5 ? 'flat' : pct > 0 ? 'up' : 'down';
-        h += `<div class="hv-row"><span class="ico">${icon(r.icon)}</span>
-          <div style="width:118px"><div class="ttl">${esc(r.name)}</div><div class="meta">${r.stock ? 'In store ' + (+r.stock.toFixed(1)) + ' ' + esc(r.unit) : '<span class="faint">None in store</span>'}</div></div>
-          <span class="num" style="width:92px">${priceStr(r.price)}<span class="faint" style="font:11px 'Segoe UI',sans-serif"> /${esc(r.unit)}</span></span>
-          ${sparkline(r.history, pct >= 0)}
-          <span class="${dir === 'up' ? 'pos' : dir === 'down' ? 'neg' : 'muted'}" style="width:62px;display:flex;align-items:center;gap:3px;font-weight:600;font-size:12px">${icon(dir)}${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%</span>
-          <div class="grow meta" style="text-align:right">${r.best ? 'Best at <b style="color:var(--ink);font-weight:600">' + esc(r.best.name) + '</b>' : '<span class="faint">No buyer nearby</span>'}</div></div>`;
+      const GROUPS = [['Grain & oilseed', ['wheat', 'barley', 'oats', 'rapeseed', 'maize']], ['Roots', ['potatoes', 'sugarBeet']],
+        ['Forage', ['hay', 'straw']], ['Animal produce', ['milk', 'eggs', 'wool']]];
+      const used = new Set();
+      const groups = GROUPS.map(([name, ids]) => [name, rows.filter((r) => ids.includes(r.id))]);
+      for (const [, rs] of groups) for (const r of rs) used.add(r.id);
+      groups.push(['Other', rows.filter((r) => !used.has(r.id) && !(r.id === 'grass' && rows.some((q) => q.id === 'hay')))]);
+      let h = '';
+      for (const [gname, rs] of groups) {
+        if (!rs.length) continue;
+        h += `<h3>${esc(gname)}</h3><div class="hv-mkt">`;
+        for (const r of rs) {
+          const pct = (r.change * 100);
+          const dir = Math.abs(pct) < 0.5 ? 'flat' : pct > 0 ? 'up' : 'down';
+          const meta = r.best ? '<span title="Best price" style="display:inline-flex;align-items:center;gap:3px">' + icon('pin') + '<b>' + esc(r.best.name) + '</b></span>' : '<span class="faint">No buyer nearby</span>';
+          h += `<div class="hv-row"><span class="ico">${icon(r.icon)}</span>
+            <div class="grow"><div class="ttl">${esc(r.name)}${r.stock > 0 ? ` <span class="chip owned" style="font:11px 'Segoe UI',sans-serif">${+r.stock.toFixed(1)} ${esc(r.unit)} in store</span>` : ''}</div><div class="meta">${meta}</div></div>
+            ${sparkline(r.history, pct >= 0)}
+            <div style="text-align:right;width:84px"><div class="num">${priceStr(r.price)}<span class="faint" style="font:10.5px 'Segoe UI',sans-serif">/${esc(r.unit)}</span></div>
+            <div class="${dir === 'up' ? 'pos' : dir === 'down' ? 'neg' : 'muted'}" style="display:flex;justify-content:flex-end;align-items:center;gap:2px;font-weight:600;font-size:11px">${icon(dir)}${pct >= 0 ? '+' : '−'}${Math.abs(pct).toFixed(1)}%</div></div></div>`;
+        }
+        h += `</div>`;
       }
-      h += `</div>`;
       const sps = data.sellPoints();
       h += `<h3>Sell points</h3>`;
       if (!sps.length) h += empty('pin', 'No buyers known', 'Sell points appear here once you have found a mill, co-op or market.');

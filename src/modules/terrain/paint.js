@@ -118,7 +118,7 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
   const LS = LUTN * 3;
   const wA = [0, 0, 0, 0], cA = [0, 0, 0, 0];
   // low-frequency noise on a coarse lattice (0.5 m), bilinear per pixel → ~4x cheaper shading
-  const gs = Math.max(inv, Math.min(1, Math.max(0.5, 4 * inv))), ginv = 1 / gs;
+  const gs = ppm <= 1 ? 2 : Math.max(inv, Math.min(1, Math.max(0.5, 4 * inv))), ginv = 1 / gs;
   const gx0 = ox, gy0 = oy + (r0 + 0.5) * inv - gs;
   const gw = Math.ceil((pw * inv) / gs) + 3, gh = Math.ceil(((r1 - r0) * inv) / gs) + 3;
   const gn = gw * gh;

@@ -1,11 +1,11 @@
 {
-  "updated": "2026-09-26T19:14:01.139Z",
+  "updated": "2026-09-27T07:32:56.242Z",
   "iteration": 0,
   "passRule": "score>=7 && 0 console/page errors && 0 contract issues && within perf budget",
   "modules": {
     "terrain": {
       "wave": 1,
-      "status": "building",
+      "status": "review",
       "score": null,
       "pass": false,
       "rounds": [],
@@ -33,7 +33,7 @@
     },
     "roads": {
       "wave": 1,
-      "status": "building",
+      "status": "review",
       "score": null,
       "pass": false,
       "rounds": [],
@@ -123,11 +123,27 @@
     },
     "effects": {
       "wave": 1,
-      "status": "review",
-      "score": null,
+      "status": "failing",
+      "score": 6,
       "pass": false,
-      "rounds": [],
-      "openIssues": []
+      "rounds": [
+        {
+          "round": 1,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/effects-r1.md"
+        }
+      ],
+      "openIssues": [
+        "**Puddles look like stones.** The `puddle` sprite in sprites.js has a diagonal light-to-dark gradient, a hard dark rim and a centred highlight, which makes it read as a domed rock (closeup_0930 right, rain_1500 on the yard and track, rain_puddle_60). Make it flat and low-contrast: tint it toward the ground colour with a soft wet-dark ring and no outline, reflect the sky colour (use the environment ambient where available), keep only a faint edge glint, and add some transparency so the mud shows through. In dry weather it should almost vanish.",
+        "**Bird shadows never visible.** Birds fly at z 18–30 m, so the shadow lands `z × shadowLen` away: 11–45 m at midday and up to 200 m at 07:00, always off-screen or far from the flock. The shadow pass also never shows a bird shape in any shot (default_1230, harvest_1630, autumn_1100, winter_tracks_56). The brief requires flocks \"with ground shadows\". Either fly lower (6–12 m) or clamp the shadow offset (e.g. ≤ 6 m) and soften and scale the shadow. Then verify with a close-up screenshot that the shadows show on screen next to the flock.",
+        "**Snow tyre tracks read as rails** (winter_1130, winter_tracks_56). They are thin, uniformly dark brown-grey, have evenly spaced lugs, and the white rim is invisible. Compressed snow should be a wider, pale blue-grey trough with a lighter bright rim of pushed-up snow on both sides and softer tread.",
+        "**Dark knots in trails where chunks join.** Adjacent chunks with different alpha levels fall into different buckets, so their round caps overlap and double-darken. This shows as dark blobs along the tracks (winter_tracks_56 at x≈1030 on both tracks, winter_1130 at x≈915, closeup_0930 along the fresh trail). Use butt caps between chunks, or draw each ribbon as one continuous path with the fade as a gradient.",
+        "**Particle behaviour depends on the pool index, which swap-remove changes.** In particles.js, firefly pulse (`i * 0.7`), firefly wander (`i * 1.7`, `i * 2.3`), butterfly target orbit and height (`+ i`), and the chimney-shadow selection (`i & 1`) all use `i`. Whenever any particle dies, these jump: fireflies blink out of rhythm, butterflies teleport their target, and puff shadows pop on and off. Store a per-particle seed at spawn (`spr2`/`phase` already exist) and use that.",
+        "**Grain spill decal is a starburst splat** (harvest_combine_56, top right). It is also almost invisible on stubble at normal zoom (harvest_1630). Paint it as a scatter of individual grains and kernels with a soft darker core, not a spiky blob.",
+        "**Combine header \"dust\" looks like dirt stains.** Brown puffs at alpha ~0.75 sit on top of the yellow header and cab (harvest_1230, harvest_1630, harvest_combine_56). Header dust should be pale, low-alpha, and pushed forward and sideways off the header, not parked on the machine. Chaff dust is fine.",
+        "**Perf: get the in-game cost under the 1 ms brief.** Autumn game median is 1.04 ms (max 1.25). Showcase busy presets reach 2–3 ms, but some of that is the backdrop. Cap `leaves` by area rather than a flat 150, and skip landed or offscreen leaves in update. Report a module-only timing, e.g. with `?fxoff=backdrop,props`, in the README."
+      ]
     },
     "crops": {
       "wave": 2,
@@ -215,6 +231,10 @@
     {
       "t": "2026-09-26T21:00",
       "event": "second API rate-limit interruption (terrain, roads, effects builders; audio r2; env+sim critics). All resumed after reset. Full game loads with 0 errors, all 7 modules ok."
+    },
+    {
+      "t": "2026-09-27T02:00",
+      "event": "third API rate-limit interruption + dev server died; server restarted, all 7 agents resumed. Game loads 0 errors, 4 contract issues (mid-edit)."
     }
   ]
 }

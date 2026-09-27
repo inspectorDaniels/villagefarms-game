@@ -171,15 +171,15 @@ export function createSprites(art, palette) {
   function crown(variant) {
     return reg(`crown:${variant}`, 32, 32, (g, w, h, rng) => {
       const cx = w / 2, cy = h / 2;
-      g.strokeStyle = 'rgba(230,240,240,0.6)'; g.lineWidth = 1.4;
+      g.strokeStyle = 'rgba(240,248,250,0.85)'; g.lineWidth = 1.8;
       g.beginPath(); g.ellipse(cx, cy, 7, 6, 0, 0, TAU); g.stroke();
       g.strokeStyle = 'rgba(220,234,236,0.3)'; g.lineWidth = 1;
       g.beginPath(); g.ellipse(cx, cy, 13, 11.5, 0, 0, TAU); g.stroke();
       const n = 7 + variant;
       for (let i = 0; i < n; i++) {
         const a = (i / n) * TAU + rng.float() * 0.4, r = rng.range(8, 12);
-        g.fillStyle = `rgba(236,244,244,${rng.range(0.6, 0.95)})`;
-        g.beginPath(); g.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, rng.range(1, 1.9), 0, TAU); g.fill();
+        g.fillStyle = `rgba(244,250,250,${rng.range(0.75, 1)})`;
+        g.beginPath(); g.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, rng.range(1.3, 2.3), 0, TAU); g.fill();
       }
     });
   }
@@ -194,6 +194,15 @@ export function createSprites(art, palette) {
       gr.addColorStop(0.12, `rgba(${r},${gg},${b},0.85)`);
       gr.addColorStop(0.35, `rgba(${r},${gg},${b},0.28)`);
       gr.addColorStop(1, `rgba(${r},${gg},${b},0)`);
+      g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    });
+  }
+  function ember(color) {
+    return reg(`ember:${color}`, 32, 32, (g, w, h) => {
+      const [r, gg, b] = art.hexToRgb(color);
+      const gr = g.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
+      gr.addColorStop(0, 'rgba(255,250,210,1)'); gr.addColorStop(0.18, `rgba(${r},${gg},${b},1)`);
+      gr.addColorStop(0.45, `rgba(${r},${gg},${b},0.35)`); gr.addColorStop(1, `rgba(${r},${gg},${b},0)`);
       g.fillStyle = gr; g.fillRect(0, 0, w, h);
     });
   }
@@ -336,70 +345,79 @@ export function createSprites(art, palette) {
     });
   }
   function puddle(variant) {
+    // Flat, low-contrast and translucent: a wet-dark soak into the ground plus a thin film of
+    // reflected sky. No dome shading, no outline, no centred highlight (it must never read as a stone).
     return reg(`d:puddle:${variant}`, 128, 96, (g, w, h, rng) => {
       const cx = w / 2, cy = h / 2;
       g.save(); g.translate(cx, cy); g.scale(1, h / w); g.translate(-cx, -cy);
       const r = w * 0.4;
-      // darkened wet soil halo
-      const halo = g.createRadialGradient(cx, cy, r * 0.6, cx, cy, r * 1.25);
-      halo.addColorStop(0, 'rgba(38,28,18,0.75)'); halo.addColorStop(1, 'rgba(40,30,22,0)');
-      g.fillStyle = halo; g.fillRect(0, 0, w, w);
+      const soak = g.createRadialGradient(cx, cy, r * 0.5, cx, cy, r * 1.3);
+      soak.addColorStop(0, 'rgba(34,26,18,0.42)'); soak.addColorStop(0.75, 'rgba(34,26,18,0.2)'); soak.addColorStop(1, 'rgba(34,26,18,0)');
+      g.fillStyle = soak; g.fillRect(0, 0, w, w);
       const shape = rng.fork('w');
-      const path = () => art.blobPath(g, cx, cy, r, shape.fork('p'), 0.13, 4);
-      path();
-      // flat reflective water: a diagonal sky gradient (no dome shading, so it never reads as a stone)
-      const gr = g.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
-      gr.addColorStop(0, '#34495a');
-      gr.addColorStop(0.5, '#4b6678');
-      gr.addColorStop(0.72, '#6f8ea2');
-      gr.addColorStop(1, '#3b5264');
-      g.fillStyle = gr; g.fill();
-      g.save(); g.clip();
-      // soft cloud reflections + a couple of sky glints
-      art.dabs(g, rng, 8, cx - r, cy - r, r * 2, r * 2, ['#9fb8c6', '#7d98a8'], r * 0.12, r * 0.25, 0.3);
-      g.strokeStyle = 'rgba(236,244,246,0.7)'; g.lineCap = 'round';
-      for (let i = 0; i < 2; i++) {
-        g.lineWidth = rng.range(1.5, 2.5);
-        const y = cy - r * 0.25 + i * r * 0.35 + rng.range(-3, 3);
-        g.beginPath(); g.moveTo(cx - r * 0.4 + rng.range(-6, 6), y); g.lineTo(cx + r * 0.1 + rng.range(-6, 6), y - 2); g.stroke();
+      const path = () => art.blobPath(g, cx, cy, r, shape.fork('p'), 0.16, 4);
+      // soft-edged water film: several slightly shrinking passes instead of one hard edge
+      for (let k = 0; k < 4; k++) {
+        g.save(); g.translate(cx, cy); g.scale(1 - k * 0.07, 1 - k * 0.07); g.translate(-cx, -cy);
+        path();
+        g.fillStyle = 'rgba(176,194,202,0.16)';
+        g.fill();
+        g.restore();
       }
-      // water meets mud: soft darker inner edge, no hard outline
-      g.lineWidth = 4; g.strokeStyle = 'rgba(190,210,214,0.35)'; path(); g.stroke();
+      // faint cloud mottling
+      path(); g.save(); g.clip();
+      art.dabs(g, rng, 7, cx - r, cy - r, r * 2, r * 2, ['#d6e2e6', '#9fb2ba'], r * 0.15, r * 0.35, 0.1);
       g.restore();
-      path(); g.lineWidth = 1.4; g.strokeStyle = 'rgba(40,30,22,0.55)'; g.stroke();
+      // one faint edge glint
+      g.strokeStyle = 'rgba(240,246,248,0.22)'; g.lineWidth = 2; g.lineCap = 'round';
+      g.beginPath(); g.ellipse(cx, cy, r * 0.82, r * 0.82, 0, Math.PI * 1.1, Math.PI * 1.45); g.stroke();
       g.restore();
     });
   }
   function scorch(variant) {
+    // burnt patch: singed orange-brown grass ring, charred mottled centre, grey-white ash
     return reg(`d:scorch:${variant}`, 96, 96, (g, w, h, rng) => {
       const cx = w / 2, cy = h / 2;
-      for (let i = 0; i < 26; i++) {
-        const a = rng.float() * TAU, rr = rng.range(0, w * 0.3);
-        const gr = g.createRadialGradient(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 0, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, rng.range(8, 20));
-        gr.addColorStop(0, `rgba(30,26,24,${rng.range(0.25, 0.45)})`);
-        gr.addColorStop(1, 'rgba(30,26,24,0)');
-        g.fillStyle = gr; g.fillRect(0, 0, w, h);
+      const ring = g.createRadialGradient(cx, cy, w * 0.22, cx, cy, w * 0.48);
+      ring.addColorStop(0, 'rgba(110,70,30,0.55)'); ring.addColorStop(0.6, 'rgba(150,100,40,0.3)'); ring.addColorStop(1, 'rgba(150,100,40,0)');
+      g.fillStyle = ring; g.fillRect(0, 0, w, h);
+      art.blobPath(g, cx, cy, w * 0.3, rng.fork('c'), 0.22, 6);
+      g.fillStyle = 'rgba(44,34,28,0.8)'; g.fill();
+      g.save(); g.clip();
+      art.dabs(g, rng, 26, cx - w * 0.3, cy - h * 0.3, w * 0.6, h * 0.6, ['#2a2320', '#4a3e36', '#5f5048'], 2, 6, 0.6);
+      art.dabs(g, rng, 18, cx - w * 0.2, cy - h * 0.2, w * 0.4, h * 0.4, ['#b9b2a8', '#d8d2c8', '#8f8880'], 1.5, 4, 0.6);
+      g.restore();
+      art.blobPath(g, cx, cy, w * 0.3, rng.fork('c'), 0.22, 6);
+      g.strokeStyle = 'rgba(70,46,24,0.5)'; g.lineWidth = 2; g.stroke();
+      for (let i = 0; i < 14; i++) { // charred twigs
+        const a = rng.float() * TAU, r = rng.range(2, w * 0.2);
+        g.strokeStyle = 'rgba(30,24,20,0.8)'; g.lineWidth = rng.range(1.5, 2.5); g.lineCap = 'round';
+        g.beginPath(); g.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); g.lineTo(cx + Math.cos(a) * (r + 8), cy + Math.sin(a) * (r + 8) + rng.range(-3, 3)); g.stroke();
       }
-      art.dabs(g, rng, 30, w * 0.25, h * 0.25, w * 0.5, h * 0.5, ['#6b6560', '#8a847c', '#2a2522'], 1, 3, 0.5);
     });
   }
   function spill(color, variant) {
     const col = quant(color);
-    return reg(`d:spill:${col}:${variant}`, 64, 64, (g, w, h, rng) => {
-      art.blobPath(g, w / 2, h / 2, w * 0.36, rng, 0.3, 8);
-      g.fillStyle = art.rgba(col, 0.75); g.fill();
-      g.save(); g.clip();
-      art.dabs(g, rng, 20, 0, 0, w, h, [art.shade(col, 0.25), art.shade(col, -0.25)], 1.5, 4, 0.5);
-      g.restore();
-      for (let i = 0; i < 6; i++) {
-        g.fillStyle = art.rgba(col, 0.6);
-        g.beginPath(); g.arc(w / 2 + rng.range(-28, 28), h / 2 + rng.range(-28, 28), rng.range(1, 3), 0, TAU); g.fill();
+    return reg(`d:spill:${col}:${variant}`, 96, 96, (g, w, h, rng) => {
+      const cx = w / 2, cy = h / 2;
+      const core = g.createRadialGradient(cx, cy, 0, cx, cy, w * 0.42);
+      core.addColorStop(0, art.rgba(art.shade(col, -0.45), 0.3)); core.addColorStop(1, art.rgba(art.shade(col, -0.45), 0));
+      g.fillStyle = core; g.fillRect(0, 0, w, h);
+      const dark = art.shade(col, -0.35), light = art.shade(col, 0.3);
+      for (let i = 0; i < 170; i++) {
+        // denser in the middle, trailing out: gaussian scatter
+        const px = cx + rng.gauss(0, w * 0.13), py = cy + rng.gauss(0, h * 0.13);
+        if (px < 3 || py < 3 || px > w - 3 || py > h - 3) continue;
+        const a = rng.float() * Math.PI;
+        g.fillStyle = rng.chance(0.7) ? col : rng.chance(0.5) ? dark : light;
+        g.beginPath(); g.ellipse(px, py, rng.range(1.3, 2.1), rng.range(0.8, 1.2), a, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = art.rgba(art.outline(col), 0.6); g.lineWidth = 0.5; g.stroke();
       }
     });
   }
 
   return {
-    list, puff, chaff, clod, leaf, petal, ring, crown, halo, sparkle, butterfly, bird, softShadow,
+    list, puff, chaff, ember, clod, leaf, petal, ring, crown, halo, sparkle, butterfly, bird, softShadow,
     tyreStamp, footprint, hoofprint, puddle, scorch, spill,
     BUTTERFLY_VARIANTS: BUTTERFLY.length,
   };

@@ -1,0 +1,17 @@
+globalThis.__DBG = true;
+import { createSim } from '../sim.js';
+import { createRng } from '../util.js';
+import { defineValley, createManager } from '../strategy.js';
+const seed = 'harvest-1';
+const world = { seed, economy: {}, land: {}, jobs: {} };
+const sim = createSim(world, { rngFor: (n) => createRng(seed, 'simulation', n), emit: () => {}, clockT: () => 0 });
+sim.reset(6); sim.virtualT = 6 * 86400;
+const { ids } = defineValley(sim.api);
+const mgr = createManager(sim, { strategy: 'builder', rng: createRng(seed, 's'), ids });
+mgr.setup();
+const a = sim.api;
+console.log('parcels', a.parcels().length, 'ha', a.parcels().reduce((t, p) => t + p.area / 1e4, 0).toFixed(1), 'start', (a.parcel(ids.start).area / 1e4).toFixed(2), 'yard', (a.parcel(ids.yard).area / 1e4).toFixed(2));
+sim.fastForward(6, 6 + 36 * 2, (d) => { mgr.day(d); if (d % 3 === 0) { const m = a.landMarket(); console.log(d, 'money', Math.round(a.money()), 'rent', m.forRent.length, 'sale', m.forSale.length, 'active jobs', a.jobs('accepted').length, 'offers', a.jobs('offered').length, 'done', world.jobs.stats.completed); } });
+const m = a.landMarket(); const id = m.forRent[0]; const p = a.parcel(id);
+console.log('try rent', id, p && p.state, p && p.rentPerHaYear, 'money', a.money(), '->', a.rentParcel(id));
+console.log(JSON.stringify(a.summary(36).byCategory));

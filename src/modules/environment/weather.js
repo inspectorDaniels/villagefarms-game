@@ -27,7 +27,7 @@ export function targetsFor(kind, intensity = 0.6) {
   const i = clamp(intensity, 0, 1);
   switch (kind) {
     case 'clear': return { cloudCover: 0.04 + 0.1 * i, rain: 0, snow: 0, storm: 0, fog: 0, windMul: 0.8 };
-    case 'cloudy': return { cloudCover: 0.3 + 0.3 * i, rain: 0, snow: 0, storm: 0, fog: 0, windMul: 1.0 };
+    case 'cloudy': return { cloudCover: 0.24 + 0.24 * i, rain: 0, snow: 0, storm: 0, fog: 0, windMul: 1.0 };
     case 'overcast': return { cloudCover: 0.82 + 0.16 * i, rain: 0, snow: 0, storm: 0, fog: 0, windMul: 1.1 };
     case 'rain': return { cloudCover: 0.92 + 0.08 * i, rain: 0.25 + 0.75 * i, snow: 0, storm: 0, fog: 0.08 * i, windMul: 1.2 + 0.5 * i };
     case 'storm': return { cloudCover: 1, rain: 0.85 + 0.15 * i, snow: 0, storm: 0.6 + 0.4 * i, fog: 0.05, windMul: 2.4 + 0.8 * i };
