@@ -203,11 +203,25 @@
     },
     "buildings": {
       "wave": 2,
-      "status": "built-unreviewed",
-      "score": null,
+      "status": "failing",
+      "score": 6,
       "pass": false,
-      "rounds": [],
-      "openIssues": [],
+      "rounds": [
+        {
+          "round": 1,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/buildings-r1.md"
+        }
+      ],
+      "openIssues": [
+        "Trailer sale at co-op fails silently when farm store full",
+        "Demolished buyers not removed (use simulation.removeSellPoint)",
+        "null opts / null load entry throw",
+        "force:true accepts NaN/off-map",
+        "place without pay + remove refunds (money printing)",
+        "should: characters don't block placement, fuel points survive demolition (needs vehicles.removeFuelPoint), no owner check on remove, purchases booked as machinery"
+      ],
       "note": "built: 15 types, canPlace (rights, water, slope, colliders, cost), storage capacity, workshop repair+fuel, sell points + deliver(), homes/doors, night lights; 32/32 full-game checks. Registered. Requests: vehicles.removeFuelPoint, simulation.removeSellPoint, characters exact-poly push."
     },
     "props": {
