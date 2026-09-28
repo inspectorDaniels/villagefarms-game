@@ -294,6 +294,17 @@ export async function init(ctx) {
         covered++;
         T.surface[o] = code; T.painted[o] = 1; T.aux[o] = auxV; n++;
       }
+      // (3) seam collapse: a band cell whose whole 4×4 node block now carries this surface and whose
+      // outlines are all this surface is simply that surface → drop its outlines (tiled strips merge)
+      for (let y = Math.max(1, by0); y <= Math.min(T.h - 3, by1); y++) for (let x = Math.max(1, bx0); x <= Math.min(T.w - 3, bx1); x++) {
+        const o = y * T.w + x;
+        if (T.pedge[o] !== idx) continue;
+        const p2 = T.pedge2[o];
+        if (p2 && T.ops[p2 - 1].code !== code) continue;
+        let uni = true;
+        for (let yy = y - 1; yy <= y + 2 && uni; yy++) for (let xx = x - 1; xx <= x + 2; xx++) if (T.surface[yy * T.w + xx] !== code) { uni = false; break; }
+        if (uni) { T.pedge[o] = 0; T.pedge2[o] = 0; T.prev[o] = code; }
+      }
       if (!covered) {
         // a valid shape smaller than the 1 m node grid (e.g. r = 0.62 centred between nodes): it
         // resolves to the single node nearest its centre, so small tool edits always change gameplay
