@@ -208,24 +208,29 @@
     },
     "buildings": {
       "wave": 2,
-      "status": "r2-built-unreviewed",
-      "score": 6,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
           "score": 6,
           "pass": false,
           "review": "docs/reviews/buildings-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/buildings-r2.md"
         }
       ],
       "openIssues": [
-        "Trailer sale at co-op fails silently when farm store full",
-        "Demolished buyers not removed (use simulation.removeSellPoint)",
-        "null opts / null load entry throw",
-        "force:true accepts NaN/off-map",
-        "place without pay + remove refunds (money printing)",
-        "should: characters don't block placement, fuel points survive demolition (needs vehicles.removeFuelPoint), no owner check on remove, purchases booked as machinery"
+        "should: unpaid silo reports capacity 400 but adds 0",
+        "granted demolish shows phantom \u20ac162k sale+write-off",
+        "old saves: asset => purchased",
+        "test count 41 not 42",
+        "sim: buildings ledger category"
       ],
       "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42"
     },

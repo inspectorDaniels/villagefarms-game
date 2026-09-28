@@ -238,7 +238,7 @@ export async function init(ctx) {
       const t = V.purchase('tractor_t1', F.x - 2, F.y + 8, 0, { grant: true }) || [];
       const kit = V.purchase('tillage_s', F.x + 10, F.y + 14, 0, { grant: true }) || [];
       const tr = V.purchase('trailer', F.x + 13, F.y + 29, -Math.PI / 2, { grant: true }) || [];
-      const pk = V.purchase('pickup', F.x - 6, F.y - 11, Math.PI / 2, { grant: true }) || [];
+      const pk = V.purchase('pickup', F.x - 12, F.y - 8, Math.PI / 2, { grant: true }) || [];
       ids.tractor = t[0] || null; ids.plough = kit[0] || null; ids.seeder = kit[1] || null; ids.trailer = tr[0] || null; ids.pickup = pk[0] || null;
       if (ids.tractor && ids.plough && V.attach) V.attach(ids.tractor, ids.plough);
       if (ids.seeder && V.setSeed) V.setSeed(ids.seeder, 'barley');
