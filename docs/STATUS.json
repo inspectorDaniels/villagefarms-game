@@ -114,13 +114,9 @@
         }
       ],
       "openIssues": [
-        "should: seize diesel/fertiliser on insolvency (credit-line diesel leak +\u20ac13-15k)",
-        "should: warn when delegated job fails due to possession",
-        "should: harness prints relaxed rule at x0.5/x2",
-        "should: restructuring after ~93 blocked days reads as soft-lock",
-        "ui/characters: show workerDayCost when switching to a hand"
+        "ui: show workerDayCost on possession, solvency countdown, bankrupt state"
       ],
-      "note": "passed r5 7/10: all must-fixes verified live; economy ordering holds at x0.5/x1/x2"
+      "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes"
     },
     "ui": {
       "wave": 1,
