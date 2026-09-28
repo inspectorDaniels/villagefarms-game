@@ -50,22 +50,29 @@ Units are metres and radians.
   1. inside the map;
   2. not on a road (`roads.roadAt`);
   3. not on a crops field;
-  4. no overlap with a solid spatial item, with 0.5 m clearance. The test is exact (SAT against `poly`/`polys`, AABB or circle);
+  4. no overlap with a solid spatial item, with 0.5 m clearance. The test is exact (SAT against `poly`/`polys`, AABB or circle). A character on foot inside the footprint also blocks (`someone is standing there`);
   5. no water (`terrain.waterDepthAt > 2 cm` at any 1.5 m sample);
   6. not too steep: the pad would need more than 3 m of cut or fill;
   7. land rights for the player (`simulation.canUse` at every sample; `npc` owners skip this);
   8. money, when `pay` is set.
 
-  Reasons: `outside the map`, `road`, `field`, `another building`, `blocked (<kind>)`, `water`, `too steep`, `not your land`, `not enough money`, `not for sale`.
+  Reasons: `bad position`, `outside the map`, `road`, `field`, `another building`, `blocked (<kind>)`, `someone is standing there`, `water`, `too steep`, `not your land`, `not enough money`, `not for sale`.
+
+  `opts` may be `null` or omitted.
 - `place(type, x, y, rot=0, {variant, owner, pay, grant, force, anyLand, name, sellPointId, terrain})` → id or `null`. `lastError()` gives the reason for a `null`.
-  - `pay: true`: `simulation.purchase(catalogId)`. The asset id is stored on the building, and upkeep is charged daily by simulation.
-  - Without `pay`: a player building gets its catalog asset through `grantAsset`, so a starting grain silo still counts. Pass `grant: false` to skip that.
+  - `force` skips the gameplay rules only. Non-finite type/x/y/rot (`bad position`) and footprints off the map are always refused.
+  - `pay: true`: `simulation.purchase(catalogId, {category:'buildings'})`. The building is marked `purchased`, and upkeep is charged daily by simulation. Simulation still books the purchase as `machinery`; see Known limitations.
+  - **Granting is opt-in (anti money-printing).** Without `pay`, no simulation asset is created: no capacity, no upkeep, no resale.
+    - `grant: true` (starting kit, e.g. the demo's first grain silo) grants the catalog asset, which gives capacity and upkeep.
+    - A granted building **refunds €0** on removal. Simulation's resale credit is written off in the same step.
   - Farm buildings level the pad (`terrain.flatten`) and paint a `farmyard` apron (`terrain.paintSurface`). `terrain: false` turns this off.
   - The farmyard is re-applied after a `terrain:generated` that wiped it.
-- `remove(id, {force})` → `{ok, refund, reason}`.
+- `remove(id, {force, owner})` → `{ok, refund, reason}`.
+  - Non-player (`npc`) buildings need `force` or a matching `owner:'npc'`; otherwise the result is `not yours`.
   - It refuses a full grain or potato store (`store not empty`), unless `force`.
-  - It sells the asset through `simulation.releaseAsset` and returns the refund.
-  - It closes the building's sell point.
+  - Only a **purchased** building refunds: `simulation.releaseAsset` at 90 % minus depreciation.
+  - It deletes the sell point with `simulation.removeSellPoint`.
+  - It removes the fuel point with `vehicles.removeFuelPoint` when vehicles provides it.
 - `footprint(type, rot, x=0, y=0, variant)` → convex hull polygon. `footprintParts(...)` → one polygon per part.
 
 **Queries**
@@ -84,8 +91,12 @@ Units are metres and radians.
   - At the player's own machine shed, 30 % comes back as a `repairs` credit.
   - At the dealer there is no rebate.
 - `deliver(vehicleId)` → `{kg, euros, at, reason}`. It handles the cargo of the vehicle and its attached trailers:
-  - At a sell point that accepts the item, the cargo goes through the yard store in lots (`vehicles.unload` → `simulation.sell(item, t, sellPointId)`).
-  - At a player store, it is unloaded into farm inventory.
+  - At a sell point that accepts the item, **the cargo itself is sold, even when the farm store is full.**
+    - Simulation only sells stock the farm holds, so for the instant of the sale buildings lends room out of the store (same crop first, then other bulk grain; potatoes by a temporary capacity).
+    - It then runs `vehicles.unload` → `simulation.sell(item, t, sellPointId)` and puts the lent stock back.
+    - Farm stock is unchanged afterwards (tested).
+  - At a player store, the cargo is unloaded into farm inventory.
+  - Every 0 kg result carries a `reason` (`no cargo`, `<buyer> does not buy <item>`, `the farm store is full`, `no buyer or store here`, …). The R key shows it as a warning toast.
 
 **Lights**
 - `lightsOn(id, hour?)` → `{windows: share lit 0..1, porch}`. This is the seeded schedule described under *Night*.
@@ -101,8 +112,9 @@ Units are metres and radians.
   - `storage_potato` for the potato store;
   - grain silos reuse simulation's `grain_store` and `grain_store_l`, whose `category: 'storage'` feeds `bulkRoom()`.
 - **Potato capacity.** It is `simulation.setCapacity('potatoes', 80 + 600 × player potato stores)`. It is re-synced on place, remove and load.
-- **Sell points.** `defineSellPoint('bld_<type>_<n>', {name, x, y at the door, accepts})`. The name is seeded from the world seed, for example "Dijle Grain co-op". Simulation has no remove call, so a removed building's point is redefined with `accepts: []`.
-- **Fuel.** `vehicles.addFuelPoint(door, 12 m)` for `machine_shed` and `dealer`. It is de-duplicated against `world.vehicles.fuelPoints`.
+- **Sell points.** `defineSellPoint('bld_<type>_<n>', {name, x, y at the door, accepts})`. The name is seeded from the world seed, for example "Dijle Grain co-op". Demolition calls `removeSellPoint`. With an older simulation that lacks it, the point is redefined with `accepts: []` instead.
+- **Fuel.** `vehicles.addFuelPoint(door, 12 m)` for `machine_shed` and `dealer`. It is de-duplicated against `world.vehicles.fuelPoints`. Demolition calls `vehicles.removeFuelPoint(x, y)` when it exists (null-safe).
+- **Load.** `load()` skips `null`/non-object entries, unknown types and entries without finite x/y.
 
 ## Events
 - `buildings:placed {id, type, variant, x, y, rot, owner, door}`
@@ -149,11 +161,22 @@ Spatial items: `{id, kind:'building', x0..y1, solid:true, poly | polys, data:{bu
 Sites come from a deterministic dry, flat scan of the terrain.
 
 ## Tests
-`node src/modules/buildings/tests/game.test.cjs` runs 32 checks in the full game: placement rules, precise rotated colliders, pay and upkeep, grain and potato capacity, demolition rules, workshop repair and fuel, co-op delivery, shop and closure, the hand sleeping at the door, the tractor blocked by a wall, lights, events, save/load, determinism across two page loads, and perf.
+`node src/modules/buildings/tests/game.test.cjs` runs 42 checks in the full game: placement rules, precise rotated colliders, pay and upkeep, grain and potato capacity, demolition rules, workshop repair and fuel, co-op delivery, shop and closure, the hand sleeping at the door, the tractor blocked by a wall, lights, events, save/load, determinism across two page loads, and perf.
+
+r2 added checks for:
+- a co-op sale with a full store, with 0 kg reasons;
+- `removeSellPoint`;
+- the npc owner guard;
+- null opts, NaN or off-map positions with `force`, and malformed load entries;
+- no refund for free or granted buildings;
+- a character blocking placement;
+- dealer fuel point removal (skipped until vehicles ships the call);
+- the hand's walk time;
+- the tractor stopping at the wall line.
 
 ## Known limitations
-- **Fuel points are not removed on demolition.** vehicles has no `removeFuelPoint`.
-- **Sell points are closed rather than deleted.** simulation has no remove call.
+- **Fuel points outlive a demolished shed or dealer** until vehicles ships `removeFuelPoint`. The call is already wired.
+- **Purchases are booked as `machinery`.** Simulation's `purchase` ignores the `category` option buildings passes. Booking them as `buildings` needs simulation to accept that option and to list `buildings` as a capital category; otherwise buildings would count as operating costs and cut the credit limit.
 - **Characters push against AABBs.** Their collision uses the spatial item's box, so a building rotated off 90° pushes characters out of its AABB corners. Vehicles and `canPlace` use the exact polygon.
 - **Terrain edits after load.** `load()` does not repaint the farmyard or re-flatten; terrain persists its own edits.
 - **No interiors, no animated doors.** The open hay barn is still fully solid.

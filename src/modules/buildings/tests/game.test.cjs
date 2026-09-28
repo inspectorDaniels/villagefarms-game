@@ -133,12 +133,56 @@ async function scenario(page) {
     const md = S.money();
     const del = B.deliver(tr);
     check('deliver 8 t wheat at the co-op → sold via simulation', del && del.kg === 8000 && del.euros > 1000 && r2(S.money() - md) === r2(del.euros), { del, gained: r2(S.money() - md) });
+    // r2: the farm store is full (of barley) — the trailer still sells, and the store is untouched
+    S.addInventory('barley', S.bulkRoom());
+    const inv0 = S.inventory(), room0 = S.bulkRoom();
+    trv.cargo = { item: 'wheat', kg: 8000 };
+    const md2 = S.money();
+    const del2 = B.deliver(tr);
+    const inv1 = S.inventory();
+    check('co-op sale works with the farm store full, stock unchanged', room0 === 0 && del2.kg === 8000 && del2.euros > 1000 && r2(S.money() - md2) === r2(del2.euros) && r2(inv1.barley) === r2(inv0.barley) && !(inv1.wheat > 1e-9) && V.get(tr).cargo.kg === 0, { del2, room0, barley: [inv0.barley, inv1.barley], wheat: inv1.wheat });
+    trv.cargo = { item: 'potatoes', kg: 3000 };
+    const del3 = B.deliver(tr);
+    check('0 kg delivery carries a reason (co-op does not buy potatoes, store full)', del3.kg === 0 && typeof del3.reason === 'string' && del3.reason.length > 3, del3);
+    trv.cargo = { item: null, kg: 0 };
+    S.removeInventory('barley', inv0.barley);
     const shop = B.place('shop', ...spot('shop', X + 120, Y + 40, 0, { owner: 'npc' }), 0, { owner: 'npc' });
     const eggs = S.price('eggs', B.get(shop).sellPointId);
     check('shop buys eggs, not wheat', eggs > 0 && !S.price('wheat', B.get(shop).sellPointId), eggs);
     const shopSp = B.get(shop).sellPointId;
-    const rmShop = B.remove(shop);
-    check('removed shop closes its sell point', rmShop.ok && !S.price('eggs', shopSp), S.price('eggs', shopSp));
+    const rmShop = B.remove(shop, { owner: 'npc' });
+    check('removed shop: sell point deleted from simulation', rmShop.ok && !S.price('eggs', shopSp) && !S.sellPoints().some((q) => q.id === shopSp), S.sellPoints().map((q) => q.id));
+    const npcRm = B.remove(coop);
+    check('player path cannot demolish an npc building', npcRm && !npcRm.ok && npcRm.reason === 'not yours' && B.get(coop), npcRm);
+
+    // ---- 4b. bad input never throws; force keeps sanity; granting is opt-in and never refunds
+    const n0 = B.list().length;
+    const bad = [B.canPlace('barn', X, Y, 0, null), B.place('barn', X + 1000, Y, 0, null), B.remove('nope', null),
+      B.place('barn', NaN, NaN, 0, { force: true }), B.place('chicken_coop', -50, -50, 0, { force: true }), B.place('barn', 'a', 5, 0, { force: true })];
+    check('null opts / NaN / off-map with force → clean refusals', bad[0] && typeof bad[0].ok === 'boolean' && bad[1] === null && bad[2].ok === false && bad[3] === null && bad[4] === null && bad[5] === null && B.list().length === n0 && B.lastError() === 'bad position', { bad0: bad[0], err: B.lastError() });
+    const nAssets = S.assets().length;
+    const gAt = spot('farmhouse', X - 60, Y - 60, 0);
+    const free = B.place('farmhouse', gAt[0], gAt[1], 0);
+    check('placing without pay grants no simulation asset', free && S.assets().length === nAssets, S.assets().length - nAssets);
+    const mg = S.money();
+    const rmFree = B.remove(free);
+    const gr = B.place('farmhouse', gAt[0], gAt[1], 0, { grant: true });
+    const rmGr = B.remove(gr);
+    check('no money printing: free + granted buildings refund €0', rmFree.ok && rmGr.ok && rmFree.refund === 0 && rmGr.refund === 0 && r2(S.money()) === r2(mg) && S.assets().length === nAssets, { money: r2(S.money() - mg), rmFree, rmGr });
+    const dl = B.place('dealer', ...spot('dealer', X + 100, Y + 70, 0, { owner: 'npc' }), 0, { owner: 'npc' });
+    const dd = B.doorOf(dl);
+    const hasFp = () => (W.vehicles.fuelPoints || []).some((p) => Math.hypot(p.x - dd.x, p.y - dd.y) < 0.5);
+    const fp1 = hasFp();
+    B.remove(dl, { owner: 'npc' });
+    const canRm = typeof V.removeFuelPoint === 'function';
+    check(`dealer fuel point added, and removed on demolition${canRm ? '' : ' (vehicles.removeFuelPoint not available yet: skipped)'}`, fp1 && (!canRm || !hasFp()), { fp1, after: hasFp(), canRm });
+    const pl = W.characters.list.find((q) => q.id === W.player.activeCharacterId);
+    const plPos = [pl.x, pl.y];
+    pl.x = gAt[0]; pl.y = gAt[1];   // test only: stand the player on a clear spot
+    const onPl = B.canPlace('chicken_coop', pl.x, pl.y, 0, { anyLand: true, owner: 'npc' });
+    const offPl = B.canPlace('chicken_coop', pl.x + 8, pl.y, 0, { anyLand: true, owner: 'npc' });
+    pl.x = plPos[0]; pl.y = plPos[1];
+    check('a character in the footprint blocks placement', onPl && !onPl.ok && onPl.reason === 'someone is standing there' && offPl.ok, { onPl, offPl });
 
     // ---- 5. homes: the hired hand sleeps at the farmhouse door
     const home = B.nearest('farmhouse', ch.home.x, ch.home.y);
@@ -149,16 +193,23 @@ async function scenario(page) {
       G.setTime('22:30');
       const hired = W.characters.list.find((q) => q.id === ch.id);
       if (hired.id === W.player.activeCharacterId) G.modules.get('characters').cycle();
-      for (let i = 0; i < 90 * 60 && hired.state !== 'inside'; i++) step(1);
-      check('hired hand walks home and goes inside at the farmhouse door', hired.state === 'inside' && Math.hypot(hired.x - fdoor.x, hired.y - fdoor.y) < 0.6, { state: hired.state, d: r2(Math.hypot(hired.x - fdoor.x, hired.y - fdoor.y)), secs: 0 });
+      const d0 = Math.hypot(hired.x - fdoor.x, hired.y - fdoor.y);
+      let n = 0;
+      for (; n < 90 * 60 && hired.state !== 'inside'; n++) step(1);
+      check('hired hand walks home and goes inside at the farmhouse door', hired.state === 'inside' && Math.hypot(hired.x - fdoor.x, hired.y - fdoor.y) < 0.6 && d0 > 1, { state: hired.state, startDist: r2(d0), d: r2(Math.hypot(hired.x - fdoor.x, hired.y - fdoor.y)), secs: r2(n / 60) });
     } else check('farmhouse within 60 m of the hand\'s home', false, home.dist);
 
     // ---- 6. vehicles collide with the precise building polygon
-    const t2 = V.spawn('tractor_t2', fdoor.x, fdoor.y - 6, Math.PI, { fuel: 50 });   // faces south, straight at the house
+    // farmhouse faces south (rot π): start 10 m south of the door, facing north, drive into the wall
+    const t2 = V.spawn('tractor_t2', fdoor.x, fdoor.y + 10, 0, { fuel: 50 });
+    const ty0 = V.get(t2).y;
     V.enter(t2, 'test:driver');
-    for (let i = 0; i < 400; i++) { V.control(t2, { throttle: 1, brake: 0, steer: 0 }); step(1); }
+    for (let i = 0; i < 600; i++) { V.control(t2, { throttle: 1, brake: 0, steer: 0 }); step(1); }
     const tv = V.get(t2);
-    check('tractor is stopped by the farmhouse wall', tv.blocked === 'solid' || !B.at(tv.x, tv.y), { blocked: tv.blocked, y: r2(tv.y), door: fdoor });
+    const len = (V.types()[tv.type] || {}).len || 4;
+    const nose = [tv.x + Math.sin(tv.rot) * (len / 2 - 0.3), tv.y - Math.cos(tv.rot) * (len / 2 - 0.3)];
+    const wallY = fdoor.y - 0.8;
+    check('tractor drives up and is stopped at the wall, not inside it', tv.blocked === 'solid' && ty0 - tv.y > 3 && !B.at(tv.x, tv.y) && !B.at(nose[0], nose[1]) && tv.y - len / 2 > wallY - 0.8, { blocked: tv.blocked, moved: r2(ty0 - tv.y), front: r2(tv.y - len / 2), wallY: r2(wallY) });
     V.exit(t2);
 
     // ---- 7. lights: seeded schedule, F.light at night only
@@ -177,6 +228,9 @@ async function scenario(page) {
     const snap = JSON.parse(JSON.stringify(inst.save()));
     for (const b of B.list()) B.remove(b.id, { force: true });
     const empty = B.list().length;
+    let threw = null;
+    try { inst.load({ counter: 3, list: [null, 5, 'x', { type: 'barn' }, { id: 'buildings:99', type: 'barn', x: NaN, y: 1 }] }); } catch (e) { threw = String(e); }
+    check('load skips null / malformed entries without throwing', !threw && B.list().length === 0, threw);
     inst.load(snap);
     const back = B.list();
     check('save/load restores buildings, colliders and sell points', empty === 0 && back.length === snap.list.length && B.at(X - 20, Y + 40) && S.price('wheat', B.get(coop).sellPointId) > 0, { n: back.length });

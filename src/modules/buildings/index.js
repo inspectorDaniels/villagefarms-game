@@ -158,9 +158,16 @@ export async function init(ctx) {
   }
   function unregisterFunctions(b) {
     const S = sim();
-    if (b.sellPointId && S && S.defineSellPoint) {
-      // simulation has no removeSellPoint: a buyer that accepts nothing is closed
-      S.defineSellPoint(b.sellPointId, { name: (b.name || b.type) + ' (closed)', x: b.doors[0].x, y: b.doors[0].y, accepts: [] });
+    if (b.sellPointId && S) {
+      if (S.removeSellPoint) S.removeSellPoint(b.sellPointId);
+      else if (S.defineSellPoint) S.defineSellPoint(b.sellPointId, { name: (b.name || b.type) + ' (closed)', x: b.doors[0].x, y: b.doors[0].y, accepts: [] });
+    }
+    const fn = rt.get(b.id).def.fn;
+    if (fn.services && fn.services.includes('fuel')) {
+      const V = mod('vehicles');
+      // keep the pump if another fuel building shares the spot
+      const shared = W.list.some((o) => o !== b && o.doors[0] && Math.hypot(o.doors[0].x - b.doors[0].x, o.doors[0].y - b.doors[0].y) < 0.5);
+      if (V && typeof V.removeFuelPoint === 'function' && !shared) V.removeFuelPoint(b.doors[0].x, b.doors[0].y);
     }
   }
 
@@ -191,6 +198,8 @@ export async function init(ctx) {
   }
 
   function canPlace(type, x, y, rot = 0, opts = {}) {
+    opts = opts && typeof opts === 'object' ? opts : {};
+    if (rot == null) rot = 0;
     const d = defOf(type, opts.variant || 0);
     if (!d) return { ok: false, reason: 'unknown type' };
     if (![x, y, rot].every(Number.isFinite)) return { ok: false, reason: 'bad position' };
@@ -217,6 +226,13 @@ export async function init(ctx) {
       else hit = grown.some((G) => circleHitsPoly(G, it.x, it.y, it.r || 0.5));
       if (hit) return { ok: false, reason: it.kind === 'building' ? 'another building' : `blocked (${it.kind || it.owner || 'object'})`, by: it.id };
     }
+    // people (the player, hands, villagers) are not solid colliders: never build on top of one
+    const people = (ctx.world.characters && ctx.world.characters.list) || [];
+    for (const c of people) {
+      if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || c.vehicleId) continue;
+      if (c.x < gb.x0 - 0.4 || c.x > gb.x1 + 0.4 || c.y < gb.y0 - 0.4 || c.y > gb.y1 + 0.4) continue;
+      if (grown.some((G) => circleHitsPoly(G, c.x, c.y, 0.35))) return { ok: false, reason: 'someone is standing there', by: c.id };
+    }
     const T = mod('terrain');
     if (T) {
       for (const [sx, sy] of samples) if ((T.waterDepthAt(sx, sy) || 0) > 0.02) return { ok: false, reason: 'water' };
@@ -238,28 +254,40 @@ export async function init(ctx) {
 
   let lastReason = null;
   function place(type, x, y, rot = 0, opts = {}) {
+    opts = opts && typeof opts === 'object' ? opts : {};
+    if (rot == null) rot = 0;
     const d = defOf(type, opts.variant || 0);
     if (!d) { lastReason = 'unknown type'; return null; }
     const owner = opts.owner || 'player';
+    // force skips gameplay rules, never sanity: finite numbers and inside the map
+    if (![x, y, rot].every((v) => typeof v === 'number' && Number.isFinite(v))) { lastReason = 'bad position'; return null; }
+    {
+      const bb = aabbOf(d.parts.map((p) => partPoly(p, x, y, rot)));
+      const Bd = ctx.world.bounds;
+      if (bb.x0 < 0 || bb.y0 < 0 || bb.x1 > Bd.w || bb.y1 > Bd.h) { lastReason = 'outside the map'; return null; }
+    }
     if (!opts.force) {
       const c = canPlace(type, x, y, rot, opts);
       if (!c.ok) { lastReason = c.reason; return null; }
     }
     const S = sim();
-    let assetId = null;
+    let assetId = null, purchased = false;
     if (owner === 'player' && d.catalog && S) {
       if (opts.pay) {
         const before = new Set((S.assets() || []).map((a) => a.id));
-        if (!S.purchase(d.catalog.id)) { lastReason = 'purchase refused'; return null; }
+        // category is honoured once simulation books buildings apart from machinery
+        if (!S.purchase(d.catalog.id, { category: 'buildings' })) { lastReason = 'purchase refused'; return null; }
         const a = (S.assets() || []).find((q) => !before.has(q.id) && q.itemId === d.catalog.id);
         assetId = a ? a.id : null;
-      } else if (opts.grant !== false) {
+        purchased = true;
+      } else if (opts.grant === true) {
+        // opt-in starting kit: the asset gives capacity + upkeep but no resale value (see remove)
         assetId = S.grantAsset(d.catalog.id) || null;
       }
     }
     const b = {
       id: `buildings:${++W.counter}`, type, variant: d.variant, x: +x, y: +y, rot: +rot, owner,
-      w: 0, h: 0, doors: [], state: 'ok', name: opts.name || null, assetId, sellPointId: opts.sellPointId || null,
+      w: 0, h: 0, doors: [], state: 'ok', name: opts.name || null, assetId, purchased, sellPointId: opts.sellPointId || null,
       yard: opts.terrain !== false,
     };
     const r = build(b);
@@ -277,16 +305,24 @@ export async function init(ctx) {
   }
 
   function remove(id, opts = {}) {
+    opts = opts && typeof opts === 'object' ? opts : {};
     const i = W.list.findIndex((b) => b.id === id);
     if (i < 0) return { ok: false, reason: 'unknown building' };
     const b = W.list[i], r = rt.get(id), S = sim();
+    // the player path may only demolish player buildings; composers pass force or the owner
+    if (b.owner !== 'player' && !opts.force && opts.owner !== b.owner) return { ok: false, reason: 'not yours' };
     const st = r.def.fn.storage;
     if (!opts.force && S && st && b.owner === 'player') {
       if (st.item === 'grain' && S.bulkRoom && S.bulkRoom() < st.t - 1e-6) return { ok: false, reason: 'store not empty' };
       if (st.item === 'potatoes' && S.storageRoom && S.storageRoom('potatoes') < st.t - 1e-6) return { ok: false, reason: 'store not empty' };
     }
     let refund = 0;
-    if (b.assetId && S && S.releaseAsset) refund = S.releaseAsset(b.assetId) || 0;
+    if (b.assetId && S && S.releaseAsset) {
+      const got = S.releaseAsset(b.assetId) || 0;
+      if (b.purchased) refund = got;
+      // a granted (never paid) building has no resale value: reverse the credit simulation made
+      else if (got > 0 && S.charge) S.charge(got, 'assetSale', `Write-off — ${b.name || b.type} (granted, no resale)`, { force: true });
+    }
     W.list.splice(i, 1);
     ctx.spatial.remove(id);
     unregisterFunctions(b);
@@ -390,32 +426,67 @@ export async function init(ctx) {
   }
 
   /** deliver the cargo of a vehicle (and its attached trailers) at a sell point or into a farm store. */
+  const BULK = ['wheat', 'barley', 'oats', 'rapeseed', 'maize'];
+  /** make `t` tonnes of room for `item` by lending stock out of the farm store; returns the undo list */
+  function borrowRoom(S, item, t) {
+    const lent = [];
+    let need = t - (S.storageRoom ? S.storageRoom(item) : Infinity);
+    if (!(need > 1e-9)) return lent;
+    if (BULK.includes(item)) {
+      const inv = S.inventory() || {};
+      for (const k of [item, ...BULK.filter((q) => q !== item)]) {
+        if (need <= 1e-9) break;
+        const take = Math.min(need, +inv[k] || 0);
+        if (take > 0) { const got = S.removeInventory(k, take) || 0; if (got > 0) { lent.push([k, got]); need -= got; } }
+      }
+    } else if (item === 'potatoes' && S.setCapacity) {
+      const inv = S.inventory() || {};
+      S.setCapacity('potatoes', (+inv.potatoes || 0) + t);
+      lent.push(['@cap', 0]);
+    }
+    return lent;
+  }
+  function giveBack(S, lent) {
+    for (const [k, t] of lent) { if (k === '@cap') syncCapacity(); else S.addInventory(k, t); }
+  }
+
+  /** deliver the cargo of a vehicle (and its attached trailers) at a sell point or into a farm store.
+   *  A sale sells the cargo itself: it never depends on free room in the farm store (room is lent for the
+   *  instant of the sale and given back). Any 0 kg result carries a reason. */
   function deliver(vehicleId) {
     const V = mod('vehicles'), S = sim();
     const v = V && V.get ? V.get(vehicleId) : null;
-    if (!v || !S) return null;
+    if (!v) return { kg: 0, euros: 0, at: null, reason: 'no vehicle' };
+    if (!S) return { kg: 0, euros: 0, at: null, reason: 'no economy' };
     const units = [v, ...((v.attached || []).map((id) => V.get(id)).filter(Boolean))].filter((u) => u.cargo && u.cargo.kg > 0 && u.cargo.item);
-    if (!units.length) return { kg: 0, euros: 0, reason: 'no cargo' };
+    if (!units.length) return { kg: 0, euros: 0, at: null, reason: 'no cargo' };
     const sp = serviceAt(v.x, v.y, 'sell');
     const store = serviceAt(v.x, v.y, 'storage');
-    let kg = 0, euros = 0, where = null;
+    let kg = 0, euros = 0, where = null, reason = null;
     for (const u of units) {
       const item = u.cargo.item;
       if (sp && sp.fn.sell.accepts.includes(item)) {
         where = sp.id;
-        // the simulation only sells stock the farm holds: pass through the yard store in lots
-        for (let guard = 0; guard < 50 && u.cargo.kg > 0; guard++) {
+        for (let guard = 0; guard < 20; guard++) {
+          const cur = V.get(u.id);
+          const t = cur && cur.cargo ? cur.cargo.kg / 1000 : 0;
+          if (!(t > 1e-6)) break;
+          const lent = borrowRoom(S, item, t);
           const got = V.unload(u.id, 'farm') || 0;
-          if (got <= 0) break;
-          kg += got;
-          euros += S.sell(item, got / 1000, sp.sellPointId) || 0;
+          const money = got > 0 ? S.sell(item, got / 1000, sp.sellPointId) || 0 : 0;
+          giveBack(S, lent);
+          if (got <= 0) { reason = 'the buyer could not take it (farm store full of other goods)'; break; }
+          kg += got; euros += money;
         }
       } else if (store) {
         where = store.id;
-        kg += V.unload(u.id, 'farm') || 0;
-      }
+        const got = V.unload(u.id, 'farm') || 0;
+        kg += got;
+        if (got <= 0) reason = 'the farm store is full';
+      } else reason = sp ? `${sp.name} does not buy ${item}` : 'no buyer or store here';
     }
-    return { kg: Math.round(kg), euros: Math.round(euros * 100) / 100, at: where, reason: where ? null : 'no buyer or store here' };
+    if (kg <= 0 && !reason) reason = 'nothing delivered';
+    return { kg: Math.round(kg), euros: Math.round(euros * 100) / 100, at: where, reason: kg > 0 ? null : reason };
   }
 
   function homes(owner) { return W.list.filter((b) => rt.get(b.id).def.fn.home && (!owner || b.owner === owner)).map(pub); }
@@ -566,7 +637,7 @@ export async function init(ctx) {
         if (res.euros > 0) ui.toast(`Sold ${(res.kg / 1000).toFixed(1)} t for €${res.euros.toFixed(2)}`, { kind: 'money' });
         else if (res.kg > 0) ui.toast(`Unloaded ${(res.kg / 1000).toFixed(1)} t into the farm store`, { kind: 'info' });
         else if (res.cost > 0) ui.toast(`Repaired for €${res.cost}${res.rebate ? ` (−€${res.rebate} trade rebate)` : ''}`, { kind: 'money' });
-        else if (res.reason) ui.toast(res.reason === 'no cargo' ? 'Nothing to unload' : 'The store is full', { kind: 'warn' });
+        else if (res.reason) ui.toast(res.reason === 'no cargo' ? 'Nothing to unload' : `Nothing delivered: ${res.reason}`, { kind: 'warn' });
       } else if (ui && ui.toast && res === false) ui.toast('Cannot afford the repair', { kind: 'warn' });
     }
   }
@@ -615,7 +686,9 @@ export async function init(ctx) {
     W.list = [];
     W.counter = d.counter | 0;
     for (const s of d.list) {
-      if (!TYPES[s.type]) continue;
+      if (!s || typeof s !== 'object' || !TYPES[s.type] || typeof s.id !== 'string') continue;
+      if (![s.x, s.y].every(Number.isFinite)) continue;
+      if (!Number.isFinite(s.rot)) s.rot = 0;
       const b = { ...s, doors: [] };
       build(b);
       W.list.push(b);

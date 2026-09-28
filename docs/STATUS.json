@@ -203,7 +203,7 @@
     },
     "buildings": {
       "wave": 2,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -222,7 +222,7 @@
         "place without pay + remove refunds (money printing)",
         "should: characters don't block placement, fuel points survive demolition (needs vehicles.removeFuelPoint), no owner check on remove, purchases booked as machinery"
       ],
-      "note": "built: 15 types, canPlace (rights, water, slope, colliders, cost), storage capacity, workshop repair+fuel, sell points + deliver(), homes/doors, night lights; 32/32 full-game checks. Registered. Requests: vehicles.removeFuelPoint, simulation.removeSellPoint, characters exact-poly push."
+      "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42"
     },
     "props": {
       "wave": 2,

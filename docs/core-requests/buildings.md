@@ -11,11 +11,15 @@ No `src/core` changes are needed. Five seams need the integrator or the owners o
      return n - W.fuelPoints.length;
    }
    ```
-   buildings will call it when it is present.
-3. **simulation: `removeSellPoint(id)`.** Today buildings closes the point instead: it redefines it with `accepts: []`. A real remove call would keep `sellPoints()` clean.
+   buildings already calls it when present (r2), null-safe.
+3. **simulation:** `removeSellPoint` is done and buildings uses it. Two things are still open:
+   - `purchase(id, {category})` should book buildings apart from machinery;
+   - `'buildings'` should be added to `CAPITAL_CATEGORIES`, so a building purchase is not counted as an operating cost.
+
+   buildings already passes `{category:'buildings'}`.
 4. **characters: use the exact polygon in `motion.js` `collide()`.** It currently pushes characters out of the item's AABB. Buildings rotated off 90° have larger AABBs, so characters stop short of their walls near the corners. The spatial item carries `poly`/`polys`; a closest-point-on-polygon push would fix it (vehicles already does this).
 5. **demo: compose the world.** It should:
-   - place the start farm with `buildings.place(type, x, y, rot, { owner: 'player' })`. Without `pay`, catalog assets are granted, so a starting grain silo still counts toward capacity.
+   - place the start farm with `buildings.place(type, x, y, rot, { owner: 'player', grant: true })`. Since r2 granting is opt-in: `grant: true` gives capacity and upkeep but no resale value.
    - place the village and sell points with `{ owner: 'npc' }`.
    - place the farmhouse within 60 m of the farmhands' `home`, so they sleep at its door.
 
