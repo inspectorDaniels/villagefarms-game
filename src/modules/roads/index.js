@@ -625,7 +625,7 @@ export async function init(ctx) {
         F.shadow.box((l.x + l.hx * 3) / 4 + (l.hx - l.x) * 0.1, (l.y + l.hy * 3) / 4 + (l.hy - l.y) * 0.1, LH.w, LH.h * 0.8, rot, l.height, l.height - 0.25);
       }
       const on = lampsOn(i);
-      if (on) F.light({ x: l.hx, y: l.hy, radius: 15, color: LAMP_COLOR, intensity: 0.95, glow: 1, glowRadius: 2.6 });
+      if (on && debug.lights !== false) F.light({ x: l.hx, y: l.hy, radius: debug.lampRadius || 12, color: LAMP_COLOR, intensity: 0.95, glow: debug.coreGlow === false ? 0 : 1, glowRadius: 2.6 });
       const hx = l.hx + (l.hx - l.x) * 0.1, hy = l.hy + (l.hy - l.y) * 0.1;
       if (view.zoom < 6) continue;
       F.object({

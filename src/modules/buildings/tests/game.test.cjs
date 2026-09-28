@@ -45,17 +45,19 @@ async function scenario(page) {
     }
     out.nums.site = site;
     const X = site.x, Y = site.y;
-    S.defineParcel({ id: 'test:own', poly: [[X - 80, Y - 80], [X + 45, Y - 80], [X + 45, Y + 80], [X - 80, Y + 80]], state: 'owned' });
-    S.defineParcel({ id: 'test:npc', poly: [[X + 45, Y - 80], [X + 160, Y - 80], [X + 160, Y + 80], [X + 45, Y + 80]], state: 'npc' });
+    const ox0 = Math.min(X, ch.home.x) - 80, oy0 = Math.min(Y, ch.home.y) - 80, ox1 = Math.max(X, ch.home.x) + 45, oy1 = Math.max(Y, ch.home.y) + 80;
+    S.defineParcel({ id: 'test:own', poly: [[ox0, oy0], [ox1, oy0], [ox1, oy1], [ox0, oy1]], state: 'owned' });
+    S.defineParcel({ id: 'test:npc', poly: [[ox1, oy0], [ox1 + 160, oy0], [ox1 + 160, oy1], [ox1, oy1]], state: 'npc' });
     S.credit(900000, 'misc', 'test capital');
 
     // ---- 1. placement rules
     let c = B.canPlace('farmhouse', X - 30, Y - 30, 0);
     check('canPlace on own land', c && c.ok, c);
-    c = B.canPlace('farmhouse', X + 80, Y, 0);
-    check('canPlace rejects neighbour land', c && !c.ok && c.reason === 'not your land', c);
-    c = B.canPlace('farmhouse', X + 80, Y, 0, { owner: 'npc' });
-    check('npc building ignores land rights', c && c.ok, c);
+    const nb = spot('farmhouse', ox1 + 30, Y, 0, { owner: 'npc' });
+    c = B.canPlace('farmhouse', nb[0], nb[1], 0, { owner: 'npc' });
+    check('npc building ignores land rights', c && c.ok && nb[0] > ox1 + 8, { c, nb });
+    c = B.canPlace('farmhouse', nb[0], nb[1], 0);
+    check('canPlace rejects neighbour land for the player', c && !c.ok && c.reason === 'not your land', c);
     // water: nearest water point
     let wp = null;
     const lk = (T.lakes() || [])[0];
@@ -67,14 +69,15 @@ async function scenario(page) {
     check('canPlace rejects outside map', c && !c.ok, c);
 
     const money0 = S.money();
-    const fh = B.place('farmhouse', X - 30, Y - 30, Math.PI, { pay: true });
+    const fhAt = spot('farmhouse', ch.home.x, ch.home.y - 18, Math.PI);
+    const fh = B.place('farmhouse', fhAt[0], fhAt[1], Math.PI, { pay: true });
     const fhPrice = (S.catalog('building').find((q) => q.id === 'bld_farmhouse') || {}).price;
     check('place farmhouse with pay → id + charged catalog price', fh && r2(money0 - S.money()) === fhPrice, { fh, charged: r2(money0 - S.money()), fhPrice });
     const asset = S.assets().find((a) => a.itemId === 'bld_farmhouse');
     check('farmhouse is a simulation asset with upkeep', asset && asset.upkeepPerDay > 0, asset && asset.upkeepPerDay);
-    c = B.canPlace('barn', X - 30, Y - 30, 0);
+    c = B.canPlace('barn', fhAt[0], fhAt[1], 0);
     check('overlap with a building rejected', c && !c.ok && c.reason === 'another building', c);
-    check('place returns null on invalid spot + lastError', B.place('barn', X - 30, Y - 30, 0) === null && B.lastError() === 'another building', B.lastError());
+    check('place returns null on invalid spot + lastError', B.place('barn', fhAt[0], fhAt[1], 0) === null && B.lastError() === 'another building', B.lastError());
 
     // precise colliders: a 45° shed; a coop in the empty AABB corner is fine, one on the shed is not
     const shed = B.place('machine_shed', X - 20, Y + 40, Math.PI / 4, { pay: true });
@@ -159,7 +162,7 @@ async function scenario(page) {
     V.exit(t2);
 
     // ---- 7. lights: seeded schedule, F.light at night only
-    G.setCamera(X - 30, Y - 30, 14);
+    G.setCamera(fhAt[0], fhAt[1], 14);
     G.setTime('21:15'); step(3);
     const lon = B.lightsOn(fh);
     G.setTime('12:00'); step(3);

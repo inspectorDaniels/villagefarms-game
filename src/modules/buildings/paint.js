@@ -36,11 +36,11 @@ export function createPainter(art, P) {
   function snowCover(g, rng, x, y, w, h, amount, ridgeY) {
     g.save();
     g.beginPath(); g.rect(x, y, w, h); g.clip();
-    g.globalAlpha = 0.82 * amount;
+    g.globalAlpha = 0.58 * amount;
     g.fillStyle = P.snow[0];
     g.fillRect(x, y, w, h);
     g.globalAlpha = 1;
-    art.dabs(g, rng, Math.round(w * h * 5), x, y, w, h, [P.snow[1], P.snow[2], P.snow[0]], 0.08, 0.35, 0.5 * amount);
+    art.dabs(g, rng, Math.round(w * h * 5), x, y, w, h, [P.snow[1], P.snow[2], P.snow[0]], 0.08, 0.35, 0.35 * amount);
     // thinner at eaves (drip edges) and bare streak on the ridge
     g.globalAlpha = 0.35 * amount;
     g.fillStyle = S(P.snow[1], -0.15);

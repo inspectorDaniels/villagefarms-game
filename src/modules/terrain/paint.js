@@ -36,7 +36,10 @@ export function codeAt(T, x, y) {
   const o = iy * W + ix, pe = T.pedge[o];
   if (!pe) return T.surface[o];
   const op = T.ops[pe - 1];
-  return opSD(op, x, y) >= 0 ? op.code : T.prev[o];
+  if (opSD(op, x, y) >= 0) return op.code;
+  const pe2 = T.pedge2[o]; // the outline this node carried before (one level of history)
+  if (pe2) { const op2 = T.ops[pe2 - 1]; if (opSD(op2, x, y) >= 0) return op2.code; }
+  return T.prev[o];
 }
 
 // ---------------------------------------------------------------- looks (seasonal LUTs)
@@ -106,7 +109,7 @@ export function makeLook(art, P, season, snow, wet) {
  * (ox + (i+0.5)/ppm, oy + (j+0.5)/ppm).
  */
 export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
-  const uniA = T.uni, pedge = T.pedge, prevA = T.prev, ops = T.ops, W = T.w, H = T.h, height = T.height, wlA = T.waterLevel, shA = T.shade, moA = T.moisture, surf = T.surface, aux = T.aux;
+  const uniA = T.uni, pedge = T.pedge, pedge2 = T.pedge2, psdA = T.psd, prevA = T.prev, ops = T.ops, W = T.w, H = T.h, height = T.height, wlA = T.waterLevel, shA = T.shade, moA = T.moisture, surf = T.surface, aux = T.aux;
   const lut = look.lut, wlut = look.water, snowC = look.snowC, veg = look.veg, soilLike = look.soilLike;
   const moist = look.moistC, dry = look.dryC, foam = look.foam, warmC = look.warmC, coolC = look.coolC;
   const snow = look.snow, wet = look.wet;
@@ -171,13 +174,38 @@ export function shadeRows(T, look, NZ, data, pw, ox, oy, ppm, r0, r1, specks) {
         const sd = opSD(op, wx + wn1 * 0.16, wy + wn2 * 0.16) + (hr - 0.5) * 0.05;
         const t = smooth(-0.06, 0.06, sd);
         const qn = Math.round(fy) * W + Math.round(fx);
-        const cIn = op.code, cOut = prevA[qn];
-        const bi = cIn * LS + vi * 3, bo = cOut * LS + vi * 3;
-        r = lut[bo] + (lut[bi] - lut[bo]) * t; g = lut[bo + 1] + (lut[bi + 1] - lut[bo + 1]) * t; b = lut[bo + 2] + (lut[bi + 2] - lut[bo + 2]) * t;
-        vg = veg[cOut] + (veg[cIn] - veg[cOut]) * t; sl = soilLike[cOut] + (soilLike[cIn] - soilLike[cOut]) * t;
-        dom = t > 0.5 ? cIn : cOut; auxv = t > 0.5 ? op.aux : aux[qn];
-        // raised soil lip along cultivated edges
-        if (sl > 0.5 && t > 0.3 && t < 1) { const e = 1 - Math.abs(sd) / 0.35; if (e > 0) { r *= 1 - e * 0.12; g *= 1 - e * 0.12; b *= 1 - e * 0.1; } }
+        const cIn = op.code;
+        // "outside" = what was there before this outline, taken from the corner node that lies furthest
+        // outside it (a node on the far side of the edge would bleed its own code into the AA seam)
+        let m = -1, mb = 1e9;
+        if (pedge[o] === pe && psdA[o] < mb) { mb = psdA[o]; m = o; }
+        if (ix + 1 < W && pedge[o + 1] === pe && psdA[o + 1] < mb) { mb = psdA[o + 1]; m = o + 1; }
+        if (iy + 1 < H && pedge[o + W] === pe && psdA[o + W] < mb) { mb = psdA[o + W]; m = o + W; }
+        if (ix + 1 < W && iy + 1 < H && pedge[o + W + 1] === pe && psdA[o + W + 1] < mb) { mb = psdA[o + W + 1]; m = o + W + 1; }
+        if (m < 0) m = qn;
+        let cOut = pedge[m] ? prevA[m] : surf[m], auxOut = aux[m];
+        const bo0 = cOut * LS + vi * 3;
+        let ro = lut[bo0], go = lut[bo0 + 1], bo = lut[bo0 + 2], vgo = veg[cOut], slo = soilLike[cOut];
+        // outside this outline: the node's previous outline (e.g. the neighbouring implement strip)
+        const pe2 = pedge[m] === pe ? pedge2[m] : 0;
+        if (pe2 && t < 1) {
+          const op2 = ops[pe2 - 1];
+          // coverage composited as if the two shapes were disjoint → exactly abutting strips leave no
+          // half-transparent background line along their shared edge
+          const t2 = Math.min(1, smooth(-0.06, 0.06, opSD(op2, wx + wn1 * 0.16, wy + wn2 * 0.16) + (hr - 0.5) * 0.05) / (1 - t));
+          if (t2 > 0) {
+            const c2 = op2.code, b2 = c2 * LS + vi * 3;
+            ro += (lut[b2] - ro) * t2; go += (lut[b2 + 1] - go) * t2; bo += (lut[b2 + 2] - bo) * t2;
+            vgo += (veg[c2] - vgo) * t2; slo += (soilLike[c2] - slo) * t2;
+            if (t2 > 0.5) { cOut = c2; auxOut = op2.aux; }
+          }
+        }
+        const bi = cIn * LS + vi * 3;
+        r = ro + (lut[bi] - ro) * t; g = go + (lut[bi + 1] - go) * t; b = bo + (lut[bi + 2] - bo) * t;
+        vg = vgo + (veg[cIn] - vgo) * t; sl = slo + (soilLike[cIn] - slo) * t;
+        dom = t > 0.5 ? cIn : cOut; auxv = t > 0.5 ? op.aux : auxOut;
+        // raised soil lip along cultivated edges (not between two strips of the same surface)
+        if (cOut !== cIn && sl > 0.5 && t > 0.3 && t < 1) { const e = 1 - Math.abs(sd) / 0.35; if (e > 0) { r *= 1 - e * 0.12; g *= 1 - e * 0.12; b *= 1 - e * 0.1; } }
       } else if (uniA[o]) {
         // fast path: one surface in the neighbourhood
         dom = surf[o];
@@ -536,7 +564,7 @@ export function makeDecals(art, P) {
  */
 export function warmShader(looks, NZ) {
   const W = 24, H = 24, N = W * H;
-  const T = { w: W, h: H, height: new Float32Array(N), waterLevel: new Float32Array(N), shade: new Float32Array(N), moisture: new Float32Array(N), surface: new Uint8Array(N), aux: new Uint8Array(N), uni: new Uint8Array(N), pedge: new Uint16Array(N), prev: new Uint8Array(N), ops: [{ code: 3, aux: 40, poly: [2, 2, 12, 3, 11, 12, 3, 10] }, { code: 10, aux: 0, cx: 16, cy: 16, r: 4 }] };
+  const T = { w: W, h: H, height: new Float32Array(N), waterLevel: new Float32Array(N), shade: new Float32Array(N), moisture: new Float32Array(N), surface: new Uint8Array(N), aux: new Uint8Array(N), uni: new Uint8Array(N), pedge: new Uint16Array(N), pedge2: new Uint16Array(N), psd: new Float32Array(N), prev: new Uint8Array(N), ops: [{ code: 3, aux: 40, poly: [2, 2, 12, 3, 11, 12, 3, 10] }, { code: 10, aux: 0, cx: 16, cy: 16, r: 4 }] };
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const o = y * W + x;
     T.height[o] = 5 + ((x * 7 + y * 3) % 5) * 0.3;
@@ -548,6 +576,8 @@ export function warmShader(looks, NZ) {
     T.uni[o] = (x + y) % 3 === 0 ? 1 : 0;
     T.pedge[o] = (x * 5 + y) % 4 === 0 ? 1 + ((x + y) & 1) : 0;
     T.prev[o] = (x + y) % NSURF;
+    T.pedge2[o] = (x * 3 + y) % 5 === 0 ? 2 - ((x + y) & 1) : 0;
+    T.psd[o] = ((x * 13 + y * 7) % 7 - 3) * 0.4;
   }
   const data = new Uint8ClampedArray(64 * 64 * 4);
   for (let rep = 0; rep < 3; rep++) {

@@ -85,7 +85,9 @@ export async function init(ctx) {
         poly.push([p[0], p[1]]);
         x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]);
       }
-      if (poly.length < 3 || !(x1 - x0 > 0) || !(y1 - y0 > 0)) { warnOnce(`${fn}: polygon needs ≥ 3 points with non-zero area, ignored`); return null; }
+      let area2 = 0; // shoelace (×2): rejects collinear polygons such as [[0,0],[1,1],[2,2]]
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) area2 += (poly[j][0] - poly[i][0]) * (poly[j][1] + poly[i][1]);
+      if (poly.length < 3 || !(Math.abs(area2) > 1e-6)) { warnOnce(`${fn}: polygon needs ≥ 3 points with non-zero area, ignored`); return null; }
       return { shape: { poly }, bb: { x0, y0, x1, y1 } };
     }
     if (shape && fin(shape.x) && fin(shape.y) && fin(shape.r) && shape.r > 0) {
@@ -123,13 +125,54 @@ export async function init(ctx) {
       version: (world.terrain.version || 0) + 1,
     });
   }
+  // Render-side work of edits (uniform mask, tile dirtying, overview patch) is coalesced: rects are
+  // merged and flushed once per frame (before the ground draws) instead of once per edit.
+  let pending = [];
+  function queueDirty(r) {
+    for (let i = 0; i < pending.length; i++) {
+      const q = pending[i];
+      const ux0 = Math.min(q.x0, r.x0), uy0 = Math.min(q.y0, r.y0), ux1 = Math.max(q.x1, r.x1), uy1 = Math.max(q.y1, r.y1);
+      if ((ux1 - ux0) * (uy1 - uy0) <= ((q.x1 - q.x0) * (q.y1 - q.y0) + (r.x1 - r.x0) * (r.y1 - r.y0)) * 1.3 + 64) {
+        pending.splice(i, 1);
+        queueDirty({ x0: ux0, y0: uy0, x1: ux1, y1: uy1 });
+        return;
+      }
+    }
+    pending.push(r);
+    if (pending.length > 24) {
+      const all = pending.reduce((a, q) => ({ x0: Math.min(a.x0, q.x0), y0: Math.min(a.y0, q.y0), x1: Math.max(a.x1, q.x1), y1: Math.max(a.y1, q.y1) }));
+      pending = [all];
+    }
+  }
+  function flushDirty() {
+    if (!pending.length || !T || !tm) return;
+    const list = pending;
+    pending = [];
+    for (const bb of list) {
+      computeUniform(T, Math.floor(bb.x0) - 3, Math.floor(bb.y0) - 3, Math.ceil(bb.x1) + 3, Math.ceil(bb.y1) + 3);
+      tm.markDirty(bb.x0 - 2, bb.y0 - 2, bb.x1 + 2, bb.y1 + 2);
+    }
+  }
   function changed(kind, bb, extra) {
     edits++;
     world.terrain.version = (world.terrain.version || 0) + 1;
     minimapCache = null;
-    computeUniform(T, Math.floor(bb.x0) - 3, Math.floor(bb.y0) - 3, Math.ceil(bb.x1) + 3, Math.ceil(bb.y1) + 3);
-    tm.markDirty(bb.x0 - 2, bb.y0 - 2, bb.x1 + 2, bb.y1 + 2);
+    queueDirty({ x0: bb.x0, y0: bb.y0, x1: bb.x1, y1: bb.y1 });
     ctx.events.emit('terrain:changed', Object.assign({ kind, x0: bb.x0, y0: bb.y0, x1: bb.x1, y1: bb.y1, version: world.terrain.version }, extra || {}));
+  }
+
+  /** T.ops is indexed by Uint16 → when it nears 65k, drop ops no node references any more */
+  function compactOps() {
+    const N = T.w * T.h, map = new Int32Array(T.ops.length + 1), ops = [];
+    for (let o = 0; o < N; o++) {
+      const a = T.pedge[o], b = T.pedge2[o];
+      if (a && !map[a]) { ops.push(T.ops[a - 1]); map[a] = ops.length; }
+      if (b && !map[b]) { ops.push(T.ops[b - 1]); map[b] = ops.length; }
+    }
+    if (ops.length >= 65000) { T.ops.length = 0; T.pedge.fill(0); T.pedge2.fill(0); return; } // pathological: cell edges
+    for (let o = 0; o < N; o++) { if (T.pedge[o]) T.pedge[o] = map[T.pedge[o]]; if (T.pedge2[o]) T.pedge2[o] = map[T.pedge2[o]]; }
+    T.ops = ops;
+    tm.markDirty(0, 0, T.w, T.h);
   }
 
   // ------------------------------------------------------------ API
@@ -161,6 +204,7 @@ export async function init(ctx) {
         T = generateData(ctx, base);
         applyFlats(T, ctx, flats);
         genKey = key; flatKey = fk; edits = 0;
+        pending = [];
         if (!tm) tm = new TileManager(ctx, T, NZ, decals, getLook); else tm.reset(T);
         tm.paintOverviewSync(getLook());
         minimapCache = null;
@@ -217,21 +261,37 @@ export async function init(ctx) {
       const x1 = Math.min(T.w - 1, Math.ceil(bb.x1)), y1 = Math.min(T.h - 1, Math.ceil(bb.y1));
       // record the op so the shader can draw its true (sub-cell) outline
       const op = shape.poly ? { code, aux: auxV, poly: [].concat(...shape.poly.map((p) => [p[0], p[1]])) } : { code, aux: auxV, cx: shape.x, cy: shape.y, r: shape.r };
-      if (T.ops.length >= 65000) { T.ops.length = 0; T.pedge.fill(0); } // pathological: fall back to cell edges
+      if (T.ops.length >= 65000) compactOps();
       T.ops.push(op);
       const idx = T.ops.length;
       const BAND = 1.6;
-      let n = 0;
+      let n = 0, covered = 0;
       const bx0 = Math.max(0, Math.floor(bb.x0 - BAND)), by0 = Math.max(0, Math.floor(bb.y0 - BAND));
       const bx1 = Math.min(T.w - 1, Math.ceil(bb.x1 + BAND)), by1 = Math.min(T.h - 1, Math.ceil(bb.y1 + BAND));
       for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
         const o = y * T.w + x;
         if (T.waterLevel[o] - T.height[o] > 0.02) continue; // water cells are never painted nor counted
         const sd = opSD(op, x, y);
-        if (Math.abs(sd) < BAND) { T.prev[o] = codeAt(T, x, y); T.pedge[o] = idx; }
-        else if (sd > 0) T.pedge[o] = 0;
+        if (sd >= 0) covered++;
+        if (Math.abs(sd) < BAND) {
+          // keep ONE level of outline history: the previous outline stays visible outside the new one,
+          // so abutting/overlapping strips of the same surface do not cut each other's edges (no seams)
+          const old = T.pedge[o], old2 = T.pedge2[o];
+          if (old2) { const o2 = T.ops[old2 - 1]; if (opSD(o2, x, y) >= 0) T.prev[o] = o2.code; } // fold the oldest level
+          else if (!old) T.prev[o] = T.surface[o];
+          T.pedge2[o] = old; T.pedge[o] = idx; T.psd[o] = sd;
+        } else if (sd > 0) { T.pedge[o] = 0; T.pedge2[o] = 0; }
         if (sd < 0) continue;
         T.surface[o] = code; T.painted[o] = 1; T.aux[o] = auxV; n++;
+      }
+      if (!covered) {
+        // a valid shape smaller than the 1 m node grid (e.g. r = 0.62 centred between nodes): it
+        // resolves to the single node nearest its centre, so small tool edits always change gameplay
+        const cx = shape.poly ? (bb.x0 + bb.x1) / 2 : shape.x, cy = shape.poly ? (bb.y0 + bb.y1) / 2 : shape.y;
+        const nx = clamp(Math.round(cx), 0, T.w - 1), ny = clamp(Math.round(cy), 0, T.h - 1), o = ny * T.w + nx;
+        if (Math.hypot(nx - cx, ny - cy) < 1.5 && !(T.waterLevel[o] - T.height[o] > 0.02)) {
+          T.surface[o] = code; T.painted[o] = 1; T.aux[o] = auxV; n = 1;
+        }
       }
       if (n) changed('surface', bb, { type, cells: n });
       return n;
@@ -277,6 +337,7 @@ export async function init(ctx) {
       if (!T) return { x, y };
       if (!fin(x) || !fin(y)) return null;
       if (!fin(radius)) radius = 64;
+      x = clamp(x, 0, T.w - 1); y = clamp(y, 0, T.h - 1); // out of bounds: clamped like every other query
       const R = Math.min(256, Math.max(1, radius));
       const dry = (px, py) => px >= 0 && py >= 0 && px <= T.w - 1 && py <= T.h - 1 && depthAt(px, py) <= 0 && T.surface[node(px, py)] !== S.water && T.surface[node(px, py)] !== S.shallow;
       if (dry(x, y)) return { x, y };
@@ -292,6 +353,7 @@ export async function init(ctx) {
       return null;
     },
     minimap(sizePx = 256) {
+      flushDirty();
       if (!T || !tm || !tm.overview) return null;
       const s = Math.max(16, Math.min(2048, sizePx | 0));
       if (minimapCache && minimapCache.width === s && minimapCache._src === tm.overview) return minimapCache;
@@ -315,6 +377,7 @@ export async function init(ctx) {
   const BUDGET = 12000; // ≈ 1.5 ms of shading per frame (tripled while visible tiles are still blank)
   ctx.renderer.addLayer('ground', (g, view) => {
     if (!tm) return;
+    flushDirty();
     const need = tm.work(view, BUDGET);
     drawnTiles = tm.draw(g, view, need);
     visTiles = need; // every visible tile, painted or fallback (the wet overlay must cover all of them)

@@ -11,7 +11,9 @@ Europe: drive on the **right**.
 - `paint.js` — decals (patches, cracks, wear, ruts, potholes) + chunk painter (shoulders, pavements,
   kerbs, carriageways, markings, give-way teeth, zebra, bridge decks/wing walls, snow)
 - `textures.js` — seamless painted tiles (asphalt ×3, gravel, dirt, concrete, grass per season)
-- `chunks.js` — LOD chunk cache (levels 2…64 px/m, 1024 px canvases, LRU, budgeted builds, coarse fallback, pixel-snapped draws)
+- `chunks.js` — LOD chunk cache: 256 px chunks, levels 1.5…64 px/m (picked for ~1.1–1.5× upscale), per-chunk content bbox
+  (empty chunks cost nothing), time-sliced generator builds (step budget adapted from `view.dt`), prefetch ahead of
+  camera motion, finished chunks frozen into cropped `ImageBitmap` quadrants, blits clipped to the viewport, coarse fallback
 - `generate.js` — default network plan for a world (terrain optional)
 - `backdrop.js` — showcase-only ground (grass, fields, river) so the showcase works without terrain
 
@@ -28,30 +30,59 @@ Europe: drive on the **right**.
 Ids are `roads:<n>`. `points`/`lights` are derived (rebuilt on change).
 
 ## API (metres, radians)
-- `addNode(x, y)` → id
-- `addEdge(a, b, { class, via:[[x,y]..], bridge? })` → id (throws on unknown node)
+All functions validate input and never throw: bad input logs one `ctx.warn` per kind and returns `null` / `false` / `[]`.
+Non-finite coordinates are rejected up front; every spatial search is bounded by the network's grid extents.
+- `addNode(x, y)` → id, or `null` for non-finite coordinates
+- `addEdge(a, b, { class, via:[[x,y]..], bridge? })` → id, or `null` (unknown node, self-loop). Unknown class → `'lane'` (warned); invalid via points dropped
 - `removeEdge(id)` → bool
-- `generateNetwork(plan?)` → `{nodes, edges, version}`. No plan: default network for `world.bounds`,
-  using `terrain.isWater/slopeAt` if present, then splits edges crossing water into bridges.
-  `plan = { nodes:[[x,y]..], edges:[[i, j, class, via?, {bridge?}]..] }` builds exactly that.
-- `nearest(x, y)` → `{ edgeId, x, y, t (0..1 along a→b), dist }` or null
+- `generateNetwork(plan?)` → `{nodes, edges, version}` or `null`. No plan (or an object without `nodes`): default network for
+  `world.bounds`, using `terrain.isWater/slopeAt` if present, then splits edges crossing water into bridges.
+  `plan = { nodes:[[x,y]..], edges:[[i, j, class, via?, {bridge?}]..] }` builds exactly that. The plan is validated
+  **before** anything is cleared; an invalid plan (or a failure while building) keeps the previous network and returns `null`.
+- `nearest(x, y)` → `{ edgeId, x, y, t (0..1 along a→b), dist }` or null (empty network / nothing within 4 km)
 - `roadAt(x, y)` → class of the carriageway (incl. junction areas) or null
-- `pathfind(from, to, { classes?, lane? })` → `[{x,y}..]` (A* on travel time, follows the smoothed
-  polylines; `from/to` as `{x,y}` or `[x,y]`; `lane:true` offsets 1.6 m to the right) or null
+- `surfaceAt(x, y)` → `{ class, part:'carriageway'|'kerb'|'pavement'|'verge', bridge, edgeId|null, node|null }` or null.
+  Village footways (incl. filleted corner footways) report `part:'pavement'`; rural shoulders (≤0.6 m) `verge`.
+- `pathfind(from, to, { classes?, lane? })` → `[{x, y, edgeId, node?}..]` or null. A* on travel time along the smoothed
+  polylines; `from/to` as `{x,y}` or `[x,y]`; `classes` = a class name or an array of names. Every point carries the
+  `edgeId` it lies on; points on a graph node carry `node` (use with `junctionInfo`). `lane:true` offsets each edge's
+  part separately by that edge's right-hand lane offset (the same as `laneCurve`: width/4 for 2-lane classes, centre
+  line for 1-lane lanes/tracks), so lane paths stay on the carriageway.
 - `laneCurve(edgeId, forward)` → `[[x,y]..]` right-hand lane centreline (offset width/4; 1-lane classes: centre)
-- `edges()`, `nodes()`, `edgesInRect(x0,y0,x1,y1)`, `junctions()` (node ids, degree ≥ 3)
-- `drawMinimap(g, scale)` — strokes the network into a minimap context (px per metre = scale)
-- `classes()` — the class table; `lights()` — street light list
+- `junctionInfo(nodeId)` → data for traffic yielding, or null for an unknown node:
+  ```
+  { node, x, y, degree, rule:'major-road'|'right-before-left'|'none', through:[edgeId,edgeId]|null, poly:[[x,y]]|null,
+    arms:[{ edgeId, end:'a'|'b',            // which end of that edge touches the node
+            class, lanes, width, dir:[dx,dy] (unit, pointing AWAY from the junction), angle,
+            priority:'major'|'minor',       // right-before-left junctions: every arm 'minor'
+            control:'giveway'|'none',       // give-way teeth painted on this arm
+            setback,                        // m from node to the arm's mouth (where the junction area starts)
+            stopLine:{ x, y, a:[x,y], b:[x,y], s, edgeS },  // across the inbound lane(s); s = m from node, edgeS = m along edge.points a→b
+            entry:{ x, y, edgeS },          // inbound right-hand lane point at the stop line (where an arriving car waits)
+            exit:{ x, y, edgeS } }] }       // outbound right-hand lane point at the mouth
+  ```
+  Arms are sorted by screen angle (clockwise, y down). Entry/exit points lie on `laneCurve` of the arm edge (≤0.4 m, the
+  polyline spacing). `rule:'major-road'` = the highest-rank road (≤2 arms) has priority and minor arms give way.
+  Nodes that are not junctions (dead ends, degree-2) return their arms with `rule:'none'`.
+- `edges()`, `nodes()` → **read-only snapshots**: deep-frozen copies (rebuilt once per network version; the array itself is a
+  fresh copy, so sort/filter freely; to modify points use `points.slice()`). `edgesInRect(x0,y0,x1,y1)` (same snapshots), `junctions()` (node ids, degree ≥ 3)
+- `drawMinimap(g, scale)` — strokes the network into a minimap context (px per metre = scale); `false` if `g` is not a 2D context
+- `classes()` — the class table; `lights()` — street light list (copies)
 
 Events: `roads:changed` `{version, nodes, edges}` (emitted once per rebuild; mutations are batched
 and rebuilt lazily on the next query/update).
+
+## Debug / A-B measurement
+- `?roadsfx=0` disables all road rendering (chunk layer, wet layer, lamps/bridges collector, glow); the API keeps working.
+- At runtime: `world.roads.debug` (non-enumerable) → `{ render, chunks, objects, lights, stats() }`; set `render=false`
+  to remove all road drawing, `chunks=false` / `objects=false` for one part; `stats()` → chunk cache counters.
 
 ## Rendering
 - `ground-overlay`: chunk cache (static). `ground-detail`: wet sheen + puddle reflections when
   `environment.weather.wetness` > 0.04. Objects: lamp posts/arms/heads, bridge railings.
   Shadows: `F.shadow.pole/poly/box` for lamps; one `F.shadow.custom` per bridge (deck slab, railings,
   wing walls; the deck footprint is erased so the deck isn't shadowed by itself).
-- Lights: `F.light` warm sodium (radius 15 m, glow) when `environment.daylight` < ~0.4 (staggered switch-on),
+- Lights: `F.light` warm sodium (radius 12 m, glow) when `environment.daylight` < ~0.4 (staggered switch-on),
   lens glow in `glow` layer, wet-road reflections of lamps.
 - Seasons: tufts/verges follow `clock.season`; snow banks when `weather.snowCover` > 0 or in winter (min 0.4).
 - Objects are skipped below 5–6 px/m (sub-pixel).
@@ -66,5 +97,8 @@ its own ground (`backdrop.js`); if `environment` is absent it installs a local f
 - Junction markings are simple: through centre line only for regional; no turn arrows/stop lines.
 - Degree-2 class transitions (village→lane) end kerbs/footways abruptly.
 - Bridges are a flat deck; approach roads don't ramp, deck shadow can fall on the banks.
-- Chunk builds on first view cost ~10–40 ms each (budgeted to 1/frame, coarse fallback meanwhile).
+- Chunk builds are time-sliced (≈0.2 ms per step, 6–40 steps/frame); on a cold view roads appear over ~0.5–2 s.
+- Chunks are cached at ~0.66–0.9 of screen resolution (1.1–1.5× upscale, so slightly soft). This is deliberate: per-frame
+  texture bytes shared with terrain are the measured bottleneck in Chrome (exceeding that budget made every frame re-upload).
+- Night: lamp lights (radius 12 m) cost ~1–2.5 ms/frame in the core lighting pass at 24 px/m (the cost depends on light area).
 - Default generator is heuristic (village site = driest candidate); roads may still cross steep ground.

@@ -200,13 +200,6 @@ export async function init(ctx) {
     const B = ctx.world.bounds;
     if (bb.x0 < 2 || bb.y0 < 2 || bb.x1 > B.w - 2 || bb.y1 > B.h - 2) return { ok: false, reason: 'outside the map' };
     const samples = polys.flatMap((P) => samplePoly(P, 1.5));
-    const T = mod('terrain');
-    if (T) {
-      for (const [sx, sy] of samples) if ((T.waterDepthAt(sx, sy) || 0) > 0.02) return { ok: false, reason: 'water' };
-      let steep = 0;
-      for (const [sx, sy] of samples) steep = Math.max(steep, T.slopeAt(sx, sy) || 0);
-      if (steep > 0.35) return { ok: false, reason: 'too steep' };
-    }
     const R = mod('roads');
     if (R && R.roadAt) for (const [sx, sy] of samples) if (R.roadAt(sx, sy)) return { ok: false, reason: 'road' };
     const C = mod('crops');
@@ -223,6 +216,14 @@ export async function init(ctx) {
       else if (it.x0 != null) { const O = [[it.x0, it.y0], [it.x1, it.y0], [it.x1, it.y1], [it.x0, it.y1]]; hit = grown.some((G) => polysOverlap(G, O)); }
       else hit = grown.some((G) => circleHitsPoly(G, it.x, it.y, it.r || 0.5));
       if (hit) return { ok: false, reason: it.kind === 'building' ? 'another building' : `blocked (${it.kind || it.owner || 'object'})`, by: it.id };
+    }
+    const T = mod('terrain');
+    if (T) {
+      for (const [sx, sy] of samples) if ((T.waterDepthAt(sx, sy) || 0) > 0.02) return { ok: false, reason: 'water' };
+      // the pad is levelled on placement: refuse only where that would need a big cut/fill
+      let h0 = Infinity, h1 = -Infinity;
+      for (const [sx, sy] of samples) { const h = T.heightAt(sx, sy) || 0; if (h < h0) h0 = h; if (h > h1) h1 = h; }
+      if (h1 - h0 > 3) return { ok: false, reason: 'too steep' };
     }
     const S = sim();
     if (owner === 'player' && !opts.anyLand) {

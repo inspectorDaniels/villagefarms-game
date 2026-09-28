@@ -55,7 +55,7 @@
     },
     "roads": {
       "wave": 1,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 5,
       "pass": false,
       "rounds": [
@@ -74,7 +74,7 @@
         "pathfind lane:true offsets 1.6 m off tracks",
         "No junctionInfo for traffic"
       ],
-      "note": "r1 critic 5/10: graph API solid (pathfind = Dijkstra 60/60, roadAt 0 misses), deterministic; fails on hang, throws, perf"
+      "note": "r2: non-finite hang fixed, 26 bad inputs no throw, render 22-38 ms -> <0.5 ms (texture budget shared with terrain; 256px bitmap chunks), pan p95 87 -> <=1.5 ms, lane pathfind 0 misses, junctionInfo + surfaceAt added"
     },
     "simulation": {
       "wave": 1,
