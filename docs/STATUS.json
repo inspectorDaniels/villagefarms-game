@@ -22,12 +22,8 @@
           "review": "docs/reviews/terrain-r2.md"
         }
       ],
-      "openIssues": [
-        "Seams: grass ticks between adjacent painted strips",
-        "Small shapes between grid points paint nothing (characters fork r=0.62 at x.5)",
-        "should: collinear polygon passes validation, same-frame edit coalescing, findDry clamp, edit-list wipe drops outlines"
-      ],
-      "note": "passed r2 7/10: water frame cost 20-45 -> 0.4-0.7 ms, robust API, 0/184k surface mismatches; 2 functional must-fixes sent back"
+      "openIssues": [],
+      "note": "passed r2 7/10; follow-ups done: strip seams merged, small shapes paint nearest point, polygon area validation, coalesced edits, findDry clamp, edit-list compaction"
     },
     "environment": {
       "wave": 1,

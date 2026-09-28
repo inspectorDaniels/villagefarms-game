@@ -19,11 +19,11 @@ Units are metres, with x east and y south.
 | `isWater(x,y)` | `true` if water depth > 2 cm; non-finite input → `false` |
 | `waterDepthAt(x,y)` | m (0 on land and for non-finite input) |
 | `moistureAt(x,y)` | 0..1 (near water or in low ground → high) |
-| `paintSurface(shape, type, opts?)` | Number of **dry** 1 m cells painted. `shape` = `{poly:[[x,y],...]}` or `{x,y,r}`. For `ploughed`, furrows run along `opts.angle` (radians); the default is the polygon's longest edge. Edges are drawn at sub-cell precision, not snapped to the 1 m grid. Emits `terrain:changed` when n > 0. **Water rule:** cells with water depth > 2 cm are never painted and are not counted, so a shape entirely over water returns `0` (and a half-bank shape returns only its dry part). `water`/`shallow` are not paintable (water comes from depth) → `false`. Unknown type → `false`. Bad shape (not a poly with ≥ 3 finite points and non-zero area, nor `{x,y,r}` with finite numbers and r > 0) → `0`. Invalid input never throws; it logs one `ctx.warn` per distinct problem. |
+| `paintSurface(shape, type, opts?)` | Number of **dry** 1 m cells painted. `shape` = `{poly:[[x,y],...]}` or `{x,y,r}`. For `ploughed`, furrows run along `opts.angle` (radians); the default is the polygon's longest edge. Edges are drawn at sub-cell precision, not snapped to the 1 m grid. Emits `terrain:changed` when n > 0. **Water rule:** cells with water depth > 2 cm are never painted and are not counted, so a shape entirely over water returns `0` (and a half-bank shape returns only its dry part). `water`/`shallow` are not paintable (water comes from depth) → `false`. Unknown type → `false`. Bad shape (not a poly with ≥ 3 finite points and non-zero area, nor `{x,y,r}` with finite numbers and r > 0) → `0`. Invalid input never throws; it logs one `ctx.warn` per distinct problem. See **How painting resolves** below. |
 | `flatten(shape, height?)` | Target height. It levels the shape with a 4 m smooth falloff (polygon) or out to 1.7·r (circle). With no `height`, it uses the mean height. Emits `terrain:changed`. Bad shape or non-finite `height` → `undefined` + one warning (never throws). |
 | `riverPaths()` | `[[[x, y, widthM], ...]]`, one polyline per river with a point every ~4 m. The third value is the full water width, for bridges. |
 | `lakes()` | `[{id, x, y, r, level, depth, poly:[[x,y]...]}]` |
-| `findDry(x, y, radius=64)` | `{x,y}` of the nearest dry point, or `null` (also for non-finite x/y) |
+| `findDry(x, y, radius=64)` | `{x,y}` of the nearest dry point, or `null` (also for non-finite x/y). An out-of-bounds start is clamped to the map edge first, like the other queries |
 | `minimap(sizePx=256)` | a cached canvas of the whole map (current season/snow) |
 | `surfaceTypes()` | `[{name, code}]` |
 
@@ -42,6 +42,22 @@ Units are metres, with x east and y south.
 | 9 | mud | wet banks |
 | 10 | farmyard | packed earth (paint only) |
 | 11 | forestFloor | patches for the props module to plant woods on |
+
+### How painting resolves (`paintSurface`)
+- Gameplay surface lives on the 1 m **nodes** (integer x,y; node i stands for [i−0.5, i+0.5]). A node is painted
+  when it lies inside the shape (edge inclusive) and is dry. The return value counts those nodes.
+- **Small shapes**: a valid shape that contains no node at all (e.g. `{x: X+0.5, y: Y+0.5, r: 0.62}`, the
+  characters' fork) paints the single node nearest its centre (circle centre / polygon bbox centre;
+  `Math.round`, so an exact .5 rounds up) and returns 1 — or 0 if that node is under water. Callers that
+  target cell corners `floor(x)+0.5` therefore hit node `(floor(x)+1, floor(y)+1)`.
+- Polygons must have non-zero **area** (shoelace |A| > 1e-6); collinear points are rejected with a warning.
+- **Drawing** is sub-cell: each 1 m cell remembers up to two shape outlines (newest + previous; a third folds
+  the outline farthest from the cell into its base code). A cell whose whole 4×4 node block ends up one
+  surface with only outlines of that surface drops them, so abutting / overlapping strips of the same
+  surface (implement passes, 3 × 2.6 m with 0.2 m overlap) merge into one seamless field.
+- Render-side work of edits (tile dirtying, overview patch) is coalesced and flushed once per frame; the
+  `terrain:changed` event is still emitted per call. The outline list compacts itself (unreferenced
+  outlines dropped) when it nears 65k entries instead of being wiped.
 
 ### Generation rules
 - `init()` generates the default valley (`generate({})`) so every other module can query terrain during its own init.
