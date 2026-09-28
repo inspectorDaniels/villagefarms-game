@@ -51,24 +51,29 @@
     },
     "roads": {
       "wave": 1,
-      "status": "r2-built-unreviewed",
-      "score": 5,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
           "score": 5,
           "pass": false,
           "review": "docs/reviews/roads-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/roads-r2.md"
         }
       ],
       "openIssues": [
-        "Hang on non-finite coords (nearestOnNetwork ring loop)",
-        "Bad inputs throw (pathfind(null), addEdge, drawMinimap(null), invalid plan wipes network, addNode(NaN))",
-        "Chunk layer 22-38 ms/frame (9 full 1024px chunk drawImage)",
-        "Pan spikes up to 162 ms (chunk builds 10-40 ms)",
-        "pathfind lane:true offsets 1.6 m off tracks",
-        "No junctionInfo for traffic"
+        "should: ~3 ms chunk builds panning into new areas",
+        "turnCurve(nodeId,fromEdge,toEdge) for traffic",
+        "pathfind silently snaps far endpoints",
+        "edgesInRect with infinite bounds 3.9 ms",
+        "parking/bus-stop data"
       ],
       "note": "r2: non-finite hang fixed, 26 bad inputs no throw, render 22-38 ms -> <0.5 ms (texture budget shared with terrain; 256px bitmap chunks), pan p95 87 -> <=1.5 ms, lane pathfind 0 misses, junctionInfo + surfaceAt added"
     },
