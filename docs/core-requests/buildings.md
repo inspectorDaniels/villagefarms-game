@@ -18,3 +18,6 @@ No `src/core` changes are needed. Five seams need the integrator or the owners o
    - place the start farm with `buildings.place(type, x, y, rot, { owner: 'player' })`. Without `pay`, catalog assets are granted, so a starting grain silo still counts toward capacity.
    - place the village and sell points with `{ owner: 'npc' }`.
    - place the farmhouse within 60 m of the farmhands' `home`, so they sleep at its door.
+
+
+**Integrator (iteration 2): #1 registry APPLIED. #2-#4 forwarded to vehicles/simulation/characters builders; #5 goes into the demo brief.**

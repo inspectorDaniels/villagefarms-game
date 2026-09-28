@@ -211,11 +211,12 @@
     },
     "buildings": {
       "wave": 2,
-      "status": "pending",
+      "status": "built-unreviewed",
       "score": null,
       "pass": false,
       "rounds": [],
-      "openIssues": []
+      "openIssues": [],
+      "note": "built: 15 types, canPlace (rights, water, slope, colliders, cost), storage capacity, workshop repair+fuel, sell points + deliver(), homes/doors, night lights; 32/32 full-game checks. Registered. Requests: vehicles.removeFuelPoint, simulation.removeSellPoint, characters exact-poly push."
     },
     "props": {
       "wave": 2,
