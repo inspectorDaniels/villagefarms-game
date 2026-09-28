@@ -341,6 +341,10 @@
     {
       "t": "2026-09-27T12:20",
       "event": "6 parallel agents hit API session limit; dev server died; restarted, game loads 0 errors. Resuming 4 at a time."
+    },
+    {
+      "t": "2026-09-28",
+      "event": "third rate-limit interruption; user directive: max 3 concurrent agents"
     }
   ],
   "resume": [
@@ -350,7 +354,7 @@
     "4. Wave 2 gameplay modules: crops, vehicles, buildings, buildtools, animals, then traffic/props",
     "5. Wave 3 demo: playable loop (farm, jobs, land, vehicles) + whole-game critic",
     "6. Deferred visual work: environment/effects/terrain/roads art must-fixes, audio perf",
-    "7. Run ~4-5 agents at a time"
+    "7. Max 3 concurrent agents (user directive 2026-09-28, token spend)"
   ],
   "priority": "2026-09-27 user directive: mechanics & gameplay first; visual polish deferred to a later art pass. Critics weight functional correctness (contract, gameplay loop, determinism, errors, perf); cosmetic findings go to 'Should fix' and do not block a pass unless they break gameplay readability. Plan: finish sim/characters, then wave-2 gameplay modules (crops, vehicles, buildings, buildtools, animals, traffic, props) with functional placeholder-quality painted art, then demo game loop."
 }
