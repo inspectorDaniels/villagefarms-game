@@ -63,6 +63,7 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 - `sell(item, qty, sellPointId?)` → € received. **(r3)** It always sells from farm inventory. The old `fromInventory:false` option is ignored, because that path created money from goods the farm didn't have. Producers such as animals and crops call `addInventory` first, then `sell`.
 - `buy(item, qty)`.
 - `defineSellPoint(id, {name, x, y, accepts, bias})`, `sellPoints()`.
+- **(r5)** `removeSellPoint(id)` → bool. A demolished shop, co-op or dairy stops buying; buildings calls it.
 - `yieldTable()`, `inputCost(crop)`, `buyInputs(crop, ha, parts?)`.
 
 **Inventory / storage**
@@ -143,6 +144,10 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
     - In the live game this happens hour by hour from 07:00 to 17:00, only while `characters.isAvailable(workerId)` is not false (the call is optional).
     - In the headless harness it happens once a day.
     - For such jobs, external `reportProgress`/`tickPresence` calls are ignored, so there is one owner per job.
+    - **(r5)** If the hand is possessed that hour, or `isAvailable` is false, he skips the job.
+      - On the job's deadline day it is **handed back to the player** (`assignee: null`) instead of silently failing.
+      - The module emits `jobs:reassigned {job, jobId, workerId, reason: 'hand-possessed' | 'hand-unavailable'}`.
+      - It shows a ui toast when ui is present, e.g. "Dries couldn't get to … — it's back on your list, due today".
   - Any other id only records the assignee, and the caller reports progress.
   - `null` gives the job back to the player.
 - `activeJobCap()` → 2 + hired hands.
@@ -155,9 +160,11 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 - `solvency()` → `{overLimit, daysOverLimit, blocked, overdraft, creditLimit, restructured, bankrupt}`.
 - Stages while over the limit:
   - **30 days:** purchases, land deals, hires and contractor bookings are blocked.
-  - **60 days:** the bank sells the least valuable asset at 85 % every 3 days, repaying its secured loan (`economy:asset-seized`).
-  - **What the bank sells, in order:** machines, then **stored produce** at 85 % of the quote (r4c), then land.
-  - **Nothing left to seize:** after 30 more days the hands are laid off (`economy:hands-laid-off {names}`).
+  - **60 days, one settlement day (r5):**
+    - The bank sells, least valuable first, until the farm is back under its limit: machines at 85 % (secured loans repaid), then stored produce at 85 % of the quote and **diesel and fertiliser at 50 %**, then land.
+    - Each sale emits `economy:asset-seized`.
+    - If that is not enough, the hands are laid off (`economy:hands-laid-off {names}`) and the overdraft is restructured the same day. In r4 this took up to about 93 days.
+  - **Countdowns (r5):** `solvency()` also returns `daysToBlock`, `daysToSettlement` and `nextStage` (`'blocked' | 'settlement' | 'bankrupt'`, or null when not over the limit), for a UI countdown.
   - **Restructuring (once, r4c, sized to the farm):**
     - Instalments are at most ⅓ of last year's operating result, with a minimum of €150 a month.
     - The loan runs up to 20 years at 6 %, with 6 months' grace.
@@ -203,6 +210,7 @@ In the harness, dumping 600 t of wheat at one buyer fetched €156/t. Spreading 
 - `economy:bankrupt-warning {money, daysNegative, daysOverLimit, stage, creditLimit}`.
 - `economy:contractor-done {parcelId, fieldId, operation, areaM2, crop, bookingId, booking}`: a contractor finished. **crops applies it to that area.**
 - `economy:hands-laid-off {names, reason}`.
+- `jobs:reassigned {job, jobId, workerId, reason}` (r5): a delegated job was handed back to the player.
 - `economy:asset-seized {kind:'machine'|'land', id, name, amount}`.
 - Listens to `clock:day`, `clock:hour` (delegated jobs in working hours) and `crops:worked` (CAP share).
 - `land:parcel-changed {id, state, from, parcel}`.
@@ -290,6 +298,8 @@ Printed at the end of each `progression.mjs` run.
 | **net worth €250–400k at year 10** (r4b) | median €303k, **8/8 in range** ✔ |
 | **builder > renter > smallfarm > contractor > jobs** (r4c, required at ×1) | €303k > €243k > €176k > €112k > €98k ✔ |
 
+Each run prints the rule for its own factor. At ×1 the strict chain is required; at ×0.5 and ×2 it prints the relaxed rule with ✔ or ✘.
+
 **Sensitivity** (`--ai=0.5` / `--ai=2`). At these factors r4c relaxes the rule: builder > renter > smallfarm and builder > jobs must still hold, but contractor vs jobs may swap.
 
 | factor | jobs | contractor | smallfarm | renter | builder | full order | relaxed rule |
@@ -315,13 +325,15 @@ Fast-forwarding does not skip the economy: costs are per game day, CAP needs wor
 - mean **+€2,452/yr**, median €2,878;
 - mean per year: sales €9.2k, CAP €2.3k, rent −€2.6k, inputs −€1.8k, contractors −€2.5k.
 
-### Exploit probes (`exploits.mjs`, default 8 seeds: 29/29 closed)
+### Exploit probes (`exploits.mjs`, default 8 seeds: 31/31 closed)
 | probe | median | verdict |
 |---|---|---|
+| **r5 credit line → diesel before insolvency** (42,355 l bought on the whole credit line, then a −€120k shock) | 0 l kept; diesel seized at 50 % in the settlement | closed |
+| **r5 delegated job, hand possessed on the deadline day** | handed back (`assignee: null`), `jobs:reassigned {reason:'hand-possessed'}` | clear, not a silent failure |
 | **r4 CAP double count**: book half a parcel, then crops echoes `crops:worked {contractor:true}` | share 0.50 → 0.50 | closed (one owner: the booking) |
 | **r4 `recordFieldWork` backdoor**: area 10¹² on a parcel crops reports for | refused, share 0.009 | closed |
 | **r4 possessed hand also works his delegated job** | 0 progress while possessed, 0.15 the next hour | closed |
-| **r4 insolvency end state**: −€250k shock, 1 lease, 60 t in store, 4 years | stock seized → restructured (€21k over 140 months, €290k written off); not bankrupt, unblocked | a serviceable second chance |
+| **r4 insolvency end state**: −€250k shock, 1 lease, 60 t in store, 4 years | stock seized → restructured at the day-60 settlement (€21k over 140 months, €256k written off); not bankrupt, unblocked | a serviceable second chance |
 | **r3 CAP bought for €80** (0.01 ha spray bookings on never-farmed land) | CAP €5 for €160 of bookings | closed (CAP = worked share) |
 | **r3 `recordFieldWork`** on a neighbour's parcel / op `'dance'`; `hireContractor` on `'no-such-parcel'` or a neighbour's parcel | all refused | closed |
 | **r3 one combine, 3 hands, 3 combine jobs the same day** | 1 of 3 progressed | closed (per-day machine reservation) |
@@ -345,7 +357,7 @@ Presets (all day 25 = mid September):
 
 ## Known limitations
 - The net-worth band was revised to €250–400k (r4b). The builder's €303k meets it at ×1. At ×0.5, pure contracting (€78k) falls below jobs-only (€98k), which r4c allows.
-- **Restructuring writes off everything a farm without income cannot carry** (e.g. €290k in the probe). Everything else is seized first: machines, stock, land, and the hands are laid off. So it is a hard reset, not a shortcut.
+- **Restructuring writes off everything a farm without income cannot carry** (e.g. €256k in the probe). Everything else is seized first: machines, stock (diesel and fertiliser at 50 %), land, and the hands are laid off. So it is a hard reset, not a shortcut.
 - **The live game depends on other modules:**
   - `crops:worked` must carry `parcelId` + `areaM2` for CAP;
   - characters must call `logWork` for the hands' own activity;

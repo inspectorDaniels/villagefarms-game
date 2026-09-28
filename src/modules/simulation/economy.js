@@ -2,6 +2,7 @@
 import { CONST, YEAR_DAYS, MONTH_DAYS, WORKER_NAMES, MACHINES, ITEMS } from './data.js';
 
 // categories that move capital or debt rather than profit (excluded from operating P&L)
+const CONSUMABLE_SEIZE = { diesel: 0.5, fertiliser: 0.5 };
 export const CAPITAL_CATEGORIES = ['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'assetSale'];
 
 export function installEconomy(sim) {
@@ -295,7 +296,15 @@ export function installEconomy(sim) {
     },
     /** insolvency state: an overdraft beyond the credit headroom counts days; 30 → blocked, 60 → the bank sells assets */
     solvency() {
-      return { overLimit: overLimit(), daysOverLimit: E.overLimitDays || 0, blocked: sim.blocked(), overdraft: Math.max(0, -E.money), creditLimit: api.creditLimit(), restructured: !!E.restructured, bankrupt: !!E.bankrupt };
+      const n = E.overLimitDays || 0, over = overLimit();
+      return {
+        overLimit: over, daysOverLimit: n, blocked: sim.blocked(), overdraft: Math.max(0, -E.money), creditLimit: api.creditLimit(),
+        restructured: !!E.restructured, bankrupt: !!E.bankrupt,
+        // r5: countdowns for the UI (null when not over the limit)
+        daysToBlock: over ? Math.max(0, CONST.overLimitBlockDays - n) : null,
+        daysToSettlement: over ? Math.max(0, CONST.overLimitSeizeDays - n) : null,
+        nextStage: !over ? null : n < CONST.overLimitBlockDays ? 'blocked' : E.restructured ? 'bankrupt' : 'settlement',
+      };
     },
   });
 
@@ -333,16 +342,20 @@ export function installEconomy(sim) {
       const n = E.overLimitDays;
       const stage = n >= CONST.overLimitSeizeDays ? 'seizure' : n >= CONST.overLimitBlockDays ? 'blocked' : 'warning';
       sim.emit('economy:bankrupt-warning', { money: E.money, daysNegative: E.negativeDays, daysOverLimit: n, stage, creditLimit: api.creditLimit() });
-      if (n >= CONST.overLimitSeizeDays && (n - CONST.overLimitSeizeDays) % 3 === 0 && !seizeOne()) {
-        // r4 end state: nothing left to seize → hands are laid off after 30 more days, then the bank
-        // restructures the overdraft once; a second time it is bankruptcy (E.bankrupt, stays blocked)
-        E.nothingLeftDays = (E.nothingLeftDays || 0) + 3;
-        if (E.nothingLeftDays >= 30 && E.workers.length) {
-          const names = E.workers.map((w) => w.name);
-          for (const w of E.workers.slice()) api.fireWorker(w.id);
-          sim.emit('economy:hands-laid-off', { names, reason: 'insolvency' });
+      if (n >= CONST.overLimitSeizeDays) {
+        // r5: one settlement day, 30 days into the block — the bank sells what it needs (machines, stock incl.
+        // diesel/fertiliser, then land); if that is not enough, the hands are laid off and the overdraft is
+        // restructured once, the same day. A second time it is bankruptcy.
+        let k = 0;
+        while (overLimit() && k++ < 200 && seizeOne());
+        if (overLimit()) {
+          if (E.workers.length) {
+            const names = E.workers.map((w) => w.name);
+            for (const w of E.workers.slice()) api.fireWorker(w.id);
+            sim.emit('economy:hands-laid-off', { names, reason: 'insolvency' });
+          }
+          restructure();
         }
-        if (E.nothingLeftDays >= 33) restructure();
       }
     } else {
       E.overLimitDays = 0;
@@ -404,10 +417,11 @@ export function installEconomy(sim) {
       return true;
     }
     // r4c: stored produce is the easiest thing to liquidate — before any land
-    const stock = Object.entries(E.inventory).filter(([k, q]) => q > 0.05 && ITEMS[k] && !['diesel', 'fertiliser'].includes(k) && E.prices[k]);
+    // (r5) consumables too — they can't be resold on the market, so the bank takes them at 50 %
+    const stock = Object.entries(E.inventory).filter(([k, q]) => q > 0.05 && ITEMS[k] && E.prices[k]);
     if (stock.length) {
       let got = 0;
-      for (const [k, q] of stock) { got += q * E.prices[k] * CONST.seizeValue; api.removeInventory(k, q); }
+      for (const [k, q] of stock) { got += q * E.prices[k] * (CONSUMABLE_SEIZE[k] || CONST.seizeValue); api.removeInventory(k, q); }
       api.credit(got, 'sales', 'Bank sale (insolvency): stored produce');
       sim.emit('economy:asset-seized', { kind: 'stock', id: 'stock', name: 'stored produce', amount: got });
       return true;

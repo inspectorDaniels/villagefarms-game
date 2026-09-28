@@ -276,7 +276,7 @@ export function generateData(ctx, opts = {}) {
     riverInfo.push({ id: 'terrain:river0', points: out, pts: rPts, cum: rCum, length: rLen, levelTop: RIVER_TOP, levelBottom: RIVER_TOP - RIVER_DROP });
   }
 
-  const T = { w: W, h: H, height, surface, moisture, waterLevel, flags, aux, rockW, riverD, shade: new Float32Array(N), painted: new Uint8Array(N), pedge: new Uint16Array(N), pedge2: new Uint16Array(N), psd: new Float32Array(N), prev: new Uint8Array(N), ops: [], rivers, riverInfo, lakes, reeds: [] };
+  const T = { w: W, h: H, height, surface, moisture, waterLevel, flags, aux, rockW, riverD, shade: new Float32Array(N), painted: new Uint8Array(N), pedge: new Uint16Array(N), pedge2: new Uint16Array(N), prev: new Uint8Array(N), ops: [], rivers, riverInfo, lakes, reeds: [] };
   Object.defineProperty(T, '_cls', { value: { nMask, nMisc, forestC, meadowC, bl }, enumerable: false });
   classify(T, ctx, 0, 0, W - 1, H - 1, nMask, nMisc, forestC, meadowC, bl);
   computeShade(T, 0, 0, W - 1, H - 1);

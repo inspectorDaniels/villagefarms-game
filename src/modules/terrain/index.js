@@ -264,24 +264,34 @@ export async function init(ctx) {
       if (T.ops.length >= 65000) compactOps();
       T.ops.push(op);
       const idx = T.ops.length;
-      const BAND = 1.6;
+      const BAND = 1.6, CBAND = 1.2;
       let n = 0, covered = 0;
       const bx0 = Math.max(0, Math.floor(bb.x0 - BAND)), by0 = Math.max(0, Math.floor(bb.y0 - BAND));
       const bx1 = Math.min(T.w - 1, Math.ceil(bb.x1 + BAND)), by1 = Math.min(T.h - 1, Math.ceil(bb.y1 + BAND));
       for (let y = by0; y <= by1; y++) for (let x = bx0; x <= bx1; x++) {
         const o = y * T.w + x;
         if (T.waterLevel[o] - T.height[o] > 0.02) continue; // water cells are never painted nor counted
-        const sd = opSD(op, x, y);
-        if (sd >= 0) covered++;
-        if (Math.abs(sd) < BAND) {
-          // keep ONE level of outline history: the previous outline stays visible outside the new one,
-          // so abutting/overlapping strips of the same surface do not cut each other's edges (no seams)
+        // (1) outline slot of the 1 m CELL [x,x+1)×[y,y+1): the shader draws the true sub-cell edge from it
+        const sc = opSD(op, x + 0.5, y + 0.5);
+        if (Math.abs(sc) < CBAND) {
+          // two outlines per cell: the newest and the one before it. With a third, the one whose edge is
+          // farthest from the cell is folded into prev (evaluated at the cell centre). Abutting or
+          // overlapping strips of one surface therefore never cut each other's edges → no grass seams.
           const old = T.pedge[o], old2 = T.pedge2[o];
-          if (old2) { const o2 = T.ops[old2 - 1]; if (opSD(o2, x, y) >= 0) T.prev[o] = o2.code; } // fold the oldest level
-          else if (!old) T.prev[o] = T.surface[o];
-          T.pedge2[o] = old; T.pedge[o] = idx; T.psd[o] = sd;
-        } else if (sd > 0) { T.pedge[o] = 0; T.pedge2[o] = 0; }
+          if (!old) T.prev[o] = codeAt(T, x + 0.5, y + 0.5);
+          else if (old2) {
+            const A = T.ops[old - 1], B = T.ops[old2 - 1];
+            const sa = opSD(A, x + 0.5, y + 0.5), sb = opSD(B, x + 0.5, y + 0.5);
+            if (Math.abs(sa) > Math.abs(sb)) { if (sa >= 0) T.prev[o] = A.code; T.pedge2[o] = old2; } // drop A, keep B
+            else { if (sb >= 0) T.prev[o] = B.code; T.pedge2[o] = old; }
+          } else T.pedge2[o] = old;
+          if (!old) T.pedge2[o] = 0;
+          T.pedge[o] = idx;
+        } else if (sc > 0) { T.pedge[o] = 0; T.pedge2[o] = 0; }
+        // (2) gameplay surface of the NODE (x,y)
+        const sd = opSD(op, x, y);
         if (sd < 0) continue;
+        covered++;
         T.surface[o] = code; T.painted[o] = 1; T.aux[o] = auxV; n++;
       }
       if (!covered) {

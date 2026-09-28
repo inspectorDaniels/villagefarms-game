@@ -14,7 +14,7 @@ export const manifest = {
     // money
     'money', 'canAfford', 'charge', 'credit', 'ledger', 'summary', 'netWorth',
     // market
-    'price', 'priceHistory', 'sell', 'buy', 'defineSellPoint', 'sellPoints', 'yieldTable', 'inputCost', 'buyInputs', 'workRates',
+    'price', 'priceHistory', 'sell', 'buy', 'defineSellPoint', 'removeSellPoint', 'sellPoints', 'yieldTable', 'inputCost', 'buyInputs', 'workRates',
     // inventory
     'inventory', 'addInventory', 'removeInventory', 'setCapacity', 'storageRoom', 'bulkRoom',
     // catalog & assets
@@ -33,7 +33,7 @@ export const manifest = {
     'today',
   ],
   emits: ['economy:transaction', 'economy:price-changed', 'economy:bankrupt-warning', 'economy:contractor-done', 'economy:asset-seized', 'economy:hands-laid-off', 'land:parcel-changed',
-    'jobs:offered', 'jobs:accepted', 'jobs:completed', 'jobs:failed'],
+    'jobs:offered', 'jobs:accepted', 'jobs:completed', 'jobs:failed', 'jobs:reassigned'],
   listens: ['clock:day', 'clock:hour', 'crops:worked'],
 };
 
@@ -46,6 +46,7 @@ export async function init(ctx) {
     clockT: () => ctx.clock.t,
     warn: (msg) => ctx.warn(msg),
     hourlyDelegation: true,
+    notify: (text, kind) => { const ui = ctx.modules.get('ui'); if (ui && typeof ui.toast === 'function') ui.toast(text, { kind: kind || 'info' }); },
     hasCropsFields: (parcelId) => {
       const cr = ctx.modules.get('crops');
       const fs = cr && typeof cr.fields === 'function' ? cr.fields() : null;

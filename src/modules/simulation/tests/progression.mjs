@@ -129,8 +129,9 @@ function main() {
     if (['jobs', 'contractor', 'smallfarm', 'renter', 'builder'].every((st) => nw[st] != null)) {
       const full = gt('builder', 'renter') && gt('renter', 'smallfarm') && gt('smallfarm', 'contractor') && gt('contractor', 'jobs');
       const relaxed = gt('builder', 'renter') && gt('renter', 'smallfarm') && gt('builder', 'jobs');
-      console.log(`- r4c ordering: builder > renter > smallfarm > contractor > jobs: ${full ? 'yes' : 'no'}${AI_MULT === 1 ? ' (required at ×1) ' + (full ? '✔' : '✘') : ''}`);
-      if (AI_MULT !== 1) console.log(`  relaxed rule at ×${AI_MULT} (builder > renter > smallfarm, builder > jobs; contractor vs jobs may swap): ${relaxed ? '✔' : '✘'}`);
+      // r4c: the full chain is required at the shipped factor ×1; at other factors the relaxed rule applies
+      if (AI_MULT === 1) console.log(`- r4c rule at ×1 (required): builder > renter > smallfarm > contractor > jobs → ${full ? '✔ holds' : '✘ FAILS'}`);
+      else console.log(`- r4c rule at ×${AI_MULT} (relaxed): builder > renter > smallfarm and builder > jobs (contractor vs jobs may swap) → ${relaxed ? '✔ holds' : '✘ FAILS'}${full ? '; the full chain holds too' : ''}`);
     }
   }
   // 5 ha wheat self-check

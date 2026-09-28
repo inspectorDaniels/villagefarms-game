@@ -285,9 +285,19 @@ export function installJobs(sim) {
     const day = opts.day != null ? opts.day : sim.today();
     const W = E().workers || [];
     for (const w of W) {
-      if (sim.isAvailable && sim.isAvailable(w.id) === false) continue;
-      // r4c: an hour in which the player possessed this hand is his, not the delegated job's
-      if (opts.hours != null && w.possessedAt != null && sim.now() - w.possessedAt < 3600) continue;
+      const possessed = opts.hours != null && w.possessedAt != null && sim.now() - w.possessedAt < 3600;
+      if (possessed || (sim.isAvailable && sim.isAvailable(w.id) === false)) {
+        // r5: the hand can't do it — on its deadline day the job goes back to the player, with a reason
+        for (const j of J.list) {
+          if (j.status !== 'accepted' || j.assignee !== w.id || sim.today() < j.deadlineDay) continue;
+          j.assignee = null;
+          E().version++;
+          const reason = possessed ? 'hand-possessed' : 'hand-unavailable';
+          sim.emit('jobs:reassigned', { job: pub(j), jobId: j.id, workerId: w.id, reason });
+          if (sim.notify) sim.notify(`${w.name} couldn't get to "${j.title}" — it's back on your list, due today`, 'warn');
+        }
+        continue;
+      }
       // daily mode: what is left of his day; hourly (live) mode: the hand is on the delegated job this hour
       // (characters logs its own activity separately — the day is paid once either way)
       let free = opts.hours != null ? Math.min(opts.hours, CONST.hoursPerDayHand - (w.jobHoursToday || 0)) : CONST.hoursPerDayHand - (w.hoursToday || 0);

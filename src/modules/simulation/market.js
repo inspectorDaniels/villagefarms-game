@@ -109,6 +109,14 @@ export function installMarket(sim) {
       };
       return id;
     },
+    /** r5: a demolished buyer stops buying (buildings calls this). Returns true if it existed. */
+    removeSellPoint(id) {
+      if (!E.sellPoints[id]) return false;
+      delete E.sellPoints[id];
+      if (E.market.sat[id]) delete E.market.sat[id];
+      E.version++;
+      return true;
+    },
     sellPoints() { return Object.values(E.sellPoints).map((s) => ({ ...s, accepts: s.accepts && s.accepts.slice() })); },
     /** sell qty units from farm inventory. Returns € received. (r3: the old fromInventory:false path is gone —
      *  producers addInventory first.) */

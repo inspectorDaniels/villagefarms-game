@@ -22,7 +22,8 @@ export function createSim(world, env) {
   sim.blocked = () => false; // replaced by economy.js
   sim.rates = buildWorkRates(env.aiWorkFactor || AI_WORK_FACTOR);
   sim.isAvailable = env.isAvailable || null;
-  sim.hasCropsFields = env.hasCropsFields || null; // r4c: optional crops.fields() lookup   // r4: optional characters.isAvailable(workerId)
+  sim.hasCropsFields = env.hasCropsFields || null; // r4c: optional crops.fields() lookup
+  sim.notify = env.notify || null;                 // r5: optional ui toast   // r4: optional characters.isAvailable(workerId)
   sim.hourlyDelegation = !!env.hourlyDelegation; // live game: hands work delegated jobs hour by hour
 
   installEconomy(sim);
