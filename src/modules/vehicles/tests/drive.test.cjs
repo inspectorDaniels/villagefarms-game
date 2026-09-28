@@ -311,12 +311,32 @@ const ONLY = process.env.ONLY || 'terrain,environment,roads,simulation,crops,eff
       V.enter(id, 'test:sl');
       for (let i = 0; i < 77; i++) { V.control(id, { throttle: 1, steer: Math.sin(i / 20) }); step(1); }
       const saved = JSON.stringify(inst2.save());
-      const drive = () => { for (let i = 0; i < 400; i++) { V.control(id, { throttle: 1, steer: Math.sin(i / 30) }); step(1); } const q = V.get(id); return [q.x, q.y, q.rot, q.fuel].map((n) => n.toFixed(10)).join(','); };
+      const drive = () => { for (let i = 0; i < 400; i++) { if (i % 3 === 1) V.control(id, { throttle: 1, steer: Math.sin(i / 30) }); step(1); } const q = V.get(id); return [q.x, q.y, q.rot, q.fuel].map((n) => n.toFixed(10)).join(','); };
       const a1 = drive();
       inst2.load(JSON.parse(saved));
       const a2 = drive();
       check('save/load mid-drive replays bit-exact', a1 === a2, { a1, a2 });
       V.exit(id); V.get(id).speed = 0;
+    }
+
+    // fuel points: add / remove (saved) ; despawned vehicle frees its exit spot at once
+    {
+      V.addFuelPoint(site.x, site.y, 12); V.addFuelPoint(site.x + 50, site.y, 12);
+      const n = V.removeFuelPoint(site.x + 1, site.y + 1);
+      const inst3 = G.engine.instances.find((i) => i.id === 'vehicles').inst;
+      const sv = inst3.save();
+      check('removeFuelPoint removes nearby points only (saved)', n === 1 && sv.fuelPoints.length === 1 && sv.fuelPoints[0].x === site.x + 50, { n, left: sv.fuelPoints });
+      V.removeFuelPoint(site.x + 50, site.y);
+      const a = V.spawn('tractor_t2', site.x + 30, site.y - 60, 0, { fuel: 50 });
+      const b = V.spawn('trailer_flat', site.x + 30 - 3.2, site.y - 60, 0);
+      V.enter(a, 'test:ds');
+      const before = V.exitPosition(a);
+      V.despawn(b);
+      const after = V.exitPosition(a);
+      const sp = G.engine.instances.find((i) => i.id === 'vehicles').ctx.spatial;
+      check('despawn frees its space immediately', !sp.get(b) && after && Math.hypot(after.x - (site.x + 30 - 1.85), after.y - (site.y - 60 - 0.23)) < 0.3 && before.x > site.x + 30, { before, after });
+      V.despawn(a);
+      check('despawn evicts the driver', V.get(a) === null && !sp.get(a));
     }
     // ---- 12. perf: 8 moving rigs, measured over 600 steps
     const rigs = [];

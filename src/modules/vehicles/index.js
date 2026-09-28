@@ -17,14 +17,14 @@ export const manifest = {
   namespaces: ['vehicles'],
   api: ['spawn', 'despawn', 'list', 'get', 'nearest', 'enter', 'exit', 'driverOf', 'control', 'attach', 'detach',
     'refuel', 'repair', 'upgrade', 'purchase', 'sell', 'catalog', 'types', 'setImplement', 'setLights', 'setSeed',
-    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder', 'workRate', 'addFuelPoint'],
+    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder', 'workRate', 'addFuelPoint', 'removeFuelPoint'],
   emits: ['vehicles:entered', 'vehicles:exited', 'vehicles:purchased', 'vehicles:worked', 'vehicles:attached',
     'vehicles:detached', 'vehicles:refuelled', 'vehicles:repaired', 'vehicles:sold'],
   listens: [],
 };
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-const SAVE_SKIP = new Set(['ctl', 'ctlStep', 'cap', 'load', 'blocked', 'blockedBy', 'engine']);
+const SAVE_SKIP = new Set(['cap', 'load', 'blocked', 'blockedBy', 'engine']);
 export const EXIT_MAX_SPEED = 1.0; // m/s — faster than this the driver cannot get out
 
 export async function init(ctx) {
@@ -248,7 +248,14 @@ export async function init(ctx) {
   function despawn(id) {
     const v = byId.get(id);
     if (!v) return false;
-    if (v.driverId) exit(id);
+    ctx.spatial.remove(id); // first, so nothing (exit spots included) sees the despawned body
+    if (v.driverId) {
+      // despawn always evicts the driver, even at speed / with no free spot
+      const cid = v.driverId;
+      const pos = exitPosition(id) || { x: v.x, y: v.y };
+      v.driverId = null; v.ctl = null; v.engine = false;
+      events.emit('vehicles:exited', { vehicleId: id, characterId: cid, x: pos.x, y: pos.y, despawned: true });
+    }
     for (const pid of v.attached.slice()) detach(id, pid);
     if (v.hitchedTo) detach(v.hitchedTo, id);
     if (render) render.release(v);
@@ -279,6 +286,7 @@ export async function init(ctx) {
     const circle = [[x - r, y - r], [x + r, y - r], [x + r, y + r], [x - r, y + r]];
     const hits = ctx.spatial.queryCircle(x, y, r, (it) => it.solid && !(ignore && ignore.has(it.id)));
     for (const it of hits) {
+      if (it.data && it.data.vehicleId && !byId.has(it.data.vehicleId)) { ctx.spatial.remove(it.id); continue; } // stale entry
       if (it.data && Array.isArray(it.data.polys)) { if (it.data.polys.some((P) => polysOverlap(P, circle))) return false; continue; }
       if (it.data && it.data.poly) { if (polysOverlap(it.data.poly, circle)) return false; continue; }
       return false;
@@ -468,6 +476,13 @@ export async function init(ctx) {
     for (const p of W.fuelPoints || []) if (Math.hypot(p.x - v.x, p.y - v.y) <= (p.r || FUEL_R)) return 'pump';
     const s = driver.surfaceAt(v.x, v.y);
     return s === 'farmyard' ? 'yard' : null;
+  }
+  /** remove fuel points within r metres of (x, y) (buildings calls this on demolition) → number removed */
+  function removeFuelPoint(x, y, r = 3) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 0;
+    const before = (W.fuelPoints || []).length;
+    W.fuelPoints = (W.fuelPoints || []).filter((p) => Math.hypot(p.x - x, p.y - y) > r);
+    return before - W.fuelPoints.length;
   }
   function addFuelPoint(x, y, r = FUEL_R) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
@@ -670,6 +685,7 @@ export async function init(ctx) {
   function save() {
     return {
       counter: W.counter,
+      stepCount,
       fuelPoints: (W.fuelPoints || []).map((p) => ({ ...p })),
       list: W.list.map((v) => {
         const o = {};
@@ -681,8 +697,9 @@ export async function init(ctx) {
   function load(d) {
     if (!d || !Array.isArray(d.list)) return;
     for (const v of W.list) { ctx.spatial.remove(v.id); if (render) render.release(v); }
-    W.list = d.list.map((v) => ({ ...v, attached: (v.attached || []).slice(), upgrades: { ...(v.upgrades || {}) }, cargo: v.cargo ? { ...v.cargo } : null }));
+    W.list = d.list.map((v) => ({ ...v, attached: (v.attached || []).slice(), upgrades: { ...(v.upgrades || {}) }, cargo: v.cargo ? { ...v.cargo } : null, ...(v.ctl ? { ctl: { ...v.ctl } } : {}) }));
     W.counter = d.counter || W.list.length;
+    if (Number.isFinite(d.stepCount)) stepCount = d.stepCount;
     if (Array.isArray(d.fuelPoints)) W.fuelPoints = d.fuelPoints.map((p) => ({ ...p }));
     byId.clear();
     for (const v of W.list) byId.set(v.id, v);
@@ -695,7 +712,7 @@ export async function init(ctx) {
     setImplement, setLights, unload, hitchNearest, exitPosition, workRate,
     /** copies (read-only snapshots); use get(id) for the live record */
     list: (filter) => (filter ? W.list.filter((v) => (typeof filter === 'function' ? filter(v) : Object.entries(filter).every(([k, val]) => v[k] === val))) : W.list).map(snap),
-    addFuelPoint,
+    addFuelPoint, removeFuelPoint,
     driverOf: (id) => { const v = byId.get(id); return v ? v.driverId || null : null; },
     types: typesApi,
     setSeed: (id, crop) => { const v = byId.get(id); if (!v) return false; v.seed = String(crop); for (const p of partsOf(v)) p.seed = v.seed; return true; },

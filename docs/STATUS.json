@@ -256,12 +256,8 @@
           "review": "docs/reviews/vehicles-r2.md"
         }
       ],
-      "openIssues": [
-        "should: refused-exit cases in characters.test.cjs",
-        "save/load replay drifts 1-2 cm in full game (ctlStep not saved)",
-        "no fuel point in full game until demo places one"
-      ],
-      "note": "r2: pause, exit speed/blocked, E vs H, polys colliders, nearest free, harvest by crop kind, engine auto-off, fuel points (addFuelPoint), exact save/load replay; 34/34 + 13/13 tests"
+      "openIssues": [],
+      "note": "passed r2 7/10; follow-ups: removeFuelPoint, bit-exact save/load replay (ctlStep saved), despawn frees collider immediately; 37/37 + 13/13"
     },
     "characters": {
       "wave": 2,

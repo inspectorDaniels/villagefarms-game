@@ -38,7 +38,7 @@ const { findChrome, chromeArgs } = require(path.join(root, 'tools/shot.js'));
     const pl = V.spawn('plough_s', 0, 0, 0); V.attach(tr, pl);
     const cid = CH.spawn({ role: 'player', name: 'Tester', x: s.x - 2.2, y: s.y });
     CH.setActive(cid);
-    step(5);
+    step(30); // characters ignores F during its first 0.25 s
     const key = (code, n) => { G.input.press(code); step(1); if (n > 1) step(n - 1); G.input.release(code); };
     key('KeyF', 1); step(2);
     check('F enters the tractor', V.driverOf(tr) === cid && CH.get(cid).vehicleId === tr, { driver: V.driverOf(tr) });

@@ -42,7 +42,7 @@ Items simulation lacks are registered at init: `pickup` (€28k), `rake` (€6k)
 Upkeep and leases are charged daily by simulation (asset records); this module charges fuel, repairs and upgrades.
 
 ## API (`ctx.modules.get('vehicles')`) — metres, radians (0 = north, clockwise), m/s
-- `spawn(type, x, y, rot, { owner, assetId, fuel, wear, paint, seed, name })` → id · `despawn(id)`
+- `spawn(type, x, y, rot, { owner, assetId, fuel, wear, paint, seed, name })` → id · `despawn(id)` (removes its collider at once and always evicts the driver, emitting `vehicles:exited` with `despawned:true`)
 - `list(filter?)` (object match or predicate) → **copies** · `get(id)` → **live** record (treat as read-only) · `nearest(x, y, r=3, {any, free, kind})`
   → nearest drivable vehicle by distance to its body box (implements only with `any`; `free:true` skips occupied/hitched)
 - `enter(id, characterId)` → bool (lights auto-on after dark) · `exit(id)` → `{x, y}` exit spot: dry, free
@@ -59,6 +59,7 @@ Upkeep and leases are charged daily by simulation (asset records); this module c
 - `refuel(id, litres?, {anywhere})` → litres. **Where:** within 12 m of a fuel point (`addFuelPoint(x, y, r?)`, saved):
   the farm's diesel stock first, then `simulation.buy('diesel')` as money allows. On the **farmyard** surface: only from
   the farm's diesel stock (buy diesel into the farm tank first). Anywhere else: 0 (G shows why). `anywhere:true` for scripts.
+  `removeFuelPoint(x, y, r = 3)` → number removed (buildings calls it on demolition; saved).
 - `repair(id)` → € (12 % of list price × wear, category `repairs`) or false · `upgrade(id, 'engine'|'tyres'|'gps')` → € or false
 - `purchase(itemOrType, x, y, rot, { finance, lease, grant })` → [ids] via `simulation.purchase/lease/grantAsset`
 - `sell(id)` → € (releases the asset; despawns the whole kit) · `catalog()` · `types()` · `workRate(...)`
@@ -100,7 +101,7 @@ Player keys handled here while the active character drives: **H** hitch/unhitch,
 ## World data
 `world.vehicles = { list: [{ id, type, kind, name, x, y, rot, speed, steer, fuel, tank, wear, driverId, attached:[ids],
 hitchedTo, lowered, lights, engine, owner:'owned'|'leased'|null, assetId, upgrades:{engine,tyres,gps}, hours, odo, fuelUsed,
-workedArea, cargo:{item, kg}|null, seed, paint }], counter, version }`. Saved by `save()`/`load()` (runtime-only fields dropped).
+workedArea, cargo:{item, kg}|null, seed, paint }], counter, version }`. Saved by `save()`/`load()` together with the control state (`ctl`, `ctlStep`) and the module step counter, so a replay after load is bit-exact.
 
 ## Rendering
 Painted sprites (cached) per body, 4-phase lug tyres that roll with the odometer and steer (rear steer on combines),
@@ -116,7 +117,7 @@ headlights/beacons · `closeup` plough at 56 px/m. The scene is placed on a dry,
 
 ## Tests
 ```
-node src/modules/vehicles/tests/drive.test.cjs        # 34 physics/economy/r2 checks, deterministic (engine.step by hand)
+node src/modules/vehicles/tests/drive.test.cjs        # 37 physics/economy/r2 checks, deterministic (engine.step by hand)
 node src/modules/vehicles/tests/characters.test.cjs   # F/W/A/D/E/S/L through the characters module
 ```
 `SIM_FROM_GIT=1` serves simulation from git HEAD when its builder is mid-edit.
