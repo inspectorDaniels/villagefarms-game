@@ -117,7 +117,7 @@
       "openIssues": [
         "ui: show workerDayCost on possession, solvency countdown, bankrupt state"
       ],
-      "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes"
+      "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged"
     },
     "ui": {
       "wave": 1,
@@ -231,7 +231,7 @@
         "granted demolish shows phantom \u20ac162k sale+write-off",
         "old saves: asset => purchased",
         "test count 41 not 42",
-        "sim: buildings ledger category"
+        "use releaseAsset(assetId,{writeOff:true}) for granted buildings"
       ],
       "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42"
     },
