@@ -26,7 +26,8 @@ spend the effort on working, verified behaviour in the full game (scripted key r
    Check `msAvg` for your module in the shot JSON (`health[]`).
 6. The app must stay loadable: after every significant edit, run a screenshot. A syntax error
    in your module only fails your module, but don't leave it broken.
-7. **Never claim a visual result you have not screenshotted and looked at** (open the PNG with the
+7. **Never run git commands that modify the shared working tree** (`git stash`, `checkout`, `reset`, `restore`, `clean`): other agents' uncommitted edits live there. For a baseline use `git show <rev>:<path>` or `git archive <rev>` into your scratchpad.
+8. **Never claim a visual result you have not screenshotted and looked at** (open the PNG with the
    Read tool). Other agents are working concurrently — the dev server at http://localhost:5173 is
    shared; do not start or kill servers.
 
