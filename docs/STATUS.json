@@ -114,9 +114,7 @@
           "review": "docs/reviews/simulation-r5.md"
         }
       ],
-      "openIssues": [
-        "ui: show workerDayCost on possession, solvency countdown, bankrupt state"
-      ],
+      "openIssues": [],
       "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged"
     },
     "ui": {
@@ -136,10 +134,9 @@
         "**Panels overlap the bottom-centre prompt at the target resolution.** `.hv-panel { max-height: calc(100vh - 118px - 150px) }` lets the sheet end at about y=782, while the prompt sits at y\u2248745\u2013785. In market_1230.png / market_1930.png the \"E \u2014 Hoe the verge\" prompt is hidden under the Market sheet, and in finances_1230.png it pokes out underneath. Compute the max height from the actual top of the bottom-centre slot (or hide/raise the prompt while a panel is open) so that nothing is covered at 1600\u00d7900.",
         "**1024\u00d7700 layout collides.** narrow_jobs.png, narrow_finances.png and narrow_land.png show the 700 px sheet covering the minimap's \"Harvest Valley\" caption and cutting the toast stack in half (\"\u2026nned on the jobs board.\"). Toasts must never sit under a panel. Either put `.hv-toasts` above `.hv-panelwrap` in z-order and move it clear, or clamp the panel width to the space between the side columns (`min(700px, 100vw - 2\u00d7(minimap width + gutter))`) and shift toasts below the panel's right edge. The README's own threshold of \"< 1000 px\" is not met at 1024.",
         "**An invisible dead zone above the toolbar eats world clicks.** The `ui:toolbar` HUD node is `hv-hit`, 348\u00d791 px, and includes the tool-name row plus the gap. Probes at (746,807) and (631,800), on transparent pixels beside the \"Hoe\" chip, returned `uiCapturing=true` and the canvas never received the click. Give the bare wrappers (`card:false` HUDs, `toolsWrap`) `pointer-events:none` and only mark the visible card, chip and prompt as `.hv-hit`.",
-        "**Declare the optional dependencies.** `manifest.optionalDeps: []`, but the module reads `simulation`, `environment` (via world), `terrain` and `roads` through `ctx.modules.get`. The brief lists them as the data sources and ARCHITECTURE \u00a71 expects them in the manifest (boot also uses optionalDeps for init order). Set `optionalDeps: ['simulation','environment','terrain','roads']`. This is harmless to wave-1 isolation because they stay optional.",
-        "KEY CONFLICT: KeyH opens Help panel and is vehicles' hitch key while driving \u2014 ui should skip panel hotkeys when the active character is in a vehicle (or vehicles moves hitch key); owner decision: ui suppresses H while driving"
+        "**Declare the optional dependencies.** `manifest.optionalDeps: []`, but the module reads `simulation`, `environment` (via world), `terrain` and `roads` through `ctx.modules.get`. The brief lists them as the data sources and ARCHITECTURE \u00a71 expects them in the manifest (boot also uses optionalDeps for init order). Set `optionalDeps: ['simulation','environment','terrain','roads']`. This is harmless to wave-1 isolation because they stay optional."
       ],
-      "note": "passed r1 (7/10); polish round applied all must/should-fix; not re-reviewed"
+      "note": "passed r1 (7/10); polish round applied all must/should-fix; not re-reviewed | follow-ups: vehicle-key suppression, hand day-cost toast/tag, solvency card + countdown, toast dedup"
     },
     "audio": {
       "wave": 1,

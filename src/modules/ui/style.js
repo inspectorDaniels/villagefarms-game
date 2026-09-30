@@ -167,6 +167,15 @@ export function buildCss(P, tex) {
 .hv-ui .hv-prompt .kc { min-width: 26px; height: 26px; font-size: 13px; border-radius: 6px; }
 
 /* ---------- characters ---------- */
+.hv-ui .hv-char .rate { font: 600 10px Georgia, serif; color: var(--ink2); background: rgba(255,248,230,.75); border-radius: 7px; padding: 0 5px; line-height: 14px; }
+.hv-ui .hv-char .rate.clk { color: #7a4a12; box-shadow: inset 0 0 0 1px rgba(160,110,30,.55); }
+.hv-ui .hv-solv { display: flex; align-items: center; gap: 9px; padding: 7px 12px; max-width: 420px; color: var(--ink); font: 12px Georgia, serif; }
+.hv-ui .hv-solv > div > b { display: block; font-size: 13px; }
+.hv-ui .hv-solv span b { font-weight: 700; }
+.hv-ui .hv-solv .si .hv-ic { width: 20px; height: 20px; }
+.hv-ui .hv-solv.over { box-shadow: inset 3px 0 0 #c08a2a; }
+.hv-ui .hv-solv.blocked, .hv-ui .hv-solv.bankrupt { box-shadow: inset 3px 0 0 #a83a26; }
+.hv-ui .hv-solv.bankrupt b { color: #8a2a18; }
 .hv-ui .hv-chars { display: flex; align-items: flex-end; gap: 8px; padding: 8px 12px 8px 10px; }
 .hv-ui .hv-char { all: unset; cursor: pointer; position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .hv-ui .hv-char .pt { width: 42px; height: 42px; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 1.5px rgba(90,68,40,.6), 0 1px 3px rgba(40,26,10,.35); transition: transform .12s; }

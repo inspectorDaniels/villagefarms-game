@@ -27,7 +27,8 @@ Files: `index.js` (manifest/init/API/HUD), `panels.js` (built-in panels + format
 | `setSpeed(mult)` (0 = pause, 1/3/10) · `getSpeed()` | clock.scale = 60 × mult |
 
 Keys (ignored while Ctrl/Alt/Meta is held; handled keys set `ev.stop`): Space pause, `+`/`−` speed, O Finances, P Market, J Jobs, M Land, H Help, Esc closes
-panel/dialog, toolbar hotkeys. `ctx.input.uiCapturing` is true while the pointer is over any
+panel/dialog, toolbar hotkeys. **While the active character is in a vehicle** (`world.characters` record has `vehicleId`)
+panel and toolbar hotkeys on H G U L E F R W A S D are ignored, so vehicle keys win (H = hitch); Help stays on its launcher button. `ctx.input.uiCapturing` is true while the pointer is over any
 interactive UI element (or a dialog is open); it is re-evaluated with `elementFromPoint` when a panel or dialog closes. Transparent gaps in the bottom-centre stack do not capture clicks.
 
 ## Events
@@ -35,7 +36,14 @@ Emits `ui:action` (`{id:'job-accepted'|'parcel-bought'|'parcel-rented'|'minimap-
 `ui:panel-opened|closed {id}`, `ui:speed-changed {speed, paused}`, `ui:tool-selected {id}`,
 `ui:character-selected {id}`. Listens to `jobs:offered` (batched toast), `jobs:completed|failed`,
 `economy:transaction` (sales ≥ €50 toast), `economy:bankrupt-warning`, `env:weather-changed`,
-`land:parcel-changed`, `terrain:*`/`roads:changed` (minimap rebuild), `clock:day`.
+`land:parcel-changed`, `terrain:*`/`roads:changed` (minimap rebuild), `clock:day`, `characters:switched` (switching to a hired hand toasts
+his day cost from `simulation.workerDayCost(workerId)`). `economy:bankrupt-warning` toasts are stage-aware (overdraft /
+warning / restructured / bankrupt). ui does **not** toast `jobs:reassigned` (simulation does via `ui.toast`); identical
+live toasts (same kind + text) are de-duplicated anyway.
+
+HUD extras: hired-hand portraits carry a day-rate tag (`€180/day`, outlined when on the clock; tooltip shows today's cost);
+a persistent `ui:solvency` card (top-centre) appears while `simulation.solvency().overLimit`, with the countdown from
+`daysToBlock`/`daysToSettlement`/`nextStage`, and a bankrupt / restructured-and-blocked message. Both refresh at 2 Hz and hide without data.
 
 ## World data
 `world.ui = { speed, paused, openPanel, activeTool }` (save/load round-trips it).

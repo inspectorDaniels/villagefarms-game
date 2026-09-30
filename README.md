@@ -38,7 +38,7 @@ Useful URL parameters (combine with `&`):
 | F | enter / leave the nearest vehicle (stop first) |
 | H / G / U / L | hitch/unhitch · refuel (at a fuel point) · unload · lights |
 | R | sell / repair at a building when prompted |
-| O P J M H (HUD buttons) | panels: overview, finances, jobs, market/land, help (known issue: H also opens Help while hitching in a vehicle) |
+| O P J M H (HUD buttons) | panels: overview, finances, jobs, market/land, help |
 
 ## State of the game
 

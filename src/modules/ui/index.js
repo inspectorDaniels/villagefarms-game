@@ -31,7 +31,7 @@ export const manifest = {
     'formatMoney', 'setSpeed', 'getSpeed'],
   emits: ['ui:action', 'ui:panel-opened', 'ui:panel-closed', 'ui:speed-changed', 'ui:tool-selected', 'ui:character-selected'],
   listens: ['economy:transaction', 'economy:bankrupt-warning', 'jobs:offered', 'jobs:completed', 'jobs:failed', 'land:parcel-changed',
-    'env:weather-changed', 'terrain:generated', 'terrain:changed', 'roads:changed', 'clock:day'],
+    'env:weather-changed', 'terrain:generated', 'terrain:changed', 'roads:changed', 'clock:day', 'characters:switched'],
 };
 
 let INSTANCE = null; // the live instance (single #ui), used by showcase.stage
@@ -345,9 +345,12 @@ export async function init(ctx) {
     const kind = TOAST_ICON[opts.kind] ? opts.kind : 'info';
     const id = 'toast:' + (++toastSeq);
     const body = opts.html ? String(text) : (opts.title ? `<b>${esc(opts.title)}</b><br>` : '') + esc(text);
+    // de-dupe: the same message from two owners (e.g. simulation's jobs:reassigned notify + a listener) shows once
+    const dup = toasts.find((q) => !q.out && q.kind === kind && q.body === body);
+    if (dup) { dup.age = 0; return dup.id; }
     const n = el('div', `hv-toast hv-card hv-hit ${kind}`, `<span class="ti">${iconSvg(opts.icon || TOAST_ICON[kind])}</span><div class="tx">${body}</div>`);
     n.onclick = safe('toast click', () => dismiss(t));
-    const t = { id, el: n, life: Math.max(0.8, (opts.ms || (kind === 'error' ? 7000 : 4800)) / 1000), age: 0, out: false };
+    const t = { id, kind, body, el: n, life: Math.max(0.8, (opts.ms || (kind === 'error' ? 7000 : 4800)) / 1000), age: 0, out: false };
     toasts.push(t);
     toastBox.appendChild(n);
     requestAnimationFrame(() => n.classList.add('on'));
@@ -433,25 +436,89 @@ export async function init(ctx) {
   registerHud('ui:characters', { slot: 'bottom-left', order: 0, render: (n) => { n.style.padding = '0'; n.appendChild(charsEl); } });
   const charsCard = charsEl.parentNode;
   let chars = { list: [], active: null, onSelect: null };
+  // hired hands: day-rate tag from simulation.workerDayCost(workerId) (null-safe; hidden without data)
+  function charRec(id) {
+    const list = W.characters && Array.isArray(W.characters.list) ? W.characters.list : [];
+    return list.find((c) => c && String(c.id) === String(id)) || null;
+  }
+  function handCost(id) {
+    const rec = charRec(id);
+    if (!rec || rec.workerId == null) return null;
+    const sim = ctx.modules.get('simulation');
+    if (!sim || typeof sim.workerDayCost !== 'function') return null;
+    const d = foreign('simulation.workerDayCost', sim.workerDayCost, rec.workerId);
+    return d && typeof d.dayRate === 'number' && Number.isFinite(d.dayRate) ? d : null;
+  }
+  function updateRates() {
+    for (const b of charsEl.querySelectorAll('.hv-char[data-cid]')) {
+      const r = b.querySelector('.rate');
+      if (!r) continue;
+      const d = handCost(b.dataset.cid);
+      if (!d) { r.style.display = 'none'; continue; }
+      const txt = money(d.dayRate, { dec: 0 }) + '/day';
+      if (r.textContent !== txt) r.textContent = txt;
+      r.style.display = '';
+      r.classList.toggle('clk', !!d.onTheClock);
+      r.title = d.onTheClock ? `On the clock today · ${money(d.costToday != null ? d.costToday : d.dayRate, { dec: 0 })}` : `Idle today · retainer ${money(d.retainer || 0, { dec: 0 })} · ${money(d.extraIfUsed || 0, { dec: 0 })} more if used`;
+    }
+  }
   function renderChars() {
     if (charsCard) charsCard.style.display = chars.list.length ? '' : 'none';
     charsEl.innerHTML = '';
     for (const c of chars.list) {
       const b = el('button', 'hv-char' + (c.id === chars.active ? ' on' : ''),
-        `<span class="pt">${portrait(c)}</span><span class="nm">${esc(c.name || c.id)}</span>${c.status ? `<span class="st" title="${esc(c.statusText || '')}">${iconSvg(c.status)}</span>` : ''}`);
+        `<span class="pt">${portrait(c)}</span><span class="nm">${esc(c.name || c.id)}</span><span class="rate" style="display:none"></span>${c.status ? `<span class="st" title="${esc(c.statusText || '')}">${iconSvg(c.status)}</span>` : ''}`);
       b.title = (c.name || c.id) + (c.statusText ? ' — ' + c.statusText : '');
+      b.dataset.cid = String(c.id);
       b.onclick = safe('character click', () => {
         if (typeof chars.onSelect === 'function') foreign('character onSelect', chars.onSelect, c.id);
         emit('ui:character-selected', { id: c.id });
       });
       charsEl.appendChild(b);
     }
+    updateRates();
     if (chars.list.length > 1) charsEl.appendChild(el('div', 'tab', `<span class="kc lg">Tab</span><span>switch</span>`));
   }
   function setCharacters(list, activeId, onSelect) {
     chars = { list: (Array.isArray(list) ? list : []).filter((c) => c && c.id != null), active: activeId, onSelect: onSelect || chars.onSelect };
     renderChars();
     return true;
+  }
+
+  // ---------------------------------------------------------------- solvency warning (persistent while over the limit)
+  const solvEl = el('div', 'hv-solv');
+  registerHud('ui:solvency', { slot: 'top-center', order: 10, className: 'hv-solvcard', render: (n) => { n.style.padding = '0'; n.appendChild(solvEl); } });
+  const solvCard = solvEl.parentNode;
+  if (solvCard) solvCard.style.display = 'none';
+  let solvSig = '';
+  const plural = (n, w) => `${n} day${n === 1 ? '' : 's'}`;
+  function updateSolvency() {
+    const sim = ctx.modules.get('simulation');
+    const s = sim && typeof sim.solvency === 'function' ? foreign('simulation.solvency', sim.solvency) : null;
+    let html = '', cls = '';
+    if (s && s.bankrupt) {
+      cls = 'bankrupt';
+      html = `<b>The farm is bankrupt</b><span>Leases are handed back and the bank blocks purchases while cash is negative. Carry on with odd jobs to get back in the black${sim && typeof sim.restart === 'function' ? ', or start again' : ''}.</span>`;
+    } else if (s && s.overLimit) {
+      const n = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : null);
+      const toBlock = n(s.daysToBlock), toSettle = n(s.daysToSettlement);
+      let cd;
+      if (s.nextStage === 'blocked' && toBlock != null) cd = `Purchases blocked in <b>${plural(toBlock)}</b>` + (toSettle != null ? ` · bank settlement in ${plural(toSettle)}` : '');
+      else if (s.nextStage === 'settlement' && toSettle != null) cd = `Purchases blocked · <b>bank sells assets in ${plural(toSettle)}</b>`;
+      else if (s.nextStage === 'bankrupt') cd = `Already restructured once · <b>bankruptcy in ${plural(toSettle != null ? toSettle : 0)}</b>`;
+      else cd = s.blocked ? 'Purchases blocked by the bank' : 'Get back under the credit limit';
+      cls = s.nextStage === 'blocked' ? 'over' : 'blocked';
+      html = `<b>Over the credit limit${typeof s.overdraft === 'number' ? ' · ' + money(-s.overdraft, { dec: 0 }) : ''}</b><span>${cd}</span>`;
+    } else if (s && s.restructured && s.blocked) {
+      cls = 'blocked';
+      html = `<b>Overdraft restructured</b><span>The bank keeps purchases blocked until cash is positive.</span>`;
+    }
+    const sig = cls + html;
+    if (sig === solvSig) return;
+    solvSig = sig;
+    if (solvCard) solvCard.style.display = html ? '' : 'none';
+    solvEl.className = 'hv-solv ' + cls;
+    solvEl.innerHTML = html ? `<span class="si">${iconSvg('warn')}</span><div>${html}</div>` : '';
   }
 
   // ---------------------------------------------------------------- world labels
@@ -576,6 +643,16 @@ export async function init(ctx) {
 
   // ---------------------------------------------------------------- input
   const held = new Set();
+  // Keys the vehicles/characters modules use while the active character drives (H hitch, G refuel,
+  // U auger, L lights, E implement, F exit, R reserved, WASD). ui panel/tool hotkeys yield to them.
+  const VEHICLE_KEYS = new Set(['KeyH', 'KeyG', 'KeyU', 'KeyL', 'KeyE', 'KeyF', 'KeyR', 'KeyW', 'KeyA', 'KeyS', 'KeyD']);
+  const activeChar = () => {
+    const id = W.player && W.player.activeCharacterId;
+    if (id == null) return null;
+    const list = W.characters && Array.isArray(W.characters.list) ? W.characters.list : [];
+    return list.find((c) => c && c.id === id) || null;
+  };
+  const driving = () => { const c = activeChar(); return !!(c && c.vehicleId); };
   const offKey = ctx.input.on('key', (ev) => {
     if (!ev.down) { held.delete(ev.code); return; }
     if (held.has(ev.code)) return;
@@ -587,7 +664,8 @@ export async function init(ctx) {
     }
     if (ev.code === 'Escape' && current) { closePanel(); ev.stop = true; return; }
     for (const m of ['ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']) if (held.has(m)) return;
-    for (const p of panels.values()) if (p.hotkey && p.hotkey === ev.code) { togglePanel(p.id); ev.stop = true; return; }
+    const yieldKey = VEHICLE_KEYS.has(ev.code) && driving();
+    if (!yieldKey) for (const p of panels.values()) if (p.hotkey && p.hotkey === ev.code) { togglePanel(p.id); ev.stop = true; return; }
     if (ev.code === 'Space') { setSpeed(W.time.paused ? W.ui.speed : 0); ev.stop = true; return; }
     if (ev.code === 'Equal' || ev.code === 'NumpadAdd') {
       const i = SPEEDS.indexOf(W.ui.speed);
@@ -601,7 +679,7 @@ export async function init(ctx) {
       ev.stop = true;
       return;
     }
-    const t = tools.find((q) => q.hotkey === ev.code);
+    const t = yieldKey ? null : tools.find((q) => q.hotkey === ev.code);
     if (t) { selectTool(t.id, true); ev.stop = true; }
   });
   const CAPTURE = '.hv-hit';
@@ -631,7 +709,32 @@ export async function init(ctx) {
     toast(`<b>${esc(p.memo || 'Sale')}</b><br>${money(p.amount, { sign: true })}`, { kind: 'money', icon: 'coin', html: true });
   });
   on('economy:bankrupt-warning', (p) => {
-    toast(`<b>The bank is worried</b><br>${esc((p && p.message) || 'Your balance is deep in the red. Sell produce or take on contracts.')}`, { kind: 'error', icon: 'warn', html: true, ms: 9000 });
+    const stage = p && p.stage;
+    solvSig = null; // refresh the persistent card now
+    updateSolvency();
+    if (stage === 'bankrupt') {
+      toast('<b>The farm has gone bankrupt</b><br>The bank has taken back the leases. Carry on with odd jobs to rebuild.', { kind: 'error', icon: 'warn', html: true, ms: 12000 });
+    } else if (stage === 'restructured') {
+      const extra = p && typeof p.loan === 'number' ? ` A ${money(p.loan, { dec: 0 })} loan over ${esc(p.months)} months${typeof p.writeOff === 'number' && p.writeOff > 0 ? `, ${money(p.writeOff, { dec: 0 })} written off` : ''}.` : '';
+      toast(`<b>Overdraft restructured</b><br>The bank has given you one second chance.${extra}`, { kind: 'warn', icon: 'loan', html: true, ms: 12000 });
+    } else if (stage === 'overdraft') {
+      toast(`<b>Overdrawn</b><br>${esc((p && p.message) || 'The farm account is in the red. Overdraft interest is running.')}`, { kind: 'warn', icon: 'warn', html: true });
+    } else {
+      toast(`<b>The bank is worried</b><br>${esc((p && p.message) || 'Your balance is deep in the red. Sell produce or take on contracts.')}`, { kind: 'error', icon: 'warn', html: true, ms: 9000 });
+    }
+  });
+  on('characters:switched', (p) => {
+    const id = p && p.id;
+    if (id == null) return;
+    const d = handCost(id);
+    updateRates();
+    if (!d) return;
+    const rec = charRec(id);
+    const nm = esc((rec && rec.name) || 'This hand');
+    const txt = d.onTheClock
+      ? `${nm} is on the clock today · ${money(d.dayRate, { dec: 0 })}/day`
+      : `${nm} is idle today (retainer ${money(d.retainer || 0, { dec: 0 })}). Putting them to work costs ${money(d.extraIfUsed != null ? d.extraIfUsed : d.dayRate, { dec: 0 })} more · ${money(d.dayRate, { dec: 0 })}/day`;
+    toast(txt, { kind: 'money', icon: 'person', html: true, ms: 5200 });
   });
   on('env:weather-changed', (p) => {
     const k = p && (p.kind || (p.weather && p.weather.kind));
@@ -684,6 +787,8 @@ export async function init(ctx) {
     slowT += dt;
     if (slowT >= 0.5 || night === null) {
       slowT = 0;
+      updateRates();
+      updateSolvency();
       const n = data.daylight() < 0.3;
       if (n !== night) { night = n; root.classList.toggle('hv-night', n); }
     }
