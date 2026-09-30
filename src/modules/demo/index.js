@@ -237,8 +237,8 @@ export async function init(ctx) {
     step('vehicles', () => {
       if (!V) return 'absent';
       const F = st.farm, ids = D.ids;
-      const t = V.purchase('tractor_t1', F.x - 2, F.y + 8, 0, { grant: true }) || [];
-      const kit = V.purchase('tillage_s', F.x + 10, F.y + 14, 0, { grant: true }) || [];
+      const t = V.purchase('tractor_t1', F.x + 4, F.y + 10, Math.PI, { grant: true }) || []; // faces the field gate (south)
+      const kit = V.purchase('tillage_s', F.x + 16, F.y + 6, Math.PI, { grant: true }) || [];
       const tr = V.purchase('trailer', F.x + 13, F.y + 29, -Math.PI / 2, { grant: true }) || [];
       const pk = V.purchase('pickup', F.x - 12, F.y - 8, Math.PI / 2, { grant: true }) || [];
       ids.tractor = t[0] || null; ids.plough = kit[0] || null; ids.seeder = kit[1] || null; ids.trailer = tr[0] || null; ids.pickup = pk[0] || null;
@@ -293,7 +293,7 @@ export async function init(ctx) {
     D.started = true;
 
     // camera follows the farmer (characters does this on setActive); make sure of a sensible zoom
-    if (!ctx.params.cam && !ctx.params.showcase) ctx.camera.set(st.farm.x - 20, st.farm.y - 26, 40);
+    if (!ctx.params.cam && !ctx.params.showcase) ctx.camera.set(st.farm.x - 20, st.farm.y - 26, 24);
     office.start({ UI, parcels: D.parcels, fields: D.fields });
     ctx.events.emit('demo:started', { stats: D.stats });
     return D.stats;
@@ -353,15 +353,16 @@ export async function init(ctx) {
   }
 
   // ------------------------------------------------------------------ scenes
+  // weather: showcases pin it so the vantage points read well; 'auto' hands it back to the seasonal plan
   const SCENES = {
-    farm: { poi: 'farm', zoom: 14 },
-    village: { poi: 'village', zoom: 11 },
-    overview: { zoom: 1.5 },
-    night: { poi: 'village', zoom: 10, time: '22:30' },
+    farm: { poi: 'farm', zoom: 14, weather: 'clear' },
+    village: { poi: 'village', zoom: 11, weather: 'clear' },
+    overview: { zoom: 3, weather: 'clear' },
+    night: { poi: 'village', zoom: 10, time: '22:30', weather: 'clear' },
     rain: { poi: 'farm', zoom: 16, weather: 'rain' },
-    autumn: { poi: 'field', zoom: 6 },
-    winter: { poi: 'farm', zoom: 9 },
-    play: { follow: true, zoom: 40 },
+    autumn: { poi: 'field', zoom: 6, weather: 'cloudy' },
+    winter: { poi: 'farm', zoom: 9, weather: 'snow' },
+    play: { follow: true, zoom: 24, weather: 'auto' },
     field: { poi: 'field', zoom: 7 },
     bridge: { poi: 'bridge', zoom: 16 },
   };
@@ -370,7 +371,7 @@ export async function init(ctx) {
     if (!sc) return false;
     const E = mod('environment');
     if (sc.time) ctx.clock.set(sc.time);
-    if (E && E.setWeather) E.setWeather(sc.weather || 'auto', 0.8, { instant: true });
+    if (E && E.setWeather && sc.weather) E.setWeather(sc.weather, sc.weather === 'rain' ? 0.8 : 0.6, { instant: true });
     if (sc.follow) {
       const CH = mod('characters');
       const id = W.player.activeCharacterId || D.ids.farmer;
