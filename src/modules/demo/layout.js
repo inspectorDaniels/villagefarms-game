@@ -294,10 +294,29 @@ export function planValley(T, bounds, rng) {
         [q[0], q[1], lerp2(q[1], q[2], 0.5), lerp2(q[0], q[3], 0.5)],
         [lerp2(q[0], q[3], 0.5), lerp2(q[1], q[2], 0.5), q[2], q[3]],
       ].map((h) => inset(h, 5));
-      let best = null;
-      for (const h of halves) { const a = polyArea(h); if (a >= 9000 && valid(h) && (!best || a > best.area)) best = { poly: h, area: a, i, j: ja, half: true }; }
-      if (best) blocks.push(best);
-      else spare.push(full);
+      const ok = halves.map((h) => (valid(h) ? { poly: h, area: polyArea(h), i, j: ja, half: true } : null));
+      // both halves of a split (W+E or N+S) when valid: two fields; else the largest half; else quarters
+      const pairs = [[0, 1], [2, 3]].filter(([a, b]) => ok[a] && ok[b] && ok[a].area >= 6000 && ok[b].area >= 6000);
+      if (pairs.length) { for (const k of pairs[0]) blocks.push(ok[k]); continue; }
+      const best = ok.filter((b) => b && b.area >= 6000).sort((u, v) => v.area - u.area)[0];
+      if (best) {
+        blocks.push(best);
+        // the other half may still hold a quarter-size field
+        const k = ok.indexOf(best), other = halves[k ^ 1];
+        const oq = k < 2 ? [other[0], other[1], lerp2(other[1], other[2], 0.5), lerp2(other[0], other[3], 0.5)] : [other[0], lerp2(other[0], other[1], 0.5), lerp2(other[3], other[2], 0.5), other[3]];
+        const oq2 = k < 2 ? [lerp2(other[0], other[3], 0.5), lerp2(other[1], other[2], 0.5), other[2], other[3]] : [lerp2(other[0], other[1], 0.5), other[1], other[2], lerp2(other[3], other[2], 0.5)];
+        for (const qq of [oq, oq2]) { const a = polyArea(qq); if (a >= 4500 && valid(qq)) { blocks.push({ poly: qq, area: a, i, j: ja, quarter: true }); break; } }
+        continue;
+      }
+      let nq = 0;
+      const mid = [lerp2(q[0], q[2], 0.5)];
+      for (let c = 0; c < 4; c++) {
+        const a0 = q[c], a1 = lerp2(q[c], q[(c + 1) % 4], 0.5), a3 = lerp2(q[c], q[(c + 3) % 4], 0.5);
+        const qq = inset([a0, a1, mid[0], a3], 4);
+        const a = polyArea(qq);
+        if (a >= 4500 && valid(qq)) { blocks.push({ poly: qq, area: a, i, j: ja, quarter: true }); nq++; }
+      }
+      if (!nq) spare.push(full);
     }
   }
 

@@ -55,7 +55,8 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 - `charge(amount, category, memo, opts?)` → bool. It refuses when money is short, unless `opts.force`.
 - `credit(amount, category, memo)`.
 - `ledger(n)`, `summary(periodDays)` → `{income, expenses, net, operating*, byCategory}`.
-- `netWorth()` → `{cash, land, machinery, stock, debt, total}`.
+- `netWorth()` → `{cash, land, machinery, buildings, stock, debt, total}`. **(r6)** `buildings` is the value of owned assets in the buildings book; `machinery` no longer includes them.
+- **Ledger categories (r6).** Capital and financing categories are excluded from the operating P&L (`summary().operating*`) and so from the income part of the credit limit: `loan`, `loanRepay`, `land`, `landSale`, `machinery`, `buildings`, `assetSale`, `writeOff` (exported as `CAPITAL_CATEGORIES`). Everything else (`sales`, `jobs`, `subsidy`, `rent`, `wages`, `interest`, `upkeep`, `lease`, `insurance`, `fuel`, `seed`, `fertiliser`, `spray`, `contractor`, `penalty`, `misc` …) is operating.
 
 **Market**
 - `price(item, sellPointId?)` → € per unit, or `undefined` when that buyer doesn't take the item.
@@ -71,9 +72,15 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 - **(r3)** Bulk crops (wheat, barley, oats, rapeseed, maize) share one farm store. The old barn holds 80 t. Buying the catalog items `grain_store` (+400 t) or `grain_store_l` (+1000 t) raises it. `bulkRoom()` → t free.
 
 **Catalog / assets**
-- `registerCatalogItem`, `catalog(category?)`, `lease(id)`, `grantAsset(id)`, `assets()`.
-- `purchase(id, {finance?})` → bool. Finance means 25 % down and a 5-year loan secured on the machine.
-- `releaseAsset(assetId)` → € net. **(r3)** A financed machine's loan is repaid from the sale proceeds first.
+- `registerCatalogItem`, `catalog(category?)`, `lease(id)`, `grantAsset(id, {boughtDay?, category?})`, `assets()`.
+- `purchase(id, {finance?, category?})` → bool. Finance means 25 % down and a 5-year loan secured on the machine.
+- `releaseAsset(assetId, {writeOff?})` → € net. **(r3)** A financed machine's loan is repaid from the sale proceeds first.
+- **(r6) Two capital books.** Every owned asset carries `book: 'machinery' | 'buildings'` (see `assets()`).
+  - An asset is in the **buildings** book when bought/granted with `{category: 'buildings'}`, or when its catalog entry has `meta.building` (every item the buildings module registers). Everything else stays **machinery** (unchanged).
+  - Buildings: the purchase is booked under ledger category `buildings` (capital — it does not lower the operating P&L or the income part of the credit limit). Value = 80 % of cost once built, −2 % of cost per year, floor 30 % (machinery: 90 %, −5 %/yr, floor 20 %). Shown as `netWorth().buildings`.
+  - **Collateral:** the credit limit counts 60 % of land, 50 % of machinery and **40 % of building value** (a building is harder to sell on than land or a machine). Dealer finance on a building uses the 40 % rate too.
+  - A sale books `assetSale` ("Sold <name>"); upkeep stays the catalog default (1.5 % of cost per year, `upkeep`).
+- **(r6) `releaseAsset(id, {writeOff: true})`** — demolish/scrap without a sale: the asset is removed, **no cash moves**, and one ledger line is booked: `{category: 'writeOff', amount: 0, bookValue, memo: 'Demolished <name> — €… book value written off'}` (an `economy:transaction` event with `writeOff` category, `assetId`, `book`). Returns 0. Loans secured on the asset are not settled (still owed). Use it for granted buildings (no resale) instead of sale + charge-back.
 - **(r3)** New catalog entries:
   - `root_harvester` (category `harvester`, beet/potato lifter, €68k);
   - `baler` (category `baler`, €30k);

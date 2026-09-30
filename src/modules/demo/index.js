@@ -15,6 +15,7 @@ export const manifest = {
   listens: ['crops:worked', 'vehicles:entered', 'jobs:accepted', 'economy:transaction'],
 };
 
+const MAX_FIELDS = 34; // NPC parcels (crops cost per field; harness valley ≈ 48 parcels)
 const INST = new WeakMap(); // ctx → api (showcase)
 
 const MARCH_CROPS = ['wheat', 'wheat', 'barley', 'sugarBeet', 'rapeseed', 'wheat', 'potatoes', 'grass', 'barley', 'maize', 'oats', 'wheat'];
@@ -111,7 +112,8 @@ export async function init(ctx) {
       if (!T) return 'absent';
       const flatAreas = [{ x: st.farm.x, y: st.farm.y, r: 44 }, { x: st.cross.x, y: st.cross.y + 10, r: 62 },
         ...st.farms.map((f) => ({ x: f.x, y: f.y, r: 34 })), { x: st.depot.x, y: st.depot.y, r: 20 }];
-      T.generate({ flatAreas });
+      // generate() with the boot valley's settings is a no-op; level each pad in place instead
+      for (const a of flatAreas) T.flatten(a);
       T.flatten({ poly: st.yard });
       T.paintSurface({ poly: st.yard }, 'farmyard');
       return flatAreas.length;
@@ -135,8 +137,8 @@ export async function init(ctx) {
       st.farms.forEach((f, k) => { f.client = clients[k]; if (S.defineClientFarm) S.defineClientFarm(clients[k], { x: f.x, y: f.y }); });
       // cap the count (crops cost), keep the larger blocks; deterministic
       let blocks = L.blocks.slice();
-      if (blocks.length > 24) {
-        blocks = blocks.map((b, k) => ({ b, k, s: b.area * (0.7 + 0.6 * rng.float()) })).sort((a, b) => b.s - a.s).slice(0, 24).sort((a, b) => a.k - b.k).map((o) => o.b);
+      if (blocks.length > MAX_FIELDS) {
+        blocks = blocks.map((b, k) => ({ b, k, s: b.area * (0.7 + 0.6 * rng.float()) })).sort((a, b) => b.s - a.s).slice(0, MAX_FIELDS).sort((a, b) => a.k - b.k).map((o) => o.b);
       }
       D.npcParcels = [];
       const byDist = [];
