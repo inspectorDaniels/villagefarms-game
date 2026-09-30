@@ -227,13 +227,10 @@
         }
       ],
       "openIssues": [
-        "should: unpaid silo reports capacity 400 but adds 0",
-        "granted demolish shows phantom \u20ac162k sale+write-off",
-        "old saves: asset => purchased",
-        "test count 41 not 42",
-        "use releaseAsset(assetId,{writeOff:true}) for granted buildings"
+        "characters: exact-polygon push",
+        "cosmetic (deferred)"
       ],
-      "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42"
+      "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42 | follow-ups: writeOff on granted demolish, asset-backed capacity only, old-save purchased flag, pump removed on demolish; 45/45"
     },
     "props": {
       "wave": 2,

@@ -127,12 +127,15 @@ export async function init(ctx) {
   }
 
   // ------------------------------------------------------------------ functions (simulation / vehicles)
+  /** a store only adds room when it is backed by a simulation asset (bought, or granted as starting kit):
+   *  simulation's bulk grain room counts assets, and potatoes follow the same rule */
+  function storageActive(b) { return b.owner === 'player' && !!b.assetId; }
   function syncCapacity() {
     const S = sim();
     if (!S || !S.setCapacity) return;
     let t = POTATO_BASE;
     for (const b of W.list) {
-      if (b.owner !== 'player') continue;
+      if (!storageActive(b)) continue;
       const st = rt.get(b.id).def.fn.storage;
       if (st && st.item === 'potatoes') t += st.t;
     }
@@ -275,7 +278,7 @@ export async function init(ctx) {
     if (owner === 'player' && d.catalog && S) {
       if (opts.pay) {
         const before = new Set((S.assets() || []).map((a) => a.id));
-        // category is honoured once simulation books buildings apart from machinery
+        // booked in simulation's 'buildings' book (capital), not as machinery
         if (!S.purchase(d.catalog.id, { category: 'buildings' })) { lastReason = 'purchase refused'; return null; }
         const a = (S.assets() || []).find((q) => !before.has(q.id) && q.itemId === d.catalog.id);
         assetId = a ? a.id : null;
@@ -312,16 +315,15 @@ export async function init(ctx) {
     // the player path may only demolish player buildings; composers pass force or the owner
     if (b.owner !== 'player' && !opts.force && opts.owner !== b.owner) return { ok: false, reason: 'not yours' };
     const st = r.def.fn.storage;
-    if (!opts.force && S && st && b.owner === 'player') {
+    if (!opts.force && S && st && storageActive(b)) {
       if (st.item === 'grain' && S.bulkRoom && S.bulkRoom() < st.t - 1e-6) return { ok: false, reason: 'store not empty' };
       if (st.item === 'potatoes' && S.storageRoom && S.storageRoom('potatoes') < st.t - 1e-6) return { ok: false, reason: 'store not empty' };
     }
     let refund = 0;
     if (b.assetId && S && S.releaseAsset) {
-      const got = S.releaseAsset(b.assetId) || 0;
-      if (b.purchased) refund = got;
-      // a granted (never paid) building has no resale value: reverse the credit simulation made
-      else if (got > 0 && S.charge) S.charge(got, 'assetSale', `Write-off — ${b.name || b.type} (granted, no resale)`, { force: true });
+      // purchased: sold at book value · granted (never paid): written off, no cash moves
+      if (b.purchased) refund = S.releaseAsset(b.assetId) || 0;
+      else S.releaseAsset(b.assetId, { writeOff: true });
     }
     W.list.splice(i, 1);
     ctx.spatial.remove(id);
@@ -374,7 +376,7 @@ export async function init(ctx) {
     for (const b of W.list) {
       if (b.owner !== 'player') continue;
       const fn = rt.get(b.id).def.fn;
-      if (fn.storage && (fn.storage.item === kind || kind === 'storage')) t += fn.storage.t;
+      if (fn.storage && storageActive(b) && (fn.storage.item === kind || kind === 'storage')) t += fn.storage.t;
       if (fn.livestock && fn.livestock.kind === kind) t += fn.livestock.n;
       if (fn.home && kind === 'beds') t += fn.home.beds;
     }
@@ -689,6 +691,8 @@ export async function init(ctx) {
       if (!s || typeof s !== 'object' || !TYPES[s.type] || typeof s.id !== 'string') continue;
       if (![s.x, s.y].every(Number.isFinite)) continue;
       if (!Number.isFinite(s.rot)) s.rot = 0;
+      // saves before r2 had no `purchased` flag: an asset then always meant a purchase
+      if (typeof s.purchased !== 'boolean') s.purchased = !!s.assetId;
       const b = { ...s, doors: [] };
       build(b);
       W.list.push(b);

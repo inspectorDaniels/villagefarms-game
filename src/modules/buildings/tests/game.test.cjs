@@ -75,6 +75,8 @@ async function scenario(page) {
     check('place farmhouse with pay → id + charged catalog price', fh && r2(money0 - S.money()) === fhPrice, { fh, charged: r2(money0 - S.money()), fhPrice });
     const asset = S.assets().find((a) => a.itemId === 'bld_farmhouse');
     check('farmhouse is a simulation asset with upkeep', asset && asset.upkeepPerDay > 0, asset && asset.upkeepPerDay);
+    const buyLine = S.ledger(40).find((e) => /Farmhouse/.test(e.memo) && e.amount < 0);
+    check('purchase booked in the buildings ledger category', buyLine && buyLine.category === 'buildings', buyLine && buyLine.category);
     c = B.canPlace('barn', fhAt[0], fhAt[1], 0);
     check('overlap with a building rejected', c && !c.ok && c.reason === 'another building', c);
     check('place returns null on invalid spot + lastError', B.place('barn', fhAt[0], fhAt[1], 0) === null && B.lastError() === 'another building', B.lastError());
@@ -168,6 +170,8 @@ async function scenario(page) {
     const rmFree = B.remove(free);
     const gr = B.place('farmhouse', gAt[0], gAt[1], 0, { grant: true });
     const rmGr = B.remove(gr);
+    const wo = S.ledger(10).find((e) => e.category === 'writeOff');
+    check('granted building is written off (one entry, no cash)', wo && wo.amount === 0, wo);
     check('no money printing: free + granted buildings refund €0', rmFree.ok && rmGr.ok && rmFree.refund === 0 && rmGr.refund === 0 && r2(S.money()) === r2(mg) && S.assets().length === nAssets, { money: r2(S.money() - mg), rmFree, rmGr });
     const dl = B.place('dealer', ...spot('dealer', X + 100, Y + 70, 0, { owner: 'npc' }), 0, { owner: 'npc' });
     const dd = B.doorOf(dl);
@@ -175,7 +179,16 @@ async function scenario(page) {
     const fp1 = hasFp();
     B.remove(dl, { owner: 'npc' });
     const canRm = typeof V.removeFuelPoint === 'function';
-    check(`dealer fuel point added, and removed on demolition${canRm ? '' : ' (vehicles.removeFuelPoint not available yet: skipped)'}`, fp1 && (!canRm || !hasFp()), { fp1, after: hasFp(), canRm });
+    check('dealer fuel point added, and removed on demolition (vehicles.removeFuelPoint)', fp1 && canRm && !hasFp(), { fp1, after: hasFp(), canRm });
+    // an unpaid, ungranted silo adds no room, reports none and never blocks its own demolition
+    const cg0 = B.capacity('grain'), br0 = S.bulkRoom();
+    const sAt = spot('grain_silo', X - 60, Y + 50, 0);
+    const us = B.place('grain_silo', sAt[0], sAt[1], 0);
+    S.addInventory('wheat', br0);
+    const cg1 = B.capacity('grain'), br1 = S.bulkRoom();
+    const rmUs = B.remove(us);
+    S.removeInventory('wheat', br0);
+    check('unbacked silo: capacity matches real room, demolition not blocked', us && cg1 === cg0 && br1 === 0 && rmUs.ok, { cg0, cg1, br1, rmUs });
     const pl = W.characters.list.find((q) => q.id === W.player.activeCharacterId);
     const plPos = [pl.x, pl.y];
     pl.x = gAt[0]; pl.y = gAt[1];   // test only: stand the player on a clear spot
@@ -231,6 +244,12 @@ async function scenario(page) {
     let threw = null;
     try { inst.load({ counter: 3, list: [null, 5, 'x', { type: 'barn' }, { id: 'buildings:99', type: 'barn', x: NaN, y: 1 }] }); } catch (e) { threw = String(e); }
     check('load skips null / malformed entries without throwing', !threw && B.list().length === 0, threw);
+    // old save (before r2): no `purchased` flag → an asset means it was bought
+    const old = JSON.parse(JSON.stringify(snap));
+    for (const q of old.list) delete q.purchased;
+    inst.load(old);
+    const fhOld = B.get(fh);
+    check('old save: building with an assetId loads as purchased', fhOld && fhOld.assetId && fhOld.purchased === true, fhOld && [fhOld.assetId, fhOld.purchased]);
     inst.load(snap);
     const back = B.list();
     check('save/load restores buildings, colliders and sell points', empty === 0 && back.length === snap.list.length && B.at(X - 20, Y + 40) && S.price('wheat', B.get(coop).sellPointId) > 0, { n: back.length });
