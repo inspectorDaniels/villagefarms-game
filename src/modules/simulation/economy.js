@@ -3,7 +3,9 @@ import { CONST, YEAR_DAYS, MONTH_DAYS, WORKER_NAMES, MACHINES, ITEMS } from './d
 
 // categories that move capital or debt rather than profit (excluded from operating P&L)
 const CONSUMABLE_SEIZE = { diesel: 0.5, fertiliser: 0.5 };
-export const CAPITAL_CATEGORIES = ['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'assetSale'];
+export const CAPITAL_CATEGORIES = ['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'buildings', 'assetSale', 'writeOff'];
+/** capital books an owned asset can sit in (r6): 'machinery' (default) or 'buildings' */
+export const ASSET_BOOKS = ['machinery', 'buildings'];
 
 export function installEconomy(sim) {
   const E = sim.world.economy;
@@ -63,9 +65,29 @@ export function installEconomy(sim) {
       meta: { ...(def.meta || {}) },
     };
   }
+  /** r6: which capital book an asset sits in. Buildings: purchase(…, {category:'buildings'}) or a catalog item
+   *  whose meta.building is set (buildings module registrations, also when granted). */
+  const bookOf = (a) => (a && a.book === 'buildings' ? 'buildings' : 'machinery');
+  function bookFor(c, opts) {
+    if (opts && ASSET_BOOKS.includes(opts.category)) return opts.category;
+    return c && c.meta && c.meta.building ? 'buildings' : 'machinery';
+  }
   function assetValue(a) {
     const years = Math.max(0, (sim.today() - a.boughtDay) / YEAR_DAYS);
+    if (bookOf(a) === 'buildings') return a.price * Math.max(CONST.buildingFloor, CONST.buildingResaleNew - CONST.buildingDepreciationYear * years);
     return a.price * Math.max(0.2, CONST.assetResaleNew - CONST.assetDepreciationYear * years);
+  }
+  /** owned asset value per book → { machinery, buildings } */
+  function bookValues() {
+    const r = { machinery: 0, buildings: 0 };
+    for (const x of E.assets) if (x.mode === 'owned') r[bookOf(x)] += assetValue(x);
+    return r;
+  }
+  /** collateral the bank lends against: land 60 %, machinery 50 %, buildings 40 % */
+  function collateral() {
+    const land = sim.landValue ? sim.landValue() : 0;
+    const v = bookValues();
+    return CONST.creditLandLTV * land + CONST.creditMachineLTV * v.machinery + CONST.creditBuildingLTV * v.buildings;
   }
 
   Object.assign(api, {
@@ -143,20 +165,24 @@ export function installEconomy(sim) {
     catalog(category) { return Object.values(E.catalog).filter((c) => !category || c.category === category).map((c) => ({ ...c })); },
     /** buy a catalog item. Returns true on success; the owned asset is listed in assets().
      *  opts.finance: dealer finance — pay 25 % now, the rest as a 5-year loan secured on the machine
-     *  (needs enough credit headroom once the machine is counted as collateral). */
+     *  (needs enough credit headroom once the machine is counted as collateral).
+     *  opts.category: 'buildings' books the purchase in the buildings capital book (r6) — its own ledger category,
+     *  2 %/yr depreciation, 40 % collateral; default 'machinery'. */
     purchase(id, opts = {}) {
       const c = E.catalog[id];
       if (!c || sim.blocked()) return false;
+      opts = opts && typeof opts === 'object' ? opts : {};
+      const book = bookFor(c, opts);
       if (opts && opts.finance) {
         const loan = Math.ceil(c.price * CONST.machineFinanceLTV / 100) * 100;
         const down = c.price - loan;
-        const headroom = api.creditLimit() + CONST.creditMachineLTV * c.price * CONST.assetResaleNew;
+        const headroom = api.creditLimit() + (book === 'buildings' ? CONST.creditBuildingLTV * CONST.buildingResaleNew : CONST.creditMachineLTV * CONST.assetResaleNew) * c.price;
         if (E.money < down || headroom < loan) return false;
       }
       const assetId = nid('asset');
       if (opts && opts.finance) securedLoan(Math.ceil(c.price * CONST.machineFinanceLTV / 100) * 100, CONST.machineFinanceMonths, `Dealer finance on ${c.name}`, { assetId });
-      if (!api.charge(c.price, 'machinery', `Bought ${c.name}`)) return false;
-      E.assets.push({ id: assetId, itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: sim.today() });
+      if (!api.charge(c.price, book, book === 'buildings' ? `Built ${c.name}` : `Bought ${c.name}`)) return false;
+      E.assets.push({ id: assetId, itemId: id, name: c.name, category: c.category, book, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: sim.today() });
       return true;
     },
     /** lease a catalog item (first day paid now). Returns true on success. */
@@ -171,43 +197,49 @@ export function installEconomy(sim) {
     grantAsset(id, opts = {}) {
       const c = E.catalog[id];
       if (!c) return null;
-      const a = { id: nid('asset'), itemId: id, name: c.name, category: c.category, meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: opts.boughtDay != null ? opts.boughtDay : sim.today() };
+      opts = opts && typeof opts === 'object' ? opts : {};
+      const a = { id: nid('asset'), itemId: id, name: c.name, category: c.category, book: bookFor(c, opts), meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: opts.boughtDay != null ? opts.boughtDay : sim.today(), granted: true };
       E.assets.push(a);
       E.version++;
       return a.id;
     },
     assets() { return E.assets.map((a) => ({ ...a, value: a.mode === 'owned' ? Math.round(assetValue(a)) : 0 })); },
-    /** sell an owned asset (returns €) or hand back a leased one (returns 0) */
-    releaseAsset(assetId) {
+    /** sell an owned asset (returns €) or hand back a leased one (returns 0).
+     *  r6: opts.writeOff — demolish/scrap instead: no cash, one 'writeOff' ledger entry (amount 0, bookValue =
+     *  what was written off); returns 0. Loans secured on it stay (they are still owed). */
+    releaseAsset(assetId, opts = {}) {
       const i = E.assets.findIndex((a) => a.id === assetId);
       if (i < 0) return undefined;
       const a = E.assets[i];
       E.assets.splice(i, 1);
-      if (a.mode === 'owned') { const v = assetValue(a); api.credit(v, 'assetSale', `Sold used ${a.name}`); return v - settleLinked({ assetId: a.id }); }
+      if (a.mode === 'owned' && opts && opts.writeOff) {
+        const v = Math.round(assetValue(a) * 100) / 100;
+        writeOffEntry(v, `${bookOf(a) === 'buildings' ? 'Demolished' : 'Scrapped'} ${a.name} — €${Math.round(v).toLocaleString('en-GB')} book value written off`, { assetId: a.id, book: bookOf(a) });
+        return 0;
+      }
+      if (a.mode === 'owned') { const v = assetValue(a); api.credit(v, 'assetSale', bookOf(a) === 'buildings' ? `Sold ${a.name}` : `Sold used ${a.name}`); return v - settleLinked({ assetId: a.id }); }
       E.version++;
       return 0;
     },
 
-    /** cash + land market value + machinery value + stored produce − debt */
+    /** cash + land market value + machinery value + buildings value + stored produce − debt */
     netWorth() {
       const land = sim.landValue ? sim.landValue() : 0;
-      const machinery = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
+      const { machinery, buildings } = bookValues();
       let stock = 0;
       for (const [k, q] of Object.entries(E.inventory)) if (ITEMS[k] && E.prices[k]) stock += q * E.prices[k] * 0.95;
       const debt = E.loans.reduce((a, l) => a + l.balance, 0);
-      const r = { cash: E.money, land, machinery, stock, debt };
-      r.total = Math.round(E.money + land + machinery + stock - debt);
+      const r = { cash: E.money, land, machinery, buildings, stock, debt };
+      r.total = Math.round(E.money + land + machinery + buildings + stock - debt);
       return r;
     },
 
     // ---------- loans ----------
     /** unsecured borrowing headroom: base + 60 % of last year's operating result + collateral − debt */
     creditLimit() {
-      const land = sim.landValue ? sim.landValue() : 0;
-      const mach = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
       const debt = E.loans.reduce((a, l) => a + l.balance, 0) + Math.max(0, -E.money); // an overdraft is debt too
       const income = Math.max(0, api.summary(YEAR_DAYS).operatingNet);
-      return Math.max(0, CONST.creditLimitBase + CONST.creditIncomeMult * income + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt);
+      return Math.max(0, CONST.creditLimitBase + CONST.creditIncomeMult * income + collateral() - debt);
     },
     /** borrow; repaid monthly over opts.months (default 60). Returns loan id or null. */
     takeLoan(amount, opts = {}) {
@@ -395,11 +427,9 @@ export function installEconomy(sim) {
   function overLimit() {
     if (E.money >= 0) return false;
     // headroom not counting the overdraft itself
-    const land = sim.landValue ? sim.landValue() : 0;
-    const mach = E.assets.reduce((a, x) => a + (x.mode === 'owned' ? assetValue(x) : 0), 0);
     const debt = E.loans.reduce((a, l) => a + l.balance, 0);
     const income = Math.max(0, api.summary(YEAR_DAYS).operatingNet);
-    const head = CONST.creditLimitBase + CONST.creditIncomeMult * income + CONST.creditLandLTV * land + CONST.creditMachineLTV * mach - debt;
+    const head = CONST.creditLimitBase + CONST.creditIncomeMult * income + collateral() - debt;
     return -E.money > head;
   }
   sim.blocked = () => (!!E.bankrupt && E.money < 0) || (E.overLimitDays || 0) >= CONST.overLimitBlockDays;
@@ -460,6 +490,16 @@ export function installEconomy(sim) {
     w.hoursToday = 0; w.delegatedToday = false; w.jobHoursToday = 0; w.kinds = {};
   }
 
+  /** r6: a non-cash ledger line (amount 0) — capital written off without a sale */
+  function writeOffEntry(bookValue, memo, extra) {
+    const day = sim.today();
+    const entry = { t: sim.now(), day, amount: 0, category: 'writeOff', memo, balance: E.money, bookValue };
+    E.ledger.push(entry);
+    if (E.ledger.length > CONST.ledgerMax) E.ledger.splice(0, E.ledger.length - CONST.ledgerMax);
+    E.version++;
+    sim.emit('economy:transaction', { ...entry, ...(extra || {}) });
+  }
+
   /** a loan secured on a specific asset (mortgage); bypasses the unsecured credit limit. Internal. */
   function securedLoan(amount, months, memo, link = {}) {
     const loan = { id: nid('loan'), principal: amount, balance: amount, rate: CONST.loanRate, takenDay: sim.today(), months, monthly: amount / months, interestPaid: 0, secured: true, memo, ...link };
@@ -468,5 +508,5 @@ export function installEconomy(sim) {
     return loan.id;
   }
 
-  sim.economy = { initEconomy, economyDay, nid, securedLoan, settleLinked, assetValue };
+  sim.economy = { initEconomy, economyDay, nid, securedLoan, settleLinked, assetValue, bookValues };
 }
