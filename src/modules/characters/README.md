@@ -35,7 +35,7 @@ Files:
   - roads (`roads.roadAt`): asphalt 1.04, lane 1.0, track 0.98
 - Snow cover slows walking by up to 22 %.
 - Water: in shallows (0.02–0.55 m deep) speed drops to at most `0.62 − depth/2`, with ripple and splash effects. Where `waterDepthAt > 0.5 m` a character cannot step. It slides along the shore instead.
-- Collisions: `ctx.spatial` items with `solid:true` (AABB or circle) push the 0.28 m body out, 2 iterations. Characters also separate softly from each other.
+- Collisions: `ctx.spatial` items with `solid:true` push the 0.28 m body out, 2 iterations. Items with `poly` or `polys` (rotated buildings and vehicles) are pushed out against the true polygon: the closest point on its edges, with an even-odd inside test, in one pass per polygon. Other items fall back to their AABB or circle. Characters also separate softly from each other.
 - Each character sits in `ctx.spatial` as a non-solid item `{kind:'character'}`, updated at 5 Hz, so other modules can pick them.
 - Walk phase advances with the true distance travelled: 1.3 m per cycle walking, 2.1 m running. That gives two footfalls per cycle, which drive:
   - `audio.play('footstep-grass|gravel|asphalt|mud|snow')`

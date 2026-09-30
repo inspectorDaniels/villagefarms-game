@@ -58,12 +58,46 @@ export function createMotion(ctx) {
     return d > 0.5;
   }
 
+  /** circle (x,y,r) vs simple polygon [[x,y]…]: new centre if it overlaps, else null. Cheap: one pass over edges. */
+  function pushOutPoly(P, x, y, r) {
+    const n = P.length;
+    if (n < 3) return null;
+    let best = Infinity, bx = 0, by = 0, inside = false;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const ax = P[j][0], ay = P[j][1], bxx = P[i][0], byy = P[i][1];
+      // even-odd inside test
+      if ((ay > y) !== (byy > y) && x < ((bxx - ax) * (y - ay)) / (byy - ay) + ax) inside = !inside;
+      const ex = bxx - ax, ey = byy - ay;
+      const L = ex * ex + ey * ey;
+      let t = L > 0 ? ((x - ax) * ex + (y - ay) * ey) / L : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const cx = ax + ex * t, cy = ay + ey * t;
+      const d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+      if (d2 < best) { best = d2; bx = cx; by = cy; }
+    }
+    const d = Math.sqrt(best);
+    if (!inside && d >= r) return null;
+    if (d < 1e-6) {
+      // exactly on an edge: step out away from the polygon's centroid
+      let mx = 0, my = 0; for (const p of P) { mx += p[0]; my += p[1]; } mx /= n; my /= n;
+      const ux = x - mx, uy = y - my, l = Math.hypot(ux, uy) || 1;
+      return { x: bx + (ux / l) * r, y: by + (uy / l) * r };
+    }
+    const ux = (x - bx) / d, uy = (y - by) / d;
+    const s = inside ? -1 : 1; // inside: the outward direction is from the centre toward the edge point
+    return { x: bx + ux * s * r, y: by + uy * s * r };
+  }
+
   /** push a circle out of solid spatial items (other modules' colliders) */
   function collide(x, y, r) {
     const hits = ctx.spatial.queryCircle(x, y, r + 0.05, (it) => it.solid && it.owner !== 'characters');
     for (let iter = 0; iter < 2 && hits.length; iter++) {
       for (const it of hits) {
-        if (it.x0 != null) {
+        if (it.poly || it.polys) {
+          // true (rotated) outline: push out against the closest polygon edge
+          const polys = it.polys || [it.poly];
+          for (const P of polys) { const q = pushOutPoly(P, x, y, r); if (q) { x = q.x; y = q.y; } }
+        } else if (it.x0 != null) {
           const cx = Math.max(it.x0, Math.min(x, it.x1)), cy = Math.max(it.y0, Math.min(y, it.y1));
           let dx = x - cx, dy = y - cy;
           let d = Math.hypot(dx, dy);
@@ -149,7 +183,7 @@ export function createMotion(ctx) {
     return Math.abs(d) < 0.08;
   }
 
-  return { ground, groundCached, step, face, collide, blocked, angDiff };
+  return { ground, groundCached, step, face, collide, blocked, angDiff, pushOutPoly };
 }
 
 export { angDiff };
