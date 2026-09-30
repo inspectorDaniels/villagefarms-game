@@ -28,7 +28,7 @@ const CAT_LABEL = {
   sales: 'Crop sales', jobs: 'Contract work', subsidy: 'CAP payment', rent: 'Land rent', wages: 'Wages',
   interest: 'Interest', upkeep: 'Machine upkeep', lease: 'Leases', insurance: 'Insurance & fixed', fuel: 'Diesel',
   seed: 'Seed', fertiliser: 'Fertiliser', spray: 'Crop protection', contractor: 'Contractors', penalty: 'Penalties',
-  purchase: 'Purchases', land: 'Land purchase', machinery: 'Machinery', loan: 'Loan drawn', loanRepay: 'Loan repaid',
+  purchase: 'Purchases', land: 'Land purchase', machinery: 'Machinery', buildings: 'Buildings', writeOff: 'Written off', loan: 'Loan drawn', loanRepay: 'Loan repaid',
   landSale: 'Land sold', assetSale: 'Machine sold', misc: 'Sundries',
 };
 const catLabel = (c) => CAT_LABEL[c] || c;
@@ -414,7 +414,7 @@ export function createBoard(P, art) {
       P.text(g, 'This season', 20, 38, { size: 22, italic: true });
       P.text(g, 'last 12 months, operating', 20, 58, { size: 12, italic: true, color: INK_SOFT });
       P.text(g, (S.operatingNet >= 0 ? '+ ' : '') + euro(S.operatingNet), w - 20, 42, { size: 24, bold: true, align: 'right', color: S.operatingNet >= 0 ? INK_GREEN : INK_RED });
-      const cats = Object.entries(S.byCategory).filter(([k]) => !['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'assetSale'].includes(k)).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 8);
+      const cats = Object.entries(S.byCategory).filter(([k]) => !['loan', 'loanRepay', 'land', 'landSale', 'machinery', 'buildings', 'assetSale', 'writeOff'].includes(k)).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 8);
       const maxV = Math.max(1, ...cats.map((c) => Math.abs(c[1])));
       let y = 84;
       const bx = 150, bw = w - bx - 90;

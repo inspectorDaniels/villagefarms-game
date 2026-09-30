@@ -58,6 +58,10 @@ export const CONST = {
   retailMarkup: 1.15,         // buying a commodity back costs more than selling it
   assetResaleNew: 0.9,        // machinery is worth 90 % of list once it leaves the dealer …
   assetDepreciationYear: 0.05,// … minus 5 % of list per year, floor 20 %
+  buildingResaleNew: 0.8,     // buildings (ledger 'buildings'): worth 80 % of cost once built …
+  buildingDepreciationYear: 0.02, // … minus 2 % of cost per year, floor 30 %
+  buildingFloor: 0.3,
+  creditBuildingLTV: 0.4,     // + 40 % of owned building value (below land 60 % / machinery 50 %)
   upkeepYear: 0.015,          // default upkeep: 1.5 % of list per year
   maxOpenOffers: 8,
   maxActiveJobs: 3,
