@@ -260,7 +260,7 @@ export function createRenderer(ctx, model, tiles) {
       // Chrome keeps a 2D canvas as a recorded display list: blitting `comp` would replay its ~50 chunk
       // draws (and re-upload every chunk texture) each frame. Freeze each finished composite into an
       // ImageBitmap (GPU-resident, immutable) and blit that; the live canvas is used only until it is ready.
-      if (frozenV !== compV && !freezing && typeof createImageBitmap === 'function') {
+      if (!globalThis.__CPU && frozenV !== compV && !freezing && typeof createImageBitmap === 'function') {
         freezing = true;
         const v = compV;
         const sc = globalThis.__COMPSCALE || 1;
@@ -271,7 +271,8 @@ export function createRenderer(ctx, model, tiles) {
       }
       const sx = cE + MARGIN - E, sy = cF + MARGIN - Fo, w = g.canvas.width, h = g.canvas.height;
       const useF = frozenV === compV && frozen, fs = useF ? frozen.width / comp.width : 1;
-      if (!globalThis.__NOBLIT) g.drawImage(useF ? frozen : comp, sx * fs, sy * fs, w * fs, h * fs, 0, 0, w, h);
+      if (globalThis.__TINY) g.drawImage(useF ? frozen : comp, sx * fs, sy * fs, 64, 64, 0, 0, 64, 64);
+      else if (!globalThis.__NOBLIT) g.drawImage(useF ? frozen : comp, sx * fs, sy * fs, w * fs, h * fs, 0, 0, w, h);
       globalThis.__FROZEN = frozenV === compV;
     }
     g.setTransform(m);
@@ -298,8 +299,8 @@ export function createRenderer(ctx, model, tiles) {
 
   function composite(cw, chh, blits, a, E, F) {
     if (!comp || comp.width !== cw || comp.height !== chh) {
-      comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d');
-      back = document.createElement('canvas'); back.width = cw; back.height = chh; backG = back.getContext('2d');
+      comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d', globalThis.__CPU ? { willReadFrequently: true } : undefined);
+      back = document.createElement('canvas'); back.width = cw; back.height = chh; backG = back.getContext('2d', globalThis.__CPU ? { willReadFrequently: true } : undefined);
       prev = null;
     }
     const cur = new Map();

@@ -316,24 +316,27 @@
     },
     "buildtools": {
       "wave": 2,
-      "status": "r2-built-unreviewed",
-      "score": 6,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
           "score": 6,
           "pass": false,
           "review": "docs/reviews/buildtools-r1.md"
+        },
+        {
+          "round": 2,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/buildtools-r2.md"
         }
       ],
       "openIssues": [
-        "Overlapping/duplicate tracks charged again",
-        "Tracks can extend 4.5 m into neighbour land (end-snap excuse)",
-        "Mortgage dialog misstates cash used",
-        "rotate(NaN) locks building until reload",
-        "Undo history survives load()",
-        "should: undo refunds released assets, stuck undo, field tool green on full parcel, boundary corners refused, driverOf check, select unknown id"
+        "Short trespass via own track nodes as anchors (only public-road nodes should anchor)",
+        "should: mortgage quote copies simulation constants instead of reading them; cents off",
+        "cosmetic: land labels under toasts, flat ghost"
       ],
       "note": "r2: duplicate tracks refused, trespass excuse fixed, real mortgage figures + low-cash warning, rotate guard, load clears undo, undo/asset checks; 48/48 incl. with demo"
     },
