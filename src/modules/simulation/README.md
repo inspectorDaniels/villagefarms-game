@@ -100,6 +100,7 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 
 **Field work & CAP (r4: the worked share)**
 - **The module listens to `crops:worked {fieldId, parcelId, tool, areaM2}`** and credits the worked m² to the parcel. This only counts when the player owns or rents the parcel.
+- **(r6) Sowing pays the inputs.** For `tool: 'seed:<crop>'` on owned/rented land, the season's inputs for the newly sown area are charged: `inputCost(crop)` × `areaM2`/1e4 (capped at the parcel), booked as `seed`, `fertiliser` and `spray`. If cash is short they go on the overdraft. crops reports only cells that changed, so re-sowing sown cells costs nothing. **Contractor-sown area (`contractor: true`) is charged too**, because a contractor booking is work only (`sow` €75/ha) with no seed in it. Only the CAP credit skips contractor echoes. demo can drop its `office.js` workaround.
   - **r4c:** events with `contractor: true` are ignored. The booking already credited its area when `economy:contractor-done` fired, so each area counts once.
 - `recordFieldWork(parcelId, op, {areaM2, workerId?, hours?})` → bool. It is for land that is not a crops field. It returns false when:
   - the parcel is not owned/rented by the player;
@@ -186,6 +187,7 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 **Land**
 - `defineParcel`, `parcels()`, `parcel(id)`, `parcelAt`, `canUse`, `landMarket()`.
 - `buyParcel(id, {mortgage})`, `rentParcel`, `leaseExitCost`, `endLease`, `sellParcel`. These are as in r2, plus the loan settlement above.
+- **(r6) `quoteParcel(id, {mortgage})`** → what `buyParcel(id, opts)` would do right now, without doing it. Both run the same internal plan, so they cannot drift. Returns `null` for an unknown parcel, else `{ok, reason, parcelId, name, ha, price, fees, total, mortgage, loan, months, rate, monthly, cashUsed, cashLeft, monthlyOverheads}`. All € values are rounded to the cent. `reason` is `null` when `ok`, else `'not for sale' | 'blocked (insolvency)' | 'not enough cash'`. `loan` is rounded up to €100, and `months` is 180 when there is a loan. `monthlyOverheads` is the monthly insurance & overheads charge (€85 + €5/ha) once this parcel is farmed too. After a successful buy, money = `cashLeft` and the mortgage balance = `loan`.
 
 `today()` → the economy's absolute day index.
 
@@ -219,7 +221,7 @@ In the harness, dumping 600 t of wheat at one buyer fetched €156/t. Spreading 
 - `economy:hands-laid-off {names, reason}`.
 - `jobs:reassigned {job, jobId, workerId, reason}` (r5): a delegated job was handed back to the player.
 - `economy:asset-seized {kind:'machine'|'land', id, name, amount}`.
-- Listens to `clock:day`, `clock:hour` (delegated jobs in working hours) and `crops:worked` (CAP share).
+- Listens to `clock:day`, `clock:hour` (delegated jobs in working hours) and `crops:worked` (CAP share; r6: sowing inputs).
 - `land:parcel-changed {id, state, from, parcel}`.
 - `jobs:offered | jobs:accepted | jobs:completed | jobs:failed`: a copy of the job.
 

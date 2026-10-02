@@ -38,3 +38,5 @@ zoom). A `characters.setFollowZoom(z)` or respecting the current zoom would let 
 
 
 **Integrator (iteration 2): #1 registry APPLIED. #2 APPLIED as `ctx.game` / `__GAME__.game` (save, load, saveToStorage, loadFromStorage, slots; gzip). #3 forwarded to simulation, #5 to characters, #4 noted (needs real-GPU measurement).**
+
+**#3 DONE in simulation (inputs charged on crops:worked seed:<crop>); integrator removed demo's workaround handler to avoid a double charge.**

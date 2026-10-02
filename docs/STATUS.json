@@ -115,7 +115,7 @@
         }
       ],
       "openIssues": [],
-      "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged"
+      "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged | quoteParcel (shared code path with buyParcel), inputs charged on sowing incl. contractor sowing (bookings exclude inputs); 35/35"
     },
     "ui": {
       "wave": 1,
@@ -334,7 +334,6 @@
         }
       ],
       "openIssues": [
-        "sim: quoteParcel API (buildtools already uses it when present)",
         "cosmetic: land labels under toasts, flat ghost"
       ],
       "note": "r2: duplicate tracks refused, trespass excuse fixed, real mortgage figures + low-cash warning, rotate guard, load clears undo, undo/asset checks; 48/48 incl. with demo | trespass via own track nodes closed (only public-road anchors); 50/50"
@@ -390,6 +389,10 @@
     {
       "t": "2026-10-02",
       "event": "integrator: demo + buildtools registered; ctx.game whole-game save/load (gzip localStorage: 4.8 MB -> 0.84 MB), round-trip verified across page reload"
+    },
+    {
+      "t": "2026-10-02",
+      "event": "integrator seam fix: removed demo/office.js seed-charge workaround (simulation now charges inputs on sowing) to avoid double charge"
     }
   ],
   "resume": [

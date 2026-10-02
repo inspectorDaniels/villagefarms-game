@@ -61,16 +61,7 @@ export function createOffice(ctx, D) {
   ctx.events.on('crops:worked', (e) => {
     if (!e || e.contractor) return;
     D.stats.lastWorked = { tool: e.tool, parcelId: e.parcelId, areaM2: e.areaM2 };
-    // seed & inputs for the player's own land (per coalesced event)
-    if (typeof e.tool === 'string' && e.tool.startsWith('seed:') && e.areaM2 > 0) {
-      const S = mod('simulation');
-      const p = S && e.parcelId ? S.parcel(e.parcelId) : null;
-      if (p && (p.state === 'owned' || p.state === 'rented')) {
-        const crop = e.tool.slice(5), ha = e.areaM2 / 1e4;
-        const paid = S.buyInputs(crop, ha);
-        if (!paid) { const c = S.inputCost(crop); if (c && c.total) S.charge(c.total * ha, 'seed', `Seed & inputs, ${ha.toFixed(2)} ha ${crop} (on credit)`, { force: true }); }
-      }
-    }
+    // seed & inputs are charged by simulation on crops:worked (seed:<crop>) since simulation r6
   });
 
   // ---------------------------------------------------------------- actions
