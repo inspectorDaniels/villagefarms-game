@@ -300,7 +300,7 @@
     },
     "animals": {
       "wave": 2,
-      "status": "pending",
+      "status": "deferred",
       "score": null,
       "pass": false,
       "rounds": [],
@@ -308,7 +308,7 @@
     },
     "traffic": {
       "wave": 2,
-      "status": "pending",
+      "status": "deferred",
       "score": null,
       "pass": false,
       "rounds": [],
@@ -401,5 +401,5 @@
     "6. Deferred visual work: environment/effects/terrain/roads art must-fixes, audio perf",
     "7. Max 3 concurrent agents (user directive 2026-09-28, token spend)"
   ],
-  "priority": "2026-09-27 user directive: mechanics & gameplay first; visual polish deferred to a later art pass. Critics weight functional correctness (contract, gameplay loop, determinism, errors, perf); cosmetic findings go to 'Should fix' and do not block a pass unless they break gameplay readability. Plan: finish sim/characters, then wave-2 gameplay modules (crops, vehicles, buildings, buildtools, animals, traffic, props) with functional placeholder-quality painted art, then demo game loop."
+  "priority": "2026-09-27 user directive: mechanics & gameplay first; visual polish deferred to a later art pass. Critics weight functional correctness (contract, gameplay loop, determinism, errors, perf); cosmetic findings go to 'Should fix' and do not block a pass unless they break gameplay readability. Plan: finish sim/characters, then wave-2 gameplay modules (crops, vehicles, buildings, buildtools, animals, traffic, props) with functional placeholder-quality painted art, then demo game loop. | 2026-10-02 user directive: traffic and animals deferred; focus on crops and the core gameplay loop (farm work, jobs, economy, progression)."
 }

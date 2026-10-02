@@ -101,19 +101,21 @@ export function installLand(sim) {
      *  opts.mortgage: borrow up to 75 % of the price over 15 years, secured on the parcel; you bring the
      *  other 25 % + fees in cash (the bank will not lend the deposit). */
     buyParcel(id, opts = {}) {
+      const q = parcelPlan(id, opts);
+      if (!q.ok) return false;
       const p = find(id);
-      if (!p || p.state !== 'forSale' || sim.blocked()) return false;
-      const fees = p.price * CONST.landFees;
-      if (opts.mortgage) {
-        const loan = Math.ceil(Math.min(p.price * CONST.mortgageLTV, Math.max(0, p.price + fees - Math.max(0, sim.world.economy.money))) / 100) * 100;
-        if (sim.world.economy.money + loan < p.price + fees) return false;
-        if (loan > 0) sim.economy.securedLoan(loan, CONST.mortgageMonths, `Mortgage on ${p.name}`, { parcelId: p.id });
-      }
-      if (!api.canAfford(p.price + fees)) return false;
-      api.charge(p.price, 'land', `Bought ${p.name} (${ha(p).toFixed(2)} ha)`);
-      api.charge(fees, 'land', `Notary & fees — ${p.name}`);
+      if (q.loan > 0) sim.economy.securedLoan(q.loan, q.months, `Mortgage on ${p.name}`, { parcelId: p.id });
+      api.charge(q.price, 'land', `Bought ${p.name} (${ha(p).toFixed(2)} ha)`);
+      api.charge(q.fees, 'land', `Notary & fees — ${p.name}`);
       const from = p.state; resetCap(p); p.state = 'owned'; p.since = sim.today(); p.listedUntil = null; p.owner = null; changed(p, from);
       return true;
+    },
+    /** r6: what buyParcel(id, opts) would do right now, without doing it (same code path). → null for an unknown
+     *  parcel, else { ok, reason, price, fees, total, loan, months, rate, monthly, cashUsed, cashLeft, ha,
+     *  monthlyOverheads (farm insurance & overheads per month once this parcel is farmed) } — all € to the cent. */
+    quoteParcel(id, opts = {}) {
+      const q = parcelPlan(id, opts);
+      return q.reason === 'unknown parcel' ? null : q;
     },
     /** rent a parcel offered to let. The first month's rent is paid now (in advance); minimum term one year. */
     rentParcel(id) {
@@ -172,6 +174,27 @@ export function installLand(sim) {
     },
   });
 
+  const cents = (x) => Math.round(x * 100) / 100;
+  /** r6: the single buy-a-parcel calculation behind buyParcel and quoteParcel */
+  function parcelPlan(id, opts) {
+    opts = opts && typeof opts === 'object' ? opts : {};
+    const p = find(id);
+    if (!p) return { ok: false, reason: 'unknown parcel' };
+    const cash = sim.world.economy.money;
+    const price = cents(p.price), fees = cents(p.price * CONST.landFees), total = cents(price + fees);
+    const loan = opts.mortgage ? Math.ceil(Math.min(p.price * CONST.mortgageLTV, Math.max(0, total - Math.max(0, cash))) / 100) * 100 : 0;
+    const months = loan > 0 ? CONST.mortgageMonths : 0;
+    const cashUsed = cents(total - loan);
+    const farmed = (sim.farmedHa ? sim.farmedHa() : 0) + (p.state === 'owned' || p.state === 'rented' ? 0 : ha(p));
+    const reason = p.state !== 'forSale' ? 'not for sale' : sim.blocked() ? 'blocked (insolvency)' : cash + loan < total ? 'not enough cash' : null;
+    return {
+      ok: !reason, reason, parcelId: p.id, name: p.name, ha: +ha(p).toFixed(4), price, fees, total, mortgage: !!opts.mortgage,
+      loan, months, rate: loan > 0 ? CONST.loanRate : 0, monthly: months ? cents(loan / months) : 0,
+      cashUsed, cashLeft: cents(cash - cashUsed),
+      monthlyOverheads: cents(CONST.fixedCostsMonthly + CONST.fixedCostsPerHaMonthly * farmed),
+    };
+  }
+
   function resetCap(p) { p.capDays = 0; p.worked = {}; p.workedSinceCap = false; }
   function creditWork(p, op, a) {
     p.worked = p.worked || {};
@@ -183,15 +206,34 @@ export function installLand(sim) {
   const share = (p) => { let m = 0; for (const v of Object.values(p.worked || {})) m = Math.max(m, v); return Math.min(1, m / Math.max(1, p.area)); };
   sim.creditWork = (id, op, a) => { const p = find(id); if (p && (p.state === 'owned' || p.state === 'rented')) creditWork(p, op, a); };
   sim.onCropsWorked = (e) => {
-    // r4c: contractor work is credited once, by contractorDay (booked area) — ignore crops' echo of it
-    if (!e || e.contractor) return;
+    if (!e) return;
     const p = e.parcelId ? find(e.parcelId) : null;
     if (!p || (p.state !== 'owned' && p.state !== 'rented')) return;
     const a = +e.areaM2;
-    if (!(a > 0)) return;
+    if (!(a > 0) || !Number.isFinite(a)) return;
+    // r6: sowing the player's land pays the season's inputs for the newly sown area (crops reports only cells
+    // that changed, so re-sowing sown cells costs nothing). Contractor sowing too: a booking is work only (€/ha).
+    if (typeof e.tool === 'string' && e.tool.startsWith('seed:')) chargeSowing(p, e.tool.slice(5), Math.min(a, p.area) / 1e4, !!e.contractor);
+    // r4c: contractor work is credited once, by contractorDay (booked area) — ignore crops' echo of it
+    if (e.contractor) return;
     p.cropsFields = true; // crops reports this parcel's work itself from now on
     creditWork(p, String(e.tool || 'work'), a);
   };
+
+  /** seed + fertiliser + spray (inputCost × ha), booked per category; on credit (forced) when cash is short */
+  function chargeSowing(p, crop, haSown, byContractor) {
+    const c = api.inputCost(crop);
+    if (!c || !(haSown > 0)) return 0;
+    const name = (api.yieldTable()[crop] || {}).name || crop;
+    const tag = `${haSown.toFixed(2)} ha ${String(name).toLowerCase()} — ${p.name}${byContractor ? ' (contractor-sown)' : ''}`;
+    let paid = 0;
+    for (const k of ['seed', 'fertiliser', 'spray']) {
+      const v = (c[k] || 0) * haSown;
+      if (v > 0 && api.charge(v, k, `${k[0].toUpperCase() + k.slice(1)} for ${tag}`, { force: true })) paid += v;
+    }
+    return paid;
+  }
+  sim.chargeSowing = chargeSowing;
 
   function sellLand(p, frac, memo) {
     const v = p.price * frac;

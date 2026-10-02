@@ -24,7 +24,7 @@ export const manifest = {
     // contractors (r3)
     'contractorQuote', 'hireContractor', 'contractorBookings', 'cancelContractor',
     // land
-    'defineParcel', 'parcels', 'parcel', 'parcelAt', 'buyParcel', 'rentParcel', 'endLease', 'leaseExitCost', 'sellParcel', 'canUse', 'landMarket', 'recordFieldWork',
+    'defineParcel', 'parcels', 'parcel', 'parcelAt', 'buyParcel', 'quoteParcel', 'rentParcel', 'endLease', 'leaseExitCost', 'sellParcel', 'canUse', 'landMarket', 'recordFieldWork',
     // jobs
     'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation', 'assignJob', 'activeJobCap', 'defineClientFarm',
     // workers
