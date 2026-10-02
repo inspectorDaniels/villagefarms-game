@@ -13,6 +13,7 @@ export function createRenderer(ctx, model, tiles) {
   const entries = new Map(); // key → { canvas, res, built, dirty:Set, used, f, ch }
   let bytes = 0, frame = 0;
   // screen composite (double-buffered): shifted by whole pixels while panning, only exposed strips / changed chunks redrawn
+  let frozen = null, frozenV = -1, freezing = false, compV = 0;
   let comp = null, compG = null, back = null, backG = null, prev = null, compO = null, lastM = null; // prev = { a, E, F, chunks: Map key → paintV|rect }
   const pool = [];
   const stats = { builds: 0, cellPaints: 0, lastCellPaints: 0, composites: 0, partialBlits: 0 };
@@ -243,9 +244,20 @@ export function createRenderer(ctx, model, tiles) {
     for (const [e, x0, y0, CH] of blits) if (e.built) list.push([e.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0), e.key, e.paintV]);
     composite(cw, chh, list, m.a, cE, cF);
     g.setTransform(1, 0, 0, 1, 0, 0);
-    if (list.length) { // blit only the on-screen part (a source rect, 1:1): whole-layer blits hit a slow path
+    if (list.length) {
+      // Chrome keeps a 2D canvas as a recorded display list: blitting `comp` would replay its ~50 chunk
+      // draws (and re-upload every chunk texture) each frame. Freeze each finished composite into an
+      // ImageBitmap (GPU-resident, immutable) and blit that; the live canvas is used only until it is ready.
+      if (frozenV !== compV && !freezing && typeof createImageBitmap === 'function') {
+        freezing = true;
+        const v = compV;
+        createImageBitmap(comp).then((bm) => {
+          freezing = false;
+          if (v === compV) { if (frozen && frozen.close) frozen.close(); frozen = bm; frozenV = v; } else if (bm.close) bm.close();
+        }, () => { freezing = false; });
+      }
       const sx = cE + MARGIN - E, sy = cF + MARGIN - Fo, w = g.canvas.width, h = g.canvas.height;
-      g.drawImage(comp, sx, sy, w, h, 0, 0, w, h);
+      g.drawImage(frozenV === compV && frozen ? frozen : comp, sx, sy, w, h, 0, 0, w, h);
     }
     g.setTransform(m);
     stats.lastCellPaints = stats.cellPaints - stats.lastCellPaints;
@@ -297,6 +309,7 @@ export function createRenderer(ctx, model, tiles) {
     }
     compG.setTransform(1, 0, 0, 1, 0, 0);
     compG.imageSmoothingEnabled = true;
+    if (!rects || rects.length) compV++;
     if (!rects) {
       compG.clearRect(0, 0, cw, chh);
       for (const b of blits) compG.drawImage(b[0], b[1], b[2], b[3], b[4]);
