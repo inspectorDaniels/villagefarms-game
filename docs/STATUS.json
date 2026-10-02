@@ -316,11 +316,25 @@
     },
     "buildtools": {
       "wave": 2,
-      "status": "built-unreviewed",
-      "score": null,
+      "status": "failing",
+      "score": 6,
       "pass": false,
-      "rounds": [],
-      "openIssues": [],
+      "rounds": [
+        {
+          "round": 1,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/buildtools-r1.md"
+        }
+      ],
+      "openIssues": [
+        "Overlapping/duplicate tracks charged again",
+        "Tracks can extend 4.5 m into neighbour land (end-snap excuse)",
+        "Mortgage dialog misstates cash used",
+        "rotate(NaN) locks building until reload",
+        "Undo history survives load()",
+        "should: undo refunds released assets, stuck undo, field tool green on full parcel, boundary corners refused, driverOf check, select unknown id"
+      ],
       "note": "built: B build mode (buildings, fields, tracks, demolish, 10 s undo), land mode buy/rent; 34/34 full-game checks; 0.16 ms. Registered. Gaps: undo/demolish keep terrain levelling, roads lacks removeNode, props/animals calls unverified."
     },
     "demo": {

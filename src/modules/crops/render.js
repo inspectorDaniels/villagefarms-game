@@ -6,7 +6,7 @@ import { S, CROPS, CROP_IDS, stageOf } from './data.js';
 const MARGIN = 0;               // composite layer margin (px). Must stay 0: any layer larger than the screen blits on a slow path (≈ 8 ms headless)
 const CPX = 256;               // chunk canvas size in px (≤ 256 px canvases blit far cheaper); metres = CPX / res
 const LEVELS = [4, 8, 16, 32]; // px per metre
-const MAX_BYTES = 160 * 1048576;
+const MAX_BYTES = 20 * 1048576;
 
 export function createRenderer(ctx, model, tiles) {
   const { art } = ctx;
@@ -242,7 +242,7 @@ export function createRenderer(ctx, model, tiles) {
     }
     const list = [];
     for (const [e, x0, y0, CH] of blits) if (e.built) list.push([e.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0), e.key, e.paintV]);
-    composite(cw, chh, list, m.a, cE, cF);
+    if (!globalThis.__NOCOMP) composite(cw, chh, list, m.a, cE, cF);
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (list.length) {
       // Chrome keeps a 2D canvas as a recorded display list: blitting `comp` would replay its ~50 chunk
@@ -257,7 +257,8 @@ export function createRenderer(ctx, model, tiles) {
         }, () => { freezing = false; });
       }
       const sx = cE + MARGIN - E, sy = cF + MARGIN - Fo, w = g.canvas.width, h = g.canvas.height;
-      g.drawImage(frozenV === compV && frozen ? frozen : comp, sx, sy, w, h, 0, 0, w, h);
+      if (!globalThis.__NOBLIT) g.drawImage(frozenV === compV && frozen ? frozen : comp, sx, sy, w, h, 0, 0, w, h);
+      globalThis.__FROZEN = frozenV === compV;
     }
     g.setTransform(m);
     stats.lastCellPaints = stats.cellPaints - stats.lastCellPaints;
