@@ -334,11 +334,10 @@
         }
       ],
       "openIssues": [
-        "Short trespass via own track nodes as anchors (only public-road nodes should anchor)",
-        "should: mortgage quote copies simulation constants instead of reading them; cents off",
+        "sim: quoteParcel API (buildtools already uses it when present)",
         "cosmetic: land labels under toasts, flat ghost"
       ],
-      "note": "r2: duplicate tracks refused, trespass excuse fixed, real mortgage figures + low-cash warning, rotate guard, load clears undo, undo/asset checks; 48/48 incl. with demo"
+      "note": "r2: duplicate tracks refused, trespass excuse fixed, real mortgage figures + low-cash warning, rotate guard, load clears undo, undo/asset checks; 48/48 incl. with demo | trespass via own track nodes closed (only public-road anchors); 50/50"
     },
     "demo": {
       "wave": 3,

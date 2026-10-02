@@ -37,7 +37,7 @@ Files:
   It then calls `crops.createField(poly, {parcelId, name})`. **Fields are free**, since the land is already paid or rented.
 - **Farm track.** The first click starts; each further click lays one segment, which is `roads.addEdge(a, b, {class:'track'})` at **€14/m** (category `buildings`).
   - Ends within 3.5 m of a road node join that node.
-  - An off-land sample is excused only on a road, or within 4.5 m of an end that itself sits on a road node or road. The far end never gets this excuse.
+  - An off-land sample is excused only on a **public** (non-`track`) road, or in the contiguous off-land run (at most 4.5 m) starting at an end that sits on a public road node or surface. The player's own track nodes never count as anchors.
   - Refused:
     - **already a track**: both end nodes are already joined, or ≥ 40 % of the inner samples lie within half a track width of one existing track. Crossing a track is fine;
     - water, buildings, crossing a field, neighbour land, more than 300 m, not enough money.
@@ -50,7 +50,7 @@ Files:
   - Every parcel is outlined and filled by state: owned green, rented blue, for sale gold, to let teal, neighbour grey.
   - Each parcel has a label with its name, state, ha and price (sale price, or rent per month).
   - Clicking a parcel opens a confirm dialog, then `simulation.buyParcel` (price + 4 % fees) or `rentParcel` (first month in advance).
-  - When cash is short, a mortgage is offered. The hover reason and the dialog show the same figures `buyParcel({mortgage})` produces: the loan, the cash spent (all of it) and the cash left.
+  - When cash is short, a mortgage is offered. The figures come from `simulation.quoteParcel` once it exists (core request 3); until then a copy of `buyParcel`'s formula is used. The hover reason and the dialog show the same figures `buyParcel({mortgage})` produces: the loan, the cash spent (all of it) and the cash left.
   - Below max(€1,000, 3 months of overheads) left, they carry a low-cash warning.
 
 **Undo.** The last placement can be undone within **10 s of real time**. The time is counted from `update(dt)` (fixed 60 Hz), not the wall clock, so it is deterministic.
@@ -90,7 +90,7 @@ Files:
 | `land` | the land-mode parcel map with state and price labels |
 
 ## Tests
-`scratchpad/buildtools/game.test.cjs` (builder scratchpad) has 48 checks in the full game (also passes with `demo` loaded: `ONLY=...,demo,buildtools`). They use the real keyboard, a real mouse click and a real confirm dialog. Perf is ≈ 0.16 ms/frame in build and land mode.
+`scratchpad/buildtools/game.test.cjs` (builder scratchpad) has 50 checks in the full game (also passes with `demo` loaded: `ONLY=...,demo,buildtools`). They use the real keyboard, a real mouse click and a real confirm dialog. Perf is ≈ 0.16 ms/frame in build and land mode.
 
 ## Known limitations
 - **Undo cannot revert terrain.** Undo/demolish of a building does not undo the `terrain.flatten` / farmyard paint done by buildings.

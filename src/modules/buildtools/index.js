@@ -179,25 +179,41 @@ export async function init(ctx) {
     const cost = Math.round(L * perM * 100) / 100;
     const samples = edgeSamples([a, b], 1.5, false);
     const C = mod('crops'), B = mod('buildings');
-    for (const [x, y] of samples) {
+    // off-land samples are excused only on a public road, or in the contiguous off-land run that starts at an end
+    // anchored on a public (non-track) road — i.e. the stretch between that road and your land, at most 4.5 m long
+    const off = samples.map(([x, y]) => !canUse(x, y));
+    const excused = samples.map(([x, y]) => kind === 'path' && publicRoadAt(x, y));
+    const run = (from, dir, e) => {
+      if (kind !== 'path' || !anchored(e)) return;
+      for (let i = from; i >= 0 && i < samples.length && off[i]; i += dir) {
+        if (Math.hypot(samples[i][0] - e[0], samples[i][1] - e[1]) > NODE_SNAP_M + 1) break;
+        excused[i] = true;
+      }
+    };
+    run(0, 1, a);
+    run(samples.length - 1, -1, b);
+    for (let i = 0; i < samples.length; i++) {
+      const [x, y] = samples[i];
       if (water(x, y)) return { ok: false, reason: 'water', length: L, cost };
       if (B && B.at && B.at(x, y)) return { ok: false, reason: 'a building is in the way', length: L, cost };
       if (C && C.fieldAt && C.fieldAt(x, y)) return { ok: false, reason: 'crosses a field', length: L, cost };
-      if (!canUse(x, y)) {
-        // off-land is excused only on a road, or right next to an end that is itself on a road node / road
-        const near = (e) => Math.hypot(x - e[0], y - e[1]) < NODE_SNAP_M + 1 && anchored(e);
-        if (!(kind === 'path' && (roadAt(x, y) || near(a) || near(b)))) return { ok: false, reason: 'not your land', length: L, cost };
-      }
+      if (off[i] && !excused[i]) return { ok: false, reason: 'not your land', length: L, cost };
     }
     if (kind === 'path' && duplicatesTrack(a, b, samples)) return { ok: false, reason: 'already a track', length: L, cost };
     if (!afford(cost)) return { ok: false, reason: 'not enough money', length: L, cost };
     return { ok: true, length: L, cost };
   }
 
-  /** an end point that sits exactly on a road node or on a road surface */
+  /** class of a public (non-track) road surface at the point, or null */
+  function publicRoadAt(x, y) { const c = roadAt(x, y); return c && c !== 'track' ? c : null; }
+  /** an end point that sits exactly on a node of a public (non-track) road, or on a public road surface.
+   *  The player's own tracks never count: they must not extend the land-rights excuse. */
   function anchored(e) {
+    if (publicRoadAt(e[0], e[1])) return true;
     const n = nearNode(e[0], e[1]);
-    return !!((n && Math.hypot(n.x - e[0], n.y - e[1]) < 0.05) || roadAt(e[0], e[1]));
+    if (!n || Math.hypot(n.x - e[0], n.y - e[1]) >= 0.05) return false;
+    const edges = (ctx.world.roads && ctx.world.roads.edges) || [];
+    return edges.some((ed) => (ed.a === n.id || ed.b === n.id) && ed.class !== 'track');
   }
   /** the segment repeats an existing track: both end nodes already joined, or it runs along a track edge */
   function duplicatesTrack(a, b, samples) {
@@ -225,6 +241,14 @@ export async function init(ctx) {
   /** what simulation.buyParcel({mortgage:true}) will do with today's cash (same formula as simulation/land.js) */
   function mortgagePlan(p) {
     const S = sim();
+    // prefer simulation's own quote (core request); fall back to the copied buyParcel formula
+    const q = S && typeof S.quoteParcel === 'function' ? S.quoteParcel(p.id, { mortgage: true }) : null;
+    if (q && Number.isFinite(q.loan) && Number.isFinite(q.total)) {
+      const cash = S.money(), cashUsed = Number.isFinite(q.cashUsed) ? q.cashUsed : q.total - q.loan;
+      const cashLeft = Number.isFinite(q.cashLeft) ? q.cashLeft : cash - cashUsed;
+      const om = Number.isFinite(q.monthlyOverheads) ? q.monthlyOverheads : 85 + 5 * p.area / 1e4;
+      return { total: q.total, fees: q.fees, loan: q.loan, cashUsed, cashLeft, feasible: q.ok !== false && cash + q.loan >= q.total, low: cashLeft < Math.max(1000, om * 3) };
+    }
     const cash = S ? S.money() : 0;
     const fees = p.price * 0.04, total = p.price + fees;
     const loan = Math.ceil(Math.min(p.price * 0.75, Math.max(0, total - Math.max(0, cash))) / 100) * 100;
@@ -360,7 +384,7 @@ export async function init(ctx) {
       const snapN = t === 'path' ? nearNode(x, y) : null;
       const end = snapN ? [snapN.x, snapN.y] : [x, y];
       if (!W.chain) {
-        const ok = canUse(end[0], end[1]) || !!(t === 'path' && (snapN || roadAt(end[0], end[1])));
+        const ok = canUse(end[0], end[1]) || (t === 'path' && anchored(end));
         return { kind: t, x: end[0], y: end[1], ok: ok && !water(end[0], end[1]), reason: ok ? 'click to start' : 'not your land', start: true, snapped: !!snapN };
       }
       const a = [W.chain.x, W.chain.y];
