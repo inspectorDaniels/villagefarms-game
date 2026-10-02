@@ -596,7 +596,7 @@ export async function init(ctx) {
           const cost = pr.cost > 0 ? ` · ${money(pr.cost)}` : '';
           const area = pr.area > 0 ? ` · ${fmtHa(pr.area)}` : '';
           const undoable = W.history.length && W.history[W.history.length - 1].ttl > 0 ? ` · Z undo (${Math.ceil(W.history[W.history.length - 1].ttl)} s)` : '';
-          t = `<div style="background:rgba(246,236,214,.94);border:1px solid #8a6a3c;border-radius:6px;padding:5px 12px;font:13px system-ui,Segoe UI,sans-serif;color:#3a2a18;box-shadow:0 2px 6px rgba(0,0,0,.25)"><b style="font-family:Georgia,serif">${esc(head)}</b>${esc(cost + area)} · <span style="color:${pr.ok ? '#2f6b2a' : '#a3322a'}">${esc(pr.reason || '')}</span><span style="opacity:.7">${esc(undoable)} · R rotate · Esc back · B exit</span></div>`;
+          t = `<div style="background:rgba(246,236,214,.94);border:1px solid #8a6a3c;border-radius:6px;padding:5px 12px;font:13px system-ui,Segoe UI,sans-serif;color:#3a2a18;box-shadow:0 2px 6px rgba(0,0,0,.25)"><b style="font-family:Georgia,serif">${esc(head)}</b>${esc(cost + area)} · <span style="color:${pr.ok ? '#2f6b2a' : '#a3322a'}">${esc(pr.reason || '')}</span><span style="opacity:.7">${esc(undoable)}${W.mode === 'land' ? ' · click a parcel · Esc back' : ' · R rotate · Esc back'} · B exit</span></div>`;
         }
         if (t !== hudText) { hudText = t; el.innerHTML = t; }
       },

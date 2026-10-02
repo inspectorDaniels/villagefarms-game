@@ -37,7 +37,8 @@ Useful URL parameters (combine with `&`):
 | E | use tool on the cell in front · in a vehicle: lower/raise implement |
 | F | enter / leave the nearest vehicle (stop first) |
 | H / G / U / L | hitch/unhitch · refuel (at a fuel point) · unload · lights |
-| R | sell / repair at a building when prompted |
+| R | sell / repair at a building when prompted · in build mode: rotate |
+| B | build mode: buildings, fields, farm tracks, demolish (Z undo within 10 s, Esc back) · Build panel has land mode to buy/rent parcels |
 | O P J M H (HUD buttons) | panels: overview, finances, jobs, market/land, help |
 
 ## State of the game

@@ -316,11 +316,12 @@
     },
     "buildtools": {
       "wave": 2,
-      "status": "pending",
+      "status": "built-unreviewed",
       "score": null,
       "pass": false,
       "rounds": [],
-      "openIssues": []
+      "openIssues": [],
+      "note": "built: B build mode (buildings, fields, tracks, demolish, 10 s undo), land mode buy/rent; 34/34 full-game checks; 0.16 ms. Registered. Gaps: undo/demolish keep terrain levelling, roads lacks removeNode, props/animals calls unverified."
     },
     "demo": {
       "wave": 3,

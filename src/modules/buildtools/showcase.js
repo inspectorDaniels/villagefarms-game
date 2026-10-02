@@ -37,7 +37,7 @@ export async function stage(ctx, name) {
   // yard (owned) · field parcel (rented) · neighbour · for sale · to let
   S.defineParcel({ id: 'bt:yard', name: 'Hoeve De Linde', poly: rect(X - 70, Y - 50, X + 10, Y + 40), state: 'owned', soil: 0.6 });
   S.defineParcel({ id: 'bt:rent', name: 'Lindeveld', poly: rect(X + 10, Y - 50, X + 110, Y + 40), state: 'rented', soil: 0.7 });
-  S.defineParcel({ id: 'bt:npc', name: 'Hof Peeters', poly: rect(X - 70, Y + 40, X + 20, Y + 120), state: 'npc', soil: 0.5 });
+  S.defineParcel({ id: 'bt:npc', name: 'Hof Peeters', poly: rect(X - 70, Y + 40, X + 20, Y + 120), state: 'npc', soil: 0.5, tradeable: false });
   S.defineParcel({ id: 'bt:sale', name: 'Broekkant', poly: [[X + 20, Y + 40], [X + 110, Y + 40], [X + 125, Y + 125], [X + 20, Y + 120]], state: 'forSale', soil: 0.65 });
   S.defineParcel({ id: 'bt:let', name: 'Molenstuk', poly: rect(X - 160, Y - 50, X - 70, Y + 60), state: 'forRent', soil: 0.55 });
   S.credit(250000, 'misc', 'showcase capital');

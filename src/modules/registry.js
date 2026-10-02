@@ -11,4 +11,5 @@ export const MODULES = [
   { id: 'buildings', wave: 2 },
   { id: 'vehicles', wave: 2 },
   { id: 'characters', wave: 2 },
+  { id: 'buildtools', wave: 2 },
 ];
