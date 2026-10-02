@@ -27,13 +27,20 @@ Files:
   - Validity is `buildings.canPlace(type, x, y, rot, {variant, pay:true})`. It covers the map, roads, fields, colliders, water, slope, land rights (`simulation.canUse`) and money.
   - Placing calls `buildings.place(..., {pay:true})`. This is `simulation.purchase` in ledger category `buildings`. The charged amount is measured from the money delta.
 - **Field.** Click corners; click the first corner or press Enter to close. The area is shown in ha. The checks are:
+  - corners within 1 m of an owned/rented parcel boundary snap onto it, 5 cm inside. On shared boundaries this prefers the first corner's parcel, then the one with more free area;
+  - the preview turns red early with `already a field` (a corner or draft edge inside a field) or `no free area left in this parcel`;
   - every edge sample lies in the same owned/rented parcel (`leaves your land` / `crosses a parcel boundary` / `not your land`);
   - no self-intersection (`edges cross`);
   - at least 200 m²;
   - no overlap with a crops field (`overlaps Field n`), a building, water or a road.
 
   It then calls `crops.createField(poly, {parcelId, name})`. **Fields are free**, since the land is already paid or rented.
-- **Farm track.** The first click starts; each further click lays one segment, which is `roads.addEdge(a, b, {class:'track'})` at **€14/m** (category `buildings`). Ends within 3.5 m of a road node join that node, and only those ends may lie off your land. Refused: water, buildings, crossing a field, neighbour land, more than 300 m, not enough money.
+- **Farm track.** The first click starts; each further click lays one segment, which is `roads.addEdge(a, b, {class:'track'})` at **€14/m** (category `buildings`).
+  - Ends within 3.5 m of a road node join that node.
+  - An off-land sample is excused only on a road, or within 4.5 m of an end that itself sits on a road node or road. The far end never gets this excuse.
+  - Refused:
+    - **already a track**: both end nodes are already joined, or ≥ 40 % of the inner samples lie within half a track width of one existing track. Crossing a track is fine;
+    - water, buildings, crossing a field, neighbour land, more than 300 m, not enough money.
 - **Fences/hedges, Trees, Animal pen** are disabled with a reason until `props.fence` / `props.place` / `animals.createPen` exist. Their call signatures are guesses (see Known limitations).
 - **Demolish.** The hovered target is a player building, a field on your land, or a `track` edge on your land. Each goes through a confirm dialog:
   - building: `buildings.remove`. Its refund rules apply: a bought building returns its book value (80 % when new); a granted one returns €0;
@@ -42,9 +49,19 @@ Files:
 - **Land mode** (`enter('land')` or the panel button):
   - Every parcel is outlined and filled by state: owned green, rented blue, for sale gold, to let teal, neighbour grey.
   - Each parcel has a label with its name, state, ha and price (sale price, or rent per month).
-  - Clicking a parcel opens a confirm dialog, then `simulation.buyParcel` (price + 4 % fees; a mortgage is offered when cash is short) or `rentParcel` (first month in advance).
+  - Clicking a parcel opens a confirm dialog, then `simulation.buyParcel` (price + 4 % fees) or `rentParcel` (first month in advance).
+  - When cash is short, a mortgage is offered. The hover reason and the dialog show the same figures `buyParcel({mortgage})` produces: the loan, the cash spent (all of it) and the cash left.
+  - Below max(€1,000, 3 months of overheads) left, they carry a low-cash warning.
 
-**Undo.** The last placement can be undone within **10 s of real time**. The time is counted from `update(dt)` (fixed 60 Hz), not the wall clock, so it is deterministic. The undo removes the thing and refunds the full cost. A building's book-value refund is topped up with `credit(cost − refund, 'buildings', 'Undo — …')`.
+**Undo.** The last placement can be undone within **10 s of real time**. The time is counted from `update(dt)` (fixed 60 Hz), not the wall clock, so it is deterministic.
+- The undo removes the thing and refunds the full cost. A building's book-value refund is topped up with `credit(cost − refund, 'buildings', 'Undo — …')`.
+- The top-up happens only while the building still carries the same simulation asset and that asset is still owned. Otherwise there is no top-up.
+- Entries whose target was removed elsewhere are dropped, so older entries stay reachable.
+- `load()` clears the undo history, the corners and the track chain.
+- `rotate()` ignores non-finite steps.
+- `select()` with an unknown tool or item returns false, keeps the current item and sets `status().lastError`.
+- The driving check also asks `vehicles.driverOf` for every vehicle.
+- `enter(anything other than 'land')` enters build mode.
 
 ## API (`ctx.modules.get('buildtools')`, metres/radians)
 - `enter(mode='build'|'land')` → bool (false while driving). `exit()`. `isActive()`.
@@ -73,7 +90,7 @@ Files:
 | `land` | the land-mode parcel map with state and price labels |
 
 ## Tests
-`scratchpad/buildtools/game.test.cjs` (builder scratchpad) has 34 checks in the full game. They use the real keyboard, a real mouse click and a real confirm dialog. Perf is ≈ 0.16 ms/frame in build and land mode.
+`scratchpad/buildtools/game.test.cjs` (builder scratchpad) has 48 checks in the full game (also passes with `demo` loaded: `ONLY=...,demo,buildtools`). They use the real keyboard, a real mouse click and a real confirm dialog. Perf is ≈ 0.16 ms/frame in build and land mode.
 
 ## Known limitations
 - **Undo cannot revert terrain.** Undo/demolish of a building does not undo the `terrain.flatten` / farmyard paint done by buildings.

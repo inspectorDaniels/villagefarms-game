@@ -56,6 +56,7 @@ export async function init(ctx) {
   let busy = false;          // a confirm dialog is open
   let cached = { key: null, res: null };
   let hover = null;          // land mode: hovered parcel id
+  let lastError = null;
 
   // ------------------------------------------------------------------ helpers
   const activeChar = () => {
@@ -64,7 +65,19 @@ export async function init(ctx) {
     const list = w.characters && Array.isArray(w.characters.list) ? w.characters.list : [];
     return id == null ? null : list.find((c) => c && c.id === id) || null;
   };
-  const driving = () => { const c = activeChar(); return !!(c && c.vehicleId); };
+  const driving = () => {
+    const c = activeChar();
+    if (!c) return false;
+    if (c.vehicleId) return true;
+    const V = mod('vehicles');
+    const vl = (ctx.world.vehicles && Array.isArray(ctx.world.vehicles.list)) ? ctx.world.vehicles.list : [];
+    for (const v of vl) {
+      if (!v) continue;
+      const d = V && V.driverOf ? V.driverOf(v.id) : v.driverId;
+      if (d && d === c.id) return true;
+    }
+    return false;
+  };
   const parcelAt = (x, y) => { const S = sim(); return S && S.parcelAt ? S.parcelAt(x, y) : null; };
   const usable = (p) => !!p && (p.state === 'owned' || p.state === 'rented');
   const canUse = (x, y) => { const S = sim(); return !!(S && S.canUse && S.canUse(x, y)); };
@@ -123,6 +136,15 @@ export async function init(ctx) {
     if (!P.length) return { ok: false, reason: 'click to set the first corner' };
     const p0 = parcelAt(P[0][0], P[0][1]);
     if (!usable(p0)) return { ok: false, reason: p0 ? 'not your land' : 'outside any parcel' };
+    const C0 = mod('crops');
+    if (kind === 'field' && C0 && C0.fieldAt) {
+      const fl = (C0.fields && C0.fields()) || [];
+      let used = 0;
+      for (const f of fl) if (f && f.parcelId === p0.id) used += f.area || 0;
+      if (p0.area - used < MIN_FIELD_M2) return { ok: false, reason: 'no free area left in this parcel' };
+      for (const [x, y] of P) if (C0.fieldAt(x, y)) return { ok: false, reason: 'already a field' };
+      if (P.length >= 2) for (const [x, y] of edgeSamples(P, 2, false)) if (C0.fieldAt(x, y)) return { ok: false, reason: 'already a field' };
+    }
     if (P.length >= 3 || !closed) {
       if (selfIntersects(P, closed && P.length >= 3)) return { ok: false, reason: 'edges cross' };
     }
@@ -162,12 +184,55 @@ export async function init(ctx) {
       if (B && B.at && B.at(x, y)) return { ok: false, reason: 'a building is in the way', length: L, cost };
       if (C && C.fieldAt && C.fieldAt(x, y)) return { ok: false, reason: 'crosses a field', length: L, cost };
       if (!canUse(x, y)) {
-        const nearEnd = Math.hypot(x - a[0], y - a[1]) < NODE_SNAP_M + 1 || Math.hypot(x - b[0], y - b[1]) < NODE_SNAP_M + 1;
-        if (!(kind === 'path' && (roadAt(x, y) || nearEnd && (nearNode(a[0], a[1]) || nearNode(b[0], b[1]))))) return { ok: false, reason: 'not your land', length: L, cost };
+        // off-land is excused only on a road, or right next to an end that is itself on a road node / road
+        const near = (e) => Math.hypot(x - e[0], y - e[1]) < NODE_SNAP_M + 1 && anchored(e);
+        if (!(kind === 'path' && (roadAt(x, y) || near(a) || near(b)))) return { ok: false, reason: 'not your land', length: L, cost };
       }
     }
+    if (kind === 'path' && duplicatesTrack(a, b, samples)) return { ok: false, reason: 'already a track', length: L, cost };
     if (!afford(cost)) return { ok: false, reason: 'not enough money', length: L, cost };
     return { ok: true, length: L, cost };
+  }
+
+  /** an end point that sits exactly on a road node or on a road surface */
+  function anchored(e) {
+    const n = nearNode(e[0], e[1]);
+    return !!((n && Math.hypot(n.x - e[0], n.y - e[1]) < 0.05) || roadAt(e[0], e[1]));
+  }
+  /** the segment repeats an existing track: both end nodes already joined, or it runs along a track edge */
+  function duplicatesTrack(a, b, samples) {
+    const edges = (ctx.world.roads && ctx.world.roads.edges) || [];
+    const na = nearNode(a[0], a[1]), nb = nearNode(b[0], b[1]);
+    if (na && nb && edges.some((e) => (e.a === na.id && e.b === nb.id) || (e.a === nb.id && e.b === na.id))) return true;
+    const x0 = Math.min(a[0], b[0]) - 3, x1 = Math.max(a[0], b[0]) + 3, y0 = Math.min(a[1], b[1]) - 3, y1 = Math.max(a[1], b[1]) + 3;
+    const inner = samples.filter(([x, y]) => Math.hypot(x - a[0], y - a[1]) > 2.5 && Math.hypot(x - b[0], y - b[1]) > 2.5);
+    if (!inner.length) return false;
+    for (const e of edges) {
+      if (e.class !== 'track' || !e.points || e.points.length < 2) continue;
+      let ex0 = Infinity, ey0 = Infinity, ex1 = -Infinity, ey1 = -Infinity;
+      for (const q of e.points) { if (q[0] < ex0) ex0 = q[0]; if (q[0] > ex1) ex1 = q[0]; if (q[1] < ey0) ey0 = q[1]; if (q[1] > ey1) ey1 = q[1]; }
+      if (ex1 < x0 || ex0 > x1 || ey1 < y0 || ey0 > y1) continue;
+      const half = (e.width || 3) / 2;
+      let n = 0;
+      for (const [x, y] of inner) {
+        for (let i = 1; i < e.points.length; i++) if (distToSeg(x, y, e.points[i - 1], e.points[i]) < half) { n++; break; }
+      }
+      if (n >= Math.max(2, inner.length * 0.4)) return true;
+    }
+    return false;
+  }
+
+  /** what simulation.buyParcel({mortgage:true}) will do with today's cash (same formula as simulation/land.js) */
+  function mortgagePlan(p) {
+    const S = sim();
+    const cash = S ? S.money() : 0;
+    const fees = p.price * 0.04, total = p.price + fees;
+    const loan = Math.ceil(Math.min(p.price * 0.75, Math.max(0, total - Math.max(0, cash))) / 100) * 100;
+    const feasible = cash + loan >= total;
+    const cashUsed = Math.max(0, total - loan);
+    const cashLeft = cash - cashUsed;
+    const overheadsMonth = 85 + 5 * ((S && S.parcels ? S.parcels().filter(usable).reduce((t, q) => t + q.area, 0) : 0) + p.area) / 1e4;
+    return { total, fees, loan, cashUsed, cashLeft, feasible, low: cashLeft < Math.max(1000, overheadsMonth * 3) };
   }
 
   /** hovered demolish target */
@@ -205,7 +270,10 @@ export async function init(ctx) {
     const ha = p.area / 1e4;
     if (p.state === 'forSale') {
       const total = p.price * 1.04;
-      return { ok: afford(total), kind: 'buy', parcel: p, cost: total, reason: afford(total) ? `buy for ${money(total)} incl. fees` : 'not enough money (mortgage offered)' };
+      if (afford(total)) return { ok: true, kind: 'buy', parcel: p, cost: total, reason: `buy for ${money(total)} incl. fees` };
+      const m = mortgagePlan(p);
+      if (!m.feasible) return { ok: false, kind: 'none', parcel: p, cost: total, reason: `not enough cash even with a mortgage (needs ${money(total - m.loan)})` };
+      return { ok: false, kind: 'buy', parcel: p, cost: total, mortgage: m, reason: `mortgage: ${money(m.loan)} loan, all ${money(m.cashUsed)} cash used, ${money(m.cashLeft)} left${m.low ? ' — low cash!' : ''}` };
     }
     if (p.state === 'forRent') {
       const month = (p.rentPerHaYear || 0) * ha / 12;
@@ -228,6 +296,38 @@ export async function init(ctx) {
     return cached.res;
   }
 
+  /** corners within 1 m of an owned/rented parcel's boundary snap onto it, 5 cm inside */
+  function snapCorner(x, y) {
+    const S = sim();
+    let ps = ((S && S.parcels && S.parcels()) || []).filter((p) => usable(p) && p.bbox);
+    // while drawing, only the parcel of the first corner counts
+    if (W.verts.length) { const p0 = parcelAt(W.verts[0][0], W.verts[0][1]); if (p0) ps = ps.filter((p) => p.id === p0.id); }
+    const C = mod('crops');
+    const fl = (C && C.fields && C.fields()) || [];
+    const free = (p) => p.area - fl.reduce((t, f) => t + (f && f.parcelId === p.id ? f.area || 0 : 0), 0);
+    let best = null;
+    for (const p of ps) {
+      const b = p.bbox;
+      if (x < b[0] - 1 || x > b[2] + 1 || y < b[1] - 1 || y > b[3] + 1) continue;
+      const P = p.poly;
+      for (let i = 0; i < P.length; i++) {
+        const a = P[i], c = P[(i + 1) % P.length];
+        const d = distToSeg(x, y, a, c);
+        if (d >= 1) continue;
+        // tie-break on shared boundaries: the parcel the point is inside, then the one with more free area
+        const score = d - (pointInPoly(P, x, y) ? 1e-3 : 0) - free(p) * 1e-9;
+        if (!best || score < best.score) {
+          const dx = c[0] - a[0], dy = c[1] - a[1], L2 = dx * dx + dy * dy || 1e-9;
+          const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2));
+          best = { score, px: a[0] + dx * t, py: a[1] + dy * t, c: p.center || centroid(P) };
+        }
+      }
+    }
+    if (!best) return [x, y];
+    const vx = best.c[0] - best.px, vy = best.c[1] - best.py, vl = Math.hypot(vx, vy) || 1;
+    return [Math.round((best.px + (vx / vl) * 0.05) * 1000) / 1000, Math.round((best.py + (vy / vl) * 0.05) * 1000) / 1000];
+  }
+
   function computePreview(x, y) {
     if (W.mode === 'land') return { kind: 'land', x, y, ...landInfo(x, y) };
     const t = W.tool;
@@ -243,6 +343,7 @@ export async function init(ctx) {
       return { kind: t, x, y, rot: W.rot, ok: !!c.ok, reason: c.ok ? 'click to build' : c.reason, cost: it.cost, polys, name: it.name };
     }
     if (t === 'field' || t === 'pen') {
+      [x, y] = snapCorner(x, y);
       const P = W.verts.map((v) => v.slice());
       const closing = P.length >= 3 && Math.hypot(P[0][0] - x, P[0][1] - y) < closeRadius();
       const draft = closing ? P : P.concat([[x, y]]);
@@ -293,7 +394,13 @@ export async function init(ctx) {
         const mortgage = !pr.ok;
         if (opts.confirm !== false) {
           const u = ui();
-          const yes = u && u.confirm ? await dialog({ title: `Buy ${p.name}?`, text: `${fmtHa(p.area)}, soil ${Math.round(p.soil * 100)} %. Price ${money(p.price)} + 4 % fees${mortgage ? ' — with a mortgage (25 % down + fees in cash)' : ''}.`, okLabel: mortgage ? 'Buy with mortgage' : 'Buy', icon: 'land' }) : true;
+          let mt = '', low = false;
+          if (mortgage || opts.mortgage) {
+            const m = mortgagePlan(p);
+            low = m.low;
+            mt = ` With a mortgage: loan ${money(m.loan)} over 15 years, cash spent ${money(m.cashUsed)}, cash left ${money(m.cashLeft)}.${m.low ? ' Warning: that leaves almost no cash for rent, wages and overheads — you may slide into overdraft.' : ''}`;
+          }
+          const yes = u && u.confirm ? await dialog({ title: `Buy ${p.name}?`, text: `${fmtHa(p.area)}, soil ${Math.round(p.soil * 100)} %. Price ${money(p.price)} + ${money(p.price * 0.04)} fees = ${money(p.price * 1.04)}.${mt}`, okLabel: mortgage ? 'Buy with mortgage' : 'Buy', icon: 'land', danger: low }) : true;
           if (!yes) return { ok: false, reason: 'cancelled' };
         }
         const ok = S.buyParcel(p.id, mortgage || opts.mortgage ? { mortgage: true } : {});
@@ -325,7 +432,8 @@ export async function init(ctx) {
       const id = B.place(it.type, pr.x, pr.y, W.rot, { variant: it.variant, pay: true });
       if (!id) { const r = (B.lastError && B.lastError()) || 'refused'; return { ok: false, reason: r }; }
       const cost = Math.round((before - S.money()) * 100) / 100;
-      pushHistory({ kind: 'building', id, cost, name: it.name });
+      const rec = B.get ? B.get(id) : null;
+      pushHistory({ kind: 'building', id, cost, name: it.name, assetId: (rec && rec.assetId) || null });
       emitPlaced({ kind: 'building', id, type: it.type, variant: it.variant, x: pr.x, y: pr.y, rot: W.rot, cost });
       toast(`Built ${it.name} — ${money(cost)}`, 'money');
       cached.key = null;
@@ -454,18 +562,36 @@ export async function init(ctx) {
   }
 
   /** undo the last placement if it is younger than 10 s: removed with a full refund */
+  function exists(h) {
+    if (h.kind === 'building') { const B = mod('buildings'); const b = B && B.get ? B.get(h.id) : null; return !!(b && b.owner === 'player'); }
+    if (h.kind === 'field') { const C = mod('crops'); return !!(C && C.field && C.field(h.id)); }
+    if (h.kind === 'path') return ((ctx.world.roads && ctx.world.roads.edges) || []).some((e) => e.id === h.id);
+    return true;
+  }
+  /** undo the last placement if it is younger than 10 s: removed with a full refund */
   function undo() {
+    // entries whose target was removed elsewhere are dropped, so older valid ones stay reachable
+    while (W.history.length && !exists(W.history[W.history.length - 1])) W.history.pop();
     const h = W.history.length ? W.history[W.history.length - 1] : null;
     if (!h || h.ttl <= 0) { toast('Nothing to undo (only within 10 s)', 'info'); return { ok: false, reason: 'nothing to undo' }; }
+    let fullRefund = true;
+    if (h.kind === 'building' && h.assetId) {
+      // the asset must still be owned and unsold — otherwise no top-up (it was already paid out)
+      const S = sim();
+      const b = mod('buildings') && mod('buildings').get(h.id);
+      const still = S && S.assets ? (S.assets() || []).some((a) => a && a.id === h.assetId) : false;
+      if (!b || b.assetId !== h.assetId || !still) fullRefund = false;
+    }
     const r = removeThing(h.kind, h.id);
-    if (!r.ok) return { ok: false, reason: r.reason };
+    if (!r.ok) { W.history.pop(); return { ok: false, reason: r.reason }; }
     W.history.pop();
-    const top = Math.round((h.cost - (r.refund || 0)) * 100) / 100;
+    const refund = fullRefund ? h.cost : (r.refund || 0);
+    const top = Math.round((refund - (r.refund || 0)) * 100) / 100;
     if (top > 0) sim().credit(top, 'buildings', `Undo — ${h.name}`);
-    ctx.events.emit('buildtools:demolished', { kind: h.kind, id: h.id, refund: h.cost, undo: true });
-    toast(`Undone: ${h.name}${h.cost > 0 ? ` — ${money(h.cost)} refunded` : ''}`, 'money');
+    ctx.events.emit('buildtools:demolished', { kind: h.kind, id: h.id, refund, undo: true });
+    toast(`Undone: ${h.name}${refund > 0 ? ` — ${money(refund)} refunded` : ''}`, 'money');
     cached.key = null;
-    return { ok: true, kind: h.kind, id: h.id, refund: h.cost };
+    return { ok: true, kind: h.kind, id: h.id, refund };
   }
 
   // ------------------------------------------------------------------ mode control
@@ -491,10 +617,16 @@ export async function init(ctx) {
   function select(tool, itemId) {
     if (tool === 'land') { if (!W.active) enter('land'); W.mode = 'land'; W.tool = null; cached.key = null; return true; }
     const td = toolDef(tool);
-    if (!td) return false;
+    if (!td) { lastError = `unknown tool "${tool}"`; return false; }
+    lastError = td.enabled ? null : td.reason;
     if (!W.active) enter('build');
     W.mode = 'build';
     W.tool = tool; W.verts = []; W.chain = null;
+    if (itemId != null && ((tool === 'building' && !findItem(itemId)) || (tool !== 'building' && td.items && !td.items.some((i) => i.id === itemId)))) {
+      lastError = `unknown item "${itemId}"`;
+      return false;
+    }
+    if (!Number.isFinite(W.rot)) W.rot = 0;
     if (tool === 'building') W.item = (findItem(itemId) || findItem(W.item) || items()[0] || {}).id || null;
     else if (td.items) W.item = itemId && td.items.some((i) => i.id === itemId) ? itemId : td.items[0].id;
     else W.item = itemId || null;
@@ -510,6 +642,8 @@ export async function init(ctx) {
     return 'exit';
   }
   function rotate(step) {
+    if (step != null && !Number.isFinite(step)) return W.rot;
+    if (!Number.isFinite(W.rot)) W.rot = 0;
     W.rot = ((W.rot + (step == null ? Math.PI / 2 : step)) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
     W.rot = Math.round(W.rot * 1e6) / 1e6;
     cached.key = null;
@@ -732,7 +866,7 @@ export async function init(ctx) {
     rotate: (step) => rotate(step),
     tools: () => tools(),
     status: () => ({ active: !!W.active, mode: W.mode, tool: W.tool, item: W.item, rot: W.rot, verts: W.verts.map((v) => v.slice()), chain: W.chain ? { ...W.chain } : null,
-      undo: W.history.map((h) => ({ kind: h.kind, id: h.id, cost: h.cost, ttl: +h.ttl.toFixed(3) })), placed: W.placed, demolished: W.demolished }),
+      undo: W.history.map((h) => ({ kind: h.kind, id: h.id, cost: h.cost, ttl: +h.ttl.toFixed(3) })), placed: W.placed, demolished: W.demolished, lastError }),
   };
 
   return {
@@ -748,7 +882,7 @@ export async function init(ctx) {
       if (Number.isFinite(m.x) && Number.isFinite(m.y)) { cursor.x = m.x; cursor.y = m.y; }
     },
     save: () => ({ rot: W.rot, placed: W.placed, demolished: W.demolished }),
-    load(d) { if (d && typeof d === 'object') { if (Number.isFinite(d.rot)) W.rot = d.rot; W.placed = d.placed | 0; W.demolished = d.demolished | 0; } },
+    load(d) { W.history = []; W.verts = []; W.chain = null; cached.key = null; if (d && typeof d === 'object') { if (Number.isFinite(d.rot)) W.rot = d.rot % (Math.PI * 2); W.placed = d.placed | 0; W.demolished = d.demolished | 0; } },
   };
 }
 

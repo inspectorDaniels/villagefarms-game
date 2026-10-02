@@ -5,7 +5,7 @@ import { S, CROPS, CROP_IDS, stageOf } from './data.js';
 
 const MARGIN = 0;               // composite layer margin (px). Must stay 0: any layer larger than the screen blits on a slow path (≈ 8 ms headless)
 const CPX = 256;               // chunk canvas size in px (≤ 256 px canvases blit far cheaper); metres = CPX / res
-const LEVELS = [4, 8, 16, 32]; // px per metre
+const LEVELS = [4, 6, 8, 12, 16, 24, 32]; // px per metre; picked for ~1.1–1.5× upscale (GPU texture budget is shared with terrain/roads)
 const MAX_BYTES = 20 * 1048576;
 
 export function createRenderer(ctx, model, tiles) {
@@ -188,7 +188,7 @@ export function createRenderer(ctx, model, tiles) {
 
   // ------------------------------------------------------------ frame
   function pickRes(pxPerM) {
-    for (const r of LEVELS) if (r >= pxPerM * 0.8) return r;
+    for (const r of LEVELS) if (r >= pxPerM * 0.66) return r;
     return LEVELS[LEVELS.length - 1];
   }
   const inView = (b, v, pad = 0) => !(b.x1 < v.x0 - pad || b.x0 > v.x1 + pad || b.y1 < v.y0 - pad || b.y0 > v.y1 + pad);
@@ -242,6 +242,18 @@ export function createRenderer(ctx, model, tiles) {
     }
     const list = [];
     for (const [e, x0, y0, CH] of blits) if (e.built) list.push([e.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0), e.key, e.paintV]);
+    if (globalThis.__DIRECT) {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      const W0 = g.canvas.width, H0 = g.canvas.height;
+      for (const [e, x0, y0, CH] of blits) {
+        if (!e.built) continue;
+        if (e.bmpV !== e.paintV && !e.bmpPending) { e.bmpPending = true; const v = e.paintV; createImageBitmap(e.canvas).then((bm) => { e.bmpPending = false; if (e.paintV === v) { if (e.bmp) e.bmp.close(); e.bmp = bm; e.bmpV = v; } else bm.close(); }); }
+        const sx = Math.round(m.a * x0) + E, sy = Math.round(m.d * y0) + Fo, sw = Math.round(m.a * (x0 + CH)) + E - sx, sh = Math.round(m.d * (y0 + CH)) + Fo - sy;
+        if (sx > W0 || sy > H0 || sx + sw < 0 || sy + sh < 0) continue;
+        g.drawImage(e.bmpV === e.paintV && e.bmp ? e.bmp : e.canvas, sx, sy, sw, sh);
+      }
+      g.setTransform(m);
+    } else {
     if (!globalThis.__NOCOMP) composite(cw, chh, list, m.a, cE, cF);
     g.setTransform(1, 0, 0, 1, 0, 0);
     if (list.length) {
@@ -251,16 +263,19 @@ export function createRenderer(ctx, model, tiles) {
       if (frozenV !== compV && !freezing && typeof createImageBitmap === 'function') {
         freezing = true;
         const v = compV;
-        createImageBitmap(comp).then((bm) => {
+        const sc = globalThis.__COMPSCALE || 1;
+        (sc === 1 ? createImageBitmap(comp) : createImageBitmap(comp, { resizeWidth: Math.round(comp.width * sc), resizeHeight: Math.round(comp.height * sc), resizeQuality: 'medium' })).then((bm) => {
           freezing = false;
           if (v === compV) { if (frozen && frozen.close) frozen.close(); frozen = bm; frozenV = v; } else if (bm.close) bm.close();
         }, () => { freezing = false; });
       }
       const sx = cE + MARGIN - E, sy = cF + MARGIN - Fo, w = g.canvas.width, h = g.canvas.height;
-      if (!globalThis.__NOBLIT) g.drawImage(frozenV === compV && frozen ? frozen : comp, sx, sy, w, h, 0, 0, w, h);
+      const useF = frozenV === compV && frozen, fs = useF ? frozen.width / comp.width : 1;
+      if (!globalThis.__NOBLIT) g.drawImage(useF ? frozen : comp, sx * fs, sy * fs, w * fs, h * fs, 0, 0, w, h);
       globalThis.__FROZEN = frozenV === compV;
     }
     g.setTransform(m);
+    }
     stats.lastCellPaints = stats.cellPaints - stats.lastCellPaints;
     // snow veil (fields have no terrain snow of their own)
     const W = env().weather;
