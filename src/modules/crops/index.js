@@ -119,9 +119,11 @@ export async function init(ctx) {
   renderer = createRenderer(ctx, model, tiles);
   for (const f of W.fields) renderer.onField(f, 'add');
   let budget = 900; // cells painted per frame (chunk builds + dirty repaints): ~1 ms headless
-  ctx.renderer.addLayer('ground', (g, view) => renderer.drawGround(g, view, budget), 5);
-  ctx.renderer.addLayer('ground-detail', (g, view) => renderer.drawSway(g, view), 2);
-  ctx.renderer.addCollector((view, F) => renderer.collect(view, F));
+  // ?cropsoff=ground,sway,collect disables a render part (frame-cost A/B in tests/pan.cjs)
+  const off = new Set(String(ctx.params.cropsoff || '').split(',').filter(Boolean));
+  ctx.renderer.addLayer('ground', (g, view) => { if (!off.has('ground')) renderer.drawGround(g, view, budget); }, 5);
+  ctx.renderer.addLayer('ground-detail', (g, view) => { if (!off.has('sway')) renderer.drawSway(g, view); }, 2);
+  ctx.renderer.addCollector((view, F) => { if (!off.has('collect')) renderer.collect(view, F); });
 
   function publicField(f) {
     return f ? { id: f.id, name: f.name, parcelId: f.parcelId, crop: f.crop, state: f.state, stage: f.stage, growth: +f.growth.toFixed(3),
@@ -190,7 +192,7 @@ export async function init(ctx) {
     },
   };
 
-  const inst = { model, renderer, tiles, api, setBudget: (b) => { budget = b; } };
+  const inst = { model, renderer, tiles, api, off, setBudget: (b) => { budget = b; } };
   INSTANCES.set(ctx, inst);
   if (ctx.params.cropsdebug) globalThis.__CROPS__ = inst; // dev: profiling hooks
 

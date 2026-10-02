@@ -43,11 +43,12 @@ Useful URL parameters (combine with `&`):
 
 ## State of the game
 
-Work in progress. The modules are built and reviewed one by one (see `docs/STATUS.json`); the
-`demo` module that composes the full valley (farm, village, parcels, starting vehicles) is still
-being built. Until it lands, the full game shows the terrain with a farmer and one hired hand;
-the richest views are the showcases, e.g. `?showcase=vehicles&preset=working`,
-`?showcase=crops&preset=harvest`, `?showcase=buildings&preset=farm`, `?showcase=simulation`.
+Work in progress (see `docs/STATUS.json` for scores and open issues). The full game starts you at
+your small farmyard with an old tractor, plough, trailer and pickup, one rented field, a village with
+a grain co-op, dairy, shop and dealer, and neighbour farms. Not built yet: hedges/trees (props),
+animals and road traffic. Visual polish is deliberately deferred; mechanics come first.
+Saving: from the browser console, `await __GAME__.game.saveToStorage('slot1')` /
+`await __GAME__.game.loadFromStorage('slot1')` (a Save/Load menu is still to come).
 
 ## Developer tools
 

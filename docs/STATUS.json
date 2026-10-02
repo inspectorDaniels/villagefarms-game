@@ -325,11 +325,12 @@
     },
     "demo": {
       "wave": 3,
-      "status": "pending",
+      "status": "built-unreviewed",
       "score": null,
       "pass": false,
       "rounds": [],
-      "openIssues": []
+      "openIssues": [],
+      "note": "built: startGame composes valley (36 parcels, 45 buildings, 13 vehicles, villagers), office panel, objectives; playthrough: boot 3.3 s, drive+plough, job, sell, hire, save/load. Registered. Perf: village 39-56 ms, overview 24-50 ms headless (fill-rate; needs GPU check). Gaps: trailer-to-co-op not scripted, no starting hand, NPC farms idle."
     }
   },
   "game": {
@@ -369,6 +370,10 @@
     {
       "t": "2026-09-30",
       "event": "fourth rate-limit interruption (demo builder, crops critic, sim follow-up). Root README with run instructions added."
+    },
+    {
+      "t": "2026-10-02",
+      "event": "integrator: demo + buildtools registered; ctx.game whole-game save/load (gzip localStorage: 4.8 MB -> 0.84 MB), round-trip verified across page reload"
     }
   ],
   "resume": [

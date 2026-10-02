@@ -86,10 +86,81 @@ async function boot() {
     return Object.freeze(wrapped);
   }
 
+  // ---- whole-game save/load (integrator; demo core-request #2). Module order = init order.
+  const SAVE_VERSION = 1;
+  const game = {
+    save() {
+      const modules = {};
+      for (const { id, inst } of instances) {
+        if (typeof inst.save !== 'function' || !health.isActive(id)) continue;
+        const d = health.guard(id, 'save', () => inst.save());
+        if (d !== undefined) modules[id] = d;
+      }
+      return { version: SAVE_VERSION, seed: world.seed, time: { t: world.time.t, scale: world.time.scale }, modules };
+    },
+    load(data) {
+      if (!data || typeof data !== 'object' || !data.modules) return { ok: false, reason: 'not a save' };
+      if (data.seed !== world.seed) return { ok: false, reason: `save is for seed "${data.seed}", world is "${world.seed}"` };
+      if (data.time && Number.isFinite(data.time.t)) world.time.t = data.time.t;
+      if (data.time && Number.isFinite(data.time.scale)) world.time.scale = data.time.scale;
+      const loaded = [];
+      for (const { id, inst } of instances) {
+        if (typeof inst.load !== 'function' || data.modules[id] === undefined || !health.isActive(id)) continue;
+        health.guard(id, 'load', () => inst.load(data.modules[id]));
+        loaded.push(id);
+      }
+      bus.emit('core:loaded', { modules: loaded });
+      return { ok: true, modules: loaded };
+    },
+    /** gzip + base64 into localStorage (the raw JSON can exceed the ~5 MB quota) */
+    async saveToStorage(slot = 'auto') {
+      try {
+        const data = game.save();
+        const json = JSON.stringify(data);
+        const gz = await new Response(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+        let bin = '';
+        const u8 = new Uint8Array(gz);
+        for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+        localStorage.setItem('hv-save:' + slot, btoa(bin));
+        localStorage.setItem('hv-save-meta:' + slot, JSON.stringify({ seed: data.seed, t: data.time.t, bytes: u8.length, raw: json.length }));
+        bus.emit('core:saved', { slot, bytes: u8.length });
+        return { ok: true, slot, bytes: u8.length, raw: json.length };
+      } catch (e) {
+        console.warn('[core] save failed: ' + (e && e.message));
+        return { ok: false, reason: String(e && e.message || e) };
+      }
+    },
+    async loadFromStorage(slot = 'auto') {
+      try {
+        const b64 = localStorage.getItem('hv-save:' + slot);
+        if (!b64) return { ok: false, reason: 'no save in slot ' + slot };
+        const bin = atob(b64);
+        const u8 = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+        const json = await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+        return game.load(JSON.parse(json));
+      } catch (e) {
+        console.warn('[core] load failed: ' + (e && e.message));
+        return { ok: false, reason: String(e && e.message || e) };
+      }
+    },
+    slots() {
+      const out = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('hv-save-meta:')) out.push({ slot: k.slice(13), ...JSON.parse(localStorage.getItem(k)) });
+        }
+      } catch (e) { /* storage unavailable */ }
+      return out;
+    },
+  };
+
   function makeCtx(id) {
     return {
       id, world, params, palette, art, uiRoot,
       clock: clockView,
+      game,
       rng: (stream = 'main') => createRng(world.seed, id, stream),
       noise: (stream = 'main') => new Noise2D(hashString(world.seed + ':' + id + ':noise:' + stream)),
       events: bus.scoped(id),
@@ -270,6 +341,7 @@ async function boot() {
   G.modules = apis;
   G.input = input;
   G.engine = engine;
+  G.game = game;
   G.art = art;
   G.stats = () => ({ ...engine.stats(), art: art.stats(), time: clock.format(), day: clock.dayOfYear, season: clock.season });
   G.health = () => health.report();
