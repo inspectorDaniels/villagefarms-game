@@ -198,7 +198,7 @@
     },
     "crops": {
       "wave": 2,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -215,7 +215,7 @@
         "createField(null/[]/2 points) throws; NaN/zero-area polygons accepted",
         "should: wheat ripens Sept not Aug, spraying never pays, save size 90 KB/ha, save() doesn't flush batched crops:worked"
       ],
-      "note": "built 2026-09-27: 8 crops, full cell state machine, growth from rain/fertiliser/weeds, yields from simulation.yieldTable (8.33 t/ha managed wheat vs 8.5 table), jobs complete via reportProgress (\u20ac137 paid in live test), save/load + determinism digests. Registered. Gaps: panning redraw 10-40 ms headless, no recordFieldWork call yet (CAP r3). | follow-ups: crops:worked carries parcelId/areaM2 (contractor:true flag), applies economy:contractor-done (840/840 cells live), pan 2-3 ms/frame headless (over 1.5 budget, needs real-GPU check)"
+      "note": "built 2026-09-27: 8 crops, full cell state machine, growth from rain/fertiliser/weeds, yields from simulation.yieldTable (8.33 t/ha managed wheat vs 8.5 table), jobs complete via reportProgress (\u20ac137 paid in live test), save/load + determinism digests. Registered. Gaps: panning redraw 10-40 ms headless, no recordFieldWork call yet (CAP r3). | follow-ups: crops:worked carries parcelId/areaM2 (contractor:true flag), applies economy:contractor-done (840/840 cells live), pan 2-3 ms/frame headless (over 1.5 budget, needs real-GPU check) | r2: frame A/B +0.35-0.68 ms static, +0.49 follow, +1.47 pan (half-res composite, texture budget), CAP-year per-op cell stamps, createField validation, spraying pays, flush on save"
     },
     "buildings": {
       "wave": 2,
