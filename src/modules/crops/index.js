@@ -15,7 +15,7 @@ export const manifest = {
   api: ['createField', 'removeField', 'fields', 'field', 'fieldAt', 'cellAt', 'work', 'stats', 'forceStage', 'plantAll',
     'crops', 'calendar', 'bales', 'collectBale', 'simulateDays', 'applyContract'],
   emits: ['crops:worked', 'crops:sown', 'crops:ripe', 'crops:harvested', 'crops:withered', 'crops:field-changed'],
-  listens: ['economy:contractor-done'],
+  listens: ['economy:contractor-done', 'land:parcel-changed'],
 };
 
 // climate fallback (mm of rain per game day by month) when environment gives no plan for a day
@@ -45,6 +45,7 @@ export async function init(ctx) {
   const model = createModel(W, {
     seed: world.seed,
     emit: (t, p) => ctx.events.emit(t, p),
+    warn: (msg) => ctx.warn(msg),
     sim: () => mod('simulation'),
     now: () => { const day = clock.day + (W.dayOffset || 0); return { t: clock.t, day, doy: ((day % YEAR_DAYS) + YEAR_DAYS) % YEAR_DAYS }; },
     moistureAt: (x, y) => { const t = mod('terrain'); const v = t && t.moistureAt ? t.moistureAt(x, y) : null; return Number.isFinite(v) ? v : 0.5; },
@@ -113,6 +114,8 @@ export async function init(ctx) {
     return out;
   }
   ctx.events.on('economy:contractor-done', (ev) => { applyContract(ev); });
+  // simulation resets a parcel's CAP share when it changes hands (rent/buy/lease end/sale): reset our stamps too
+  ctx.events.on('land:parcel-changed', (ev) => { if (ev && ev.id && ev.state !== ev.from) model.resetCap(ev.id); });
 
   // ---- rendering
   const tiles = createTiles(ctx.art, ctx.palette);
@@ -121,7 +124,7 @@ export async function init(ctx) {
   let budget = 900; // cells painted per frame (chunk builds + dirty repaints): ~1 ms headless
   // ?cropsoff=ground,sway,collect disables a render part (frame-cost A/B in tests/pan.cjs)
   const off = new Set(String(ctx.params.cropsoff || '').split(',').filter(Boolean));
-  ctx.renderer.addLayer('ground', (g, view) => { if (!off.has('ground')) renderer.drawGround(g, view, budget); }, 5);
+  ctx.renderer.addLayer(ctx.params.cropslayer || 'ground', (g, view) => { if (!off.has('ground')) renderer.drawGround(g, view, budget); }, 5);
   ctx.renderer.addLayer('ground-detail', (g, view) => { if (!off.has('sway')) renderer.drawSway(g, view); }, 2);
   ctx.renderer.addCollector((view, F) => { if (!off.has('collect')) renderer.collect(view, F); });
 
@@ -133,8 +136,10 @@ export async function init(ctx) {
 
   const api = {
     /** poly [[x,y]…] metres; opts { parcelId?, crop?, stage? ('auto'|0..5|name), state? ('grass'|'stubble'|'ploughed'|'cultivated'), angle?, cell? (m, default 2), soil? 0..1, name?, paintTerrain? } → id */
-    createField(poly, opts = {}) {
-      const id = model.createField(poly, opts);
+    createField(poly, opts) {
+      opts = opts && typeof opts === 'object' ? opts : {};
+      const id = model.createField(poly, opts || {});
+      if (!id) return null;
       const fo = model.byId.get(id); if (fo && opts.plannedCrop) fo.plannedCrop = opts.plannedCrop;
       const t = mod('terrain');
       const inner = insetPoly(poly, 1.3); // the outer metre stays verge grass (the field edge is feathered onto it)
@@ -208,9 +213,9 @@ export async function init(ctx) {
         model.beginDay(W.day + 1, rainFor(W.day + 1));
       }
       if (model.pendingDay() != null) model.stepDay(4000); // ≈ 0.5 ms per step; a 60 ha farm finishes a day in ~40 steps
-      model.flush(clock.t, false);
+      model.flush(clock.t, clock.paused);   // paused: nothing would ever age the batch, so hand it over now
     },
-    save() { model.stepDay(Infinity); return { model: model.save(), rain: JSON.parse(JSON.stringify(W.rain)) }; },
+    save() { model.stepDay(Infinity); model.flush(clock.t, true); return { model: model.save(), rain: JSON.parse(JSON.stringify(W.rain)) }; },
     load(d) {
       if (!d || !d.model) return;
       renderer.invalidateAll();

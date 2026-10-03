@@ -1,6 +1,7 @@
 // Frame-cost A/B for crops in the full game (dev server must run):  node src/modules/crops/tests/pan.cjs
-// The same camera scripts run twice in one page: first without fields, then with an 18-field patchwork
-// (6×3, every crop, mixed stages). Each script is run once to warm terrain/roads/crops caches, then measured.
+// One page, an 18-field patchwork (6×3, every crop, mixed stages). For every camera script the crops render
+// parts are toggled off/on/off/on/off/on (?cropsdebug=1 → __CROPS__.off) and the frame averages of the
+// three ON and three OFF runs are compared. Alternating cancels out the slow drift of terrain/roads caches.
 // Reported: frameMsAvg / p95 with and without fields, and the delta (= the real per-frame cost of crops,
 // including deferred raster work that the module's own msAvg timer cannot see).
 const path = require('path');
@@ -12,7 +13,7 @@ const { findChrome, chromeArgs } = require(path.resolve(__dirname, '../../../../
   const p = await b.newPage();
   const errs = [];
   p.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-  await p.goto('http://localhost:5173/?seed=harvest-1&time=10:00' + (process.argv[2] ? '&' + process.argv[2] : ''));
+  await p.goto('http://localhost:5173/?seed=harvest-1&time=10:00&cropsdebug=1' + (process.argv[2] ? '&' + process.argv[2] : ''));
   await p.waitForFunction('window.__GAME__ && (window.__GAME__.ready || window.__GAME__.fatal)', { timeout: 90000 });
   const r = await p.evaluate(async () => {
     const G = window.__GAME__, C = G.modules.get('crops');
@@ -27,24 +28,31 @@ const { findChrome, chromeArgs } = require(path.resolve(__dirname, '../../../../
       pan_z12_8px: (f) => [x0 + 20 + f * 8 / 12, cy + Math.sin(f / 30) * 15, 12],          // fast keyboard pan
       follow_z24_3ms: (f) => [x0 + 30 + f * (3 / 60), cy - 30 + f * (1 / 60), 24],        // following a tractor at 3 m/s
     };
-    async function run(name) {
-      const fn = scenarios[name];
-      for (let f = 0; f < N; f++) { const [x, y, z] = fn(f); G.setCamera(x, y, z); await G.waitFrames(1); } // warm
-      for (let f = 0; f < N; f++) { const [x, y, z] = fn(f); G.setCamera(x, y, z); await G.waitFrames(1); } // measured (engine keeps the last 240 frames)
-      const s = G.stats(), h = G.health().find((m) => m.id === 'crops');
-      return { avg: s.frameMsAvg, p95: s.frameMsP95, cropsMsAvg: h ? h.msAvg : null, draws: s.drawCalls };
-    }
-    const out = { without: {}, with: {} };
-    for (const n of Object.keys(scenarios)) out.without[n] = await run(n);
     const crops = ['wheat', 'barley', 'rapeseed', 'maize', 'potatoes', 'sugarBeet', 'grass', 'oats'];
     for (let j = 0; j < 3; j++) for (let i = 0; i < 6; i++) {
       const x = x0 + i * 62, y = y0 + j * 70;
       const id = C.createField([[x, y], [x + 58, y + 1], [x + 57, y + 64], [x - 1, y + 63]], { state: 'stubble', paintTerrain: false });
       C.plantAll(id, crops[(i + j * 6) % crops.length], (i + j) % 6);
     }
-    for (const n of Object.keys(scenarios)) out.with[n] = await run(n);
-    out.delta = {};
-    for (const n of Object.keys(scenarios)) out.delta[n] = { avg: +(out.with[n].avg - out.without[n].avg).toFixed(2), p95: +(out.with[n].p95 - out.without[n].p95).toFixed(2) };
+    const off = window.__CROPS__.off;
+    const setOn = (on) => { for (const k of ['ground', 'sway', 'collect']) on ? off.delete(k) : off.add(k); };
+    async function pass(name) {
+      const fn = scenarios[name];
+      for (let f = 0; f < N; f++) { const [x, y, z] = fn(f); G.setCamera(x, y, z); await G.waitFrames(1); }
+      const s = G.stats();
+      return [s.frameMsAvg, s.frameMsP95];
+    }
+    const out = { without: {}, with: {}, delta: {} };
+    for (const n of Object.keys(scenarios)) {
+      setOn(true); await pass(n);                       // warm every cache on this path
+      const acc = { on: [], off: [] };
+      for (let rep = 0; rep < 3; rep++) for (const on of [false, true]) { setOn(on); acc[on ? 'on' : 'off'].push(await pass(n)); }
+      const mean = (a, i) => +(a.reduce((s, v) => s + v[i], 0) / a.length).toFixed(2);
+      out.without[n] = { avg: mean(acc.off, 0), p95: mean(acc.off, 1) };
+      out.with[n] = { avg: mean(acc.on, 0), p95: mean(acc.on, 1), cropsMsAvg: (G.health().find((m) => m.id === 'crops') || {}).msAvg };
+      out.delta[n] = { avg: +(out.with[n].avg - out.without[n].avg).toFixed(2), p95: +(out.with[n].p95 - out.without[n].p95).toFixed(2) };
+    }
+    setOn(true);
     return out;
   });
   if (r.error) { console.log(r.error); process.exit(1); }

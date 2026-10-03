@@ -93,6 +93,10 @@ function run(seed, verbose) {
   const D = rect(300, 300, 60, 40, 0);
   const fd = M.createField(D.poly, { state: 'cultivated' });
   drive(M, 'seed:wheat', D, 4);
+  // ---- field E: wheat, fertilised like A but never sprayed (is the herbicide worth its ~€95/ha?)
+  const E = rect(300, 400, 60, 40, 0);
+  const fe2 = M.createField(E.poly, { state: 'stubble' });
+  drive(M, 'plough', E, 3); drive(M, 'cultivate', E, 4); drive(M, 'seed:wheat', E, 4); drive(M, 'fertilise', E, 12);
   // ---- field C: grass for hay
   const Cr = rect(100, 260, 80, 40, -0.1);
   const fc = M.createField(Cr.poly, { state: 'cultivated' });
@@ -110,7 +114,7 @@ function run(seed, verbose) {
     const st = M.stats(fa);
     if (st.stageIndex !== lastStage) { stagesSeen.push(st.stage); lastStage = st.stageIndex; timeline.push(`doy ${clock.day % 36} ${st.stage} (g ${st.growth})`); }
     if (clock.day % 36 === 3) drive(M, 'spray', A, 12); // March: herbicide
-    if (clock.day % 36 === 6) drive(M, 'fertilise', A, 12); // spring top dressing
+    if (clock.day % 36 === 6) { drive(M, 'fertilise', A, 12); drive(M, 'fertilise', E, 12); } // spring top dressing
     if (clock.day % 36 === 8) { drive(M, 'seed:grass', Cr, 4); }
     if (st.counts.ripe === st.cells && ripeDay == null) ripeDay = clock.day;
     if (ripeDay != null) break;
@@ -160,6 +164,9 @@ function run(seed, verbose) {
       out.unmanagedLag = clock.day - ripeDay;
     }
   }
+  if (out.unsprayedTPerHa == null) { const hE = drive(M, 'harvest', E, 6); out.unsprayedTPerHa = hE.yieldKg / 1000 / (M.stats(fe2).area / 1e4); }
+  const sprayGain = (out.tPerHa - out.unsprayedTPerHa) * 210;
+  check(sprayGain > 95, `herbicide pays: sprayed ${out.tPerHa.toFixed(2)} vs unsprayed ${out.unsprayedTPerHa.toFixed(2)} t/ha → +€${sprayGain.toFixed(0)}/ha at €210/t vs ~€95/ha spray`);
   check(out.unmanagedTPerHa < out.tPerHa - 0.5, `unmanaged wheat (no fertiliser, no spray): ${(out.unmanagedTPerHa || 0).toFixed(2)} t/ha, ripened ${out.unmanagedLag} day(s) later, vs managed ${out.tPerHa.toFixed(2)} t/ha`);
   check(witherDay != null && events.some((e) => e[0] === 'crops:withered' && e[1].fieldId === fb), `barley left standing (was "${bRipe.stage}") withered on doy ${witherDay % 36} (witherDays ${CROPS.barley.witherDays}); crops:withered emitted`);
   const hb = drive(M, 'harvest', B, 6);
@@ -191,6 +198,27 @@ function run(seed, verbose) {
   check(miss.cellsChanged === 0 && miss.item === null, 'work() outside any field → 0 cells');
   M.removeField(f2);
 
+  // ---- createField input validation: warn + null, never throw
+  {
+    const bad = [null, [], [[0, 0], [10, 0]], [[NaN, 0], [10, 0], [10, 10]], [[0, 0], [10, 0], [20, 0]], [[0, 0], [1, 0], [1, 1]], 'x'];
+    const res = bad.map((p) => { try { return M.createField(p); } catch (e) { return 'THREW ' + e.message; } });
+    check(res.every((r) => r === null), `createField(null|[]|2 pts|NaN|collinear|tiny|string) → ${JSON.stringify(res)}`);
+  }
+  // ---- CAP: re-working the same strip earns no new area
+  {
+    const fid = M.createField(rect(700, 700, 40, 40, 0).poly, { state: 'stubble' });
+    const n0 = events.length;
+    for (let i = 0; i < 24; i++) { M.work('plough', 710, 710, 3, Math.PI / 2, 8); M.work('cultivate', 710, 710, 3, Math.PI / 2, 8); M.flush(0, true); }
+    const ws = events.slice(n0).filter((e) => e[0] === 'crops:worked' && e[1].fieldId === fid);
+    const area = ws.reduce((a, e) => a + e[1].areaM2, 0), cells = ws.reduce((a, e) => a + e[1].cells, 0);
+    check(area <= 2 * 40 && cells >= 24 * 2 * 4, `plough/cultivate the same strip 24×: ${cells} cell changes, CAP areaM2 Σ ${area} m² (first pass per op only)`);
+    clock.day += 36; // next CAP year
+    M.work('plough', 710, 710, 3, Math.PI / 2, 8); M.flush(0, true);
+    const nxt = events.filter((e) => e[0] === 'crops:worked' && e[1].fieldId === fid).pop();
+    check(nxt && nxt[1].areaM2 > 0, `next CAP year: the same strip counts again (${nxt && nxt[1].areaM2} m²)`);
+    clock.day -= 36;
+    M.removeField(fid);
+  }
   // ---- save / load round trip
   const d1 = M.digest();
   const saved = JSON.parse(JSON.stringify(M.save()));

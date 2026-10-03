@@ -3,17 +3,15 @@
 // wind sheen, snow veil and round bales.
 import { S, CROPS, CROP_IDS, stageOf } from './data.js';
 
-const MARGIN = 0;               // composite layer margin (px). Must stay 0: any layer larger than the screen blits on a slow path (≈ 8 ms headless)
 const CPX = 256;               // chunk canvas size in px (≤ 256 px canvases blit far cheaper); metres = CPX / res
 const LEVELS = [4, 6, 8, 12, 16, 24, 32]; // px per metre; picked for ~1.1–1.5× upscale (GPU texture budget is shared with terrain/roads)
-const MAX_BYTES = 20 * 1048576;
+const MAX_BYTES = 160 * 1048576;
 
 export function createRenderer(ctx, model, tiles) {
   const { art } = ctx;
   const entries = new Map(); // key → { canvas, res, built, dirty:Set, used, f, ch }
   let bytes = 0, frame = 0;
   // screen composite (double-buffered): shifted by whole pixels while panning, only exposed strips / changed chunks redrawn
-  let frozen = null, frozenV = -1, freezing = false, compV = 0;
   let comp = null, compG = null, back = null, backG = null, prev = null, compO = null, lastM = null; // prev = { a, E, F, chunks: Map key → paintV|rect }
   const pool = [];
   const stats = { builds: 0, cellPaints: 0, lastCellPaints: 0, composites: 0, partialBlits: 0 };
@@ -199,22 +197,26 @@ export function createRenderer(ctx, model, tiles) {
     if (lastSeason && sn !== lastSeason) invalidateAll(); // grass/margins are seasonal
     lastSeason = sn;
     const m = g.getTransform();
-    const res = pickRes(m.a);
+    // Composite scale. Chrome rasterises with a per-frame texture budget shared with terrain: at close zoom
+    // (terrain on its 32 px/m, 1024 px tiles) any extra texture over ~1.5 MB per frame makes textures
+    // re-upload every frame (+25 ms headless, measured in tests/pan.cjs). There the layer is kept at half
+    // resolution (800×450 = 1.4 MB) and upscaled 2×; further out it is full resolution.
+    const S = m.a > 20 ? 0.5 : 0.7;
+    const A = m.a * S;
+    const res = pickRes(A);
     // while the camera moves, paint less per frame (the shifted composite hides nothing; new strips fill in)
     const moving = lastM && (lastM.a !== m.a || lastM.e !== m.e || lastM.f !== m.f);
     lastM = { a: m.a, e: m.e, f: m.f };
     let budget = moving ? Math.min(budgetCells, 450) : budgetCells;
     stats.lastCellPaints = stats.cellPaints;
-    // The chunks are composited into one layer that is larger than the screen by a margin (MARGIN px each
-    // side). While panning the layer is just drawn at an offset; only when the offset exceeds the margin is it
-    // re-centred (an integer shift + the newly exposed strips). Origins are snapped to whole device pixels.
-    const E = Math.round(m.e), Fo = Math.round(m.f);
-    const cw = g.canvas.width + 2 * MARGIN, chh = g.canvas.height + 2 * MARGIN;
-    if (!compO || compO.a !== m.a || Math.abs(E - compO.E) > MARGIN * 0.7 || Math.abs(Fo - compO.F) > MARGIN * 0.7) compO = { a: m.a, E, F: Fo };
-    const cE = compO.E, cF = compO.F;
-    const X = (x) => Math.round(m.a * x) + cE + MARGIN, Y = (y) => Math.round(m.d * y) + cF + MARGIN;
-    // comp-space rect in metres (what the layer can hold), plus the visible rect for build priority
-    const ext = { x0: (-cE - MARGIN) / m.a, y0: (-cF - MARGIN) / m.d, x1: (cw - cE - MARGIN) / m.a, y1: (chh - cF - MARGIN) / m.d };
+    // The chunks are composited into one screen-sized layer (× S). While panning, the previous layer is shifted by
+    // the whole-pixel offset and only the exposed strips / changed chunks are redrawn. Origins snap to layer pixels.
+    const E = Math.round(m.e * S), Fo = Math.round(m.f * S);
+    const cw = Math.ceil(g.canvas.width * S), chh = Math.ceil(g.canvas.height * S);
+    compO = { a: A, E, F: Fo };
+    const cE = E, cF = Fo;
+    const X = (x) => Math.round(A * x) + cE, Y = (y) => Math.round(A * y) + cF;
+    const ext = { x0: -cE / A, y0: -cF / A, x1: (cw - cE) / A, y1: (chh - cF) / A };
     const blits = [];
     const pending = [];
     for (const f of model.W.fields) {
@@ -242,41 +244,10 @@ export function createRenderer(ctx, model, tiles) {
     }
     const list = [];
     for (const [e, x0, y0, CH] of blits) if (e.built) list.push([e.canvas, X(x0), Y(y0), X(x0 + CH) - X(x0), Y(y0 + CH) - Y(y0), e.key, e.paintV]);
-    if (globalThis.__DIRECT) {
-      g.setTransform(1, 0, 0, 1, 0, 0);
-      const W0 = g.canvas.width, H0 = g.canvas.height;
-      for (const [e, x0, y0, CH] of blits) {
-        if (!e.built) continue;
-        if (e.bmpV !== e.paintV && !e.bmpPending) { e.bmpPending = true; const v = e.paintV; createImageBitmap(e.canvas).then((bm) => { e.bmpPending = false; if (e.paintV === v) { if (e.bmp) e.bmp.close(); e.bmp = bm; e.bmpV = v; } else bm.close(); }); }
-        const sx = Math.round(m.a * x0) + E, sy = Math.round(m.d * y0) + Fo, sw = Math.round(m.a * (x0 + CH)) + E - sx, sh = Math.round(m.d * (y0 + CH)) + Fo - sy;
-        if (sx > W0 || sy > H0 || sx + sw < 0 || sy + sh < 0) continue;
-        g.drawImage(e.bmpV === e.paintV && e.bmp ? e.bmp : e.canvas, sx, sy, sw, sh);
-      }
-      g.setTransform(m);
-    } else {
-    if (!globalThis.__NOCOMP) composite(cw, chh, list, m.a, cE, cF);
+    composite(cw, chh, list, A, cE, cF);
     g.setTransform(1, 0, 0, 1, 0, 0);
-    if (list.length) {
-      // Chrome keeps a 2D canvas as a recorded display list: blitting `comp` would replay its ~50 chunk
-      // draws (and re-upload every chunk texture) each frame. Freeze each finished composite into an
-      // ImageBitmap (GPU-resident, immutable) and blit that; the live canvas is used only until it is ready.
-      if (!globalThis.__CPU && frozenV !== compV && !freezing && typeof createImageBitmap === 'function') {
-        freezing = true;
-        const v = compV;
-        const sc = globalThis.__COMPSCALE || 1;
-        (sc === 1 ? createImageBitmap(comp) : createImageBitmap(comp, { resizeWidth: Math.round(comp.width * sc), resizeHeight: Math.round(comp.height * sc), resizeQuality: 'medium' })).then((bm) => {
-          freezing = false;
-          if (v === compV) { if (frozen && frozen.close) frozen.close(); frozen = bm; frozenV = v; } else if (bm.close) bm.close();
-        }, () => { freezing = false; });
-      }
-      const sx = cE + MARGIN - E, sy = cF + MARGIN - Fo, w = g.canvas.width, h = g.canvas.height;
-      const useF = frozenV === compV && frozen, fs = useF ? frozen.width / comp.width : 1;
-      if (globalThis.__TINY) g.drawImage(useF ? frozen : comp, sx * fs, sy * fs, 64, 64, 0, 0, 64, 64);
-      else if (!globalThis.__NOBLIT) g.drawImage(useF ? frozen : comp, sx * fs, sy * fs, w * fs, h * fs, 0, 0, w, h);
-      globalThis.__FROZEN = frozenV === compV;
-    }
+    if (list.length) g.drawImage(comp, m.e - cE / S, m.f - cF / S, cw / S, chh / S);
     g.setTransform(m);
-    }
     stats.lastCellPaints = stats.cellPaints - stats.lastCellPaints;
     // snow veil (fields have no terrain snow of their own)
     const W = env().weather;
@@ -299,8 +270,8 @@ export function createRenderer(ctx, model, tiles) {
 
   function composite(cw, chh, blits, a, E, F) {
     if (!comp || comp.width !== cw || comp.height !== chh) {
-      comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d', globalThis.__CPU ? { willReadFrequently: true } : undefined);
-      back = document.createElement('canvas'); back.width = cw; back.height = chh; backG = back.getContext('2d', globalThis.__CPU ? { willReadFrequently: true } : undefined);
+      comp = document.createElement('canvas'); comp.width = cw; comp.height = chh; compG = comp.getContext('2d');
+      back = document.createElement('canvas'); back.width = cw; back.height = chh; backG = back.getContext('2d');
       prev = null;
     }
     const cur = new Map();
@@ -326,7 +297,6 @@ export function createRenderer(ctx, model, tiles) {
     }
     compG.setTransform(1, 0, 0, 1, 0, 0);
     compG.imageSmoothingEnabled = true;
-    if (!rects || rects.length) compV++;
     if (!rects) {
       compG.clearRect(0, 0, cw, chh);
       for (const b of blits) compG.drawImage(b[0], b[1], b[2], b[3], b[4]);
@@ -349,21 +319,23 @@ export function createRenderer(ctx, model, tiles) {
 
   // wind: soft light gusts travelling across tall, flexible crops (close zoom only)
   function drawSway(g, view) {
-    if (view.zoom < 10) return;
+    if (view.zoom < 16) return;               // close zoom only: the gust sheen is invisible further out
     const envApi = ctx.modules.get('environment');
     const W = env().weather;
     const t = view.time || 0;
+    let drawn = 0;
     for (const f of model.W.fields) {
       if (!f.crop || !inView(f.bbox, view)) continue;
       const C = CROPS[f.crop];
-      if (!(C.kind === 'cereal' || C.kind === 'oilseed' || C.kind === 'grass') || f.growth < 0.5) continue;
-      if (f.counts[S.SOWN] + f.counts[S.RIPE] < f.nCells * 0.3) continue;
+      if (!(C.kind === 'cereal' || C.kind === 'oilseed') || f.growth < 0.75) continue;   // tall, flexible crops only
+      if (f.counts[S.SOWN] + f.counts[S.RIPE] < f.nCells * 0.5) continue;
+      if (++drawn > 6) break;
       const cx = (f.bbox.x0 + f.bbox.x1) / 2, cy = (f.bbox.y0 + f.bbox.y1) / 2;
       const w = (envApi && envApi.windAt(Math.min(Math.max(cx, view.x0), view.x1), Math.min(Math.max(cy, view.y0), view.y1))) || (W && W.wind) || { x: 1.5, y: -1, speed: 1.8 };
       const sp = Math.max(0.4, w.speed || Math.hypot(w.x, w.y));
       const dx = w.x / sp, dy = w.y / sp;
       const ang = Math.atan2(dy, dx);
-      const a = Math.min(0.26, 0.07 + sp * 0.03) * (C.kind === 'grass' ? 0.7 : 1);
+      const a = Math.min(0.26, 0.07 + sp * 0.03) ;
       // one pattern fill per field: a toroidal 48 m sheet of soft gust highlights drifting downwind
       const pat = g.createPattern(tiles.gustSheet(), 'repeat');
       const drift = t * (0.9 + sp * 0.45);

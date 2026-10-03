@@ -55,8 +55,13 @@ function fromB64(str, Type, len) {
   return new Type(bytes.buffer);
 }
 const ARRAYS = [['state', Uint8Array], ['crop', Uint8Array], ['growth', Float32Array], ['health', Float32Array],
-  ['fert', Float32Array], ['weeds', Float32Array], ['moist', Float32Array], ['mass', Float32Array], ['age', Uint8Array]];
+  ['fert', Float32Array], ['weeds', Float32Array], ['moist', Float32Array], ['mass', Float32Array], ['age', Uint8Array], ['cap', Uint16Array]];
 
+// CAP: one bit per operation class per cell, cleared when the CAP year rolls over (CAP day = 1 October,
+// day-of-year 27, as simulation pays it). crops:worked.areaM2 counts only cells newly worked this CAP year.
+const CAP_DOY = 27;
+const CAP_BIT = { plough: 1, cultivate: 2, seed: 4, fertilise: 8, spray: 16, harvest: 32, mow: 64, rake: 128, bale: 256, water: 512 };
+export const capYearOf = (day) => Math.floor((day - CAP_DOY) / YEAR_DAYS);
 const moistF = (m) => (m < 0.1 ? 0.3 : m < 0.35 ? 0.3 + 0.7 * (m - 0.1) / 0.25 : m <= 0.85 ? 1 : 1 - 0.8 * (m - 0.85));
 const fertF = (f) => 0.62 + 0.38 * Math.min(1, f / 0.4);
 
@@ -189,7 +194,16 @@ export function createModel(W, env) {
     f.counts[o]--; f.counts[s]++;
     c.state[k] = s;
   }
-  function soilF(f) { return 0.9 + 0.25 * f.soilQ; }
+  /** mark cell k worked by op this CAP year; true when it is the first time (new CAP area) */
+  function capStamp(f, k, op, day) {
+    const y = capYearOf(day);
+    if (f.capYear !== y) { f.cells.cap.fill(0); f.capYear = y; }
+    const bit = CAP_BIT[op] || 0;
+    if (!bit || (f.cells.cap[k] & bit)) return false;
+    f.cells.cap[k] |= bit;
+    return true;
+  }
+  function soilF(f) { return 0.97 + 0.25 * f.soilQ; }  // tuned so a well-managed field (fertilised, sprayed) lands on simulation's table yield
   function yieldKgCell(f, k) {
     const c = f.cells, id = cropOf(c.crop[k]);
     if (!id) return 0;
@@ -219,7 +233,8 @@ export function createModel(W, env) {
   }
 
   function createField(poly, opts = {}) {
-    if (!Array.isArray(poly) || poly.length < 3) throw new Error('createField: poly needs ≥ 3 points');
+    const bad = validatePoly(poly);
+    if (bad) { if (env.warn) env.warn('createField: ' + bad); return null; }
     const f = newField(poly, opts);
     const c = allocCells(f);
     const G = f.grid;
@@ -253,6 +268,7 @@ export function createModel(W, env) {
     for (let k = 0; k < c.state.length; k++) if (c.state[k]) { bm += c.moist[k]; nb++; }
     f.baseMoist = nb ? bm / nb : 0.5;
     computeStatic(f);
+    if (!f.nCells) { if (env.warn) env.warn('createField: poly is smaller than one cell'); if (!opts.id) W.nextId--; return null; }
     f.counts.fill(0);
     for (let k = 0; k < c.state.length; k++) f.counts[c.state[k]]++;
     for (let k = 0; k < c.state.length; k++) c.vis[k] = visKey(c, k);
@@ -263,6 +279,16 @@ export function createModel(W, env) {
     summarize(f);
     emit('crops:field-changed', { id: f.id, change: 'created', area: f.area });
     return f.id;
+  }
+
+  /** null when the polygon is usable, else the reason */
+  function validatePoly(poly) {
+    if (!Array.isArray(poly) || poly.length < 3) return 'poly needs at least 3 points';
+    for (const p of poly) if (!Array.isArray(p) || p.length < 2 || !Number.isFinite(+p[0]) || !Number.isFinite(+p[1])) return 'poly has a non-numeric point';
+    let a = 0;
+    for (let i = 0; i < poly.length; i++) { const p = poly[i], q = poly[(i + 1) % poly.length]; a += p[0] * q[1] - q[0] * p[1]; }
+    if (!(Math.abs(a / 2) >= 4)) return 'poly area is (almost) zero';
+    return null;
   }
 
   function removeField(id) {
@@ -332,7 +358,7 @@ export function createModel(W, env) {
         if (s === S.PLOUGHED) return false;
         if (c.mass[k] > 0 || s === S.WITHERED || s === S.GRASS || s === S.MOWN || s === S.WINDROW) c.fert[k] = Math.min(1, c.fert[k] + 0.04); // residue / sward turned in
         setState(f, k, S.PLOUGHED);
-        c.crop[k] = 0; c.growth[k] = 0; c.weeds[k] = 0; c.mass[k] = 0; c.age[k] = 0;
+        c.crop[k] = 0; c.growth[k] = 0; c.weeds[k] *= 0.35; c.mass[k] = 0; c.age[k] = 0;   // ploughing buries most of the weed seed bank, not all
         return true;
       case 'cultivate':
         if (!(s === S.GRASS || s === S.STUBBLE || s === S.PLOUGHED || s === S.WITHERED || s === S.MOWN || s === S.WINDROW)) return false;
@@ -354,7 +380,7 @@ export function createModel(W, env) {
         c.fert[k] = Math.min(1, c.fert[k] + 0.45);
         return true;
       case 'spray':
-        if (c.weeds[k] < 0.03) return false;
+        if (c.weeds[k] < 0.01) return false;
         c.weeds[k] = 0;
         return true;
       case 'water':
@@ -455,7 +481,7 @@ export function createModel(W, env) {
       const i0 = Math.max(0, Math.floor(gi0 - 0.5)), i1 = Math.min(G.nu - 1, Math.ceil(gi1));
       const j0 = Math.max(0, Math.floor(gj0 - 0.5)), j1 = Math.min(G.nv - 1, Math.ceil(gj1));
       const kHere = cellIndexAt(f, x, y);
-      let changed = 0;
+      let changed = 0, fresh = 0;
       const before = out.kg;
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
         const k = j * G.nu + i;
@@ -465,10 +491,10 @@ export function createModel(W, env) {
           const dx = cx - x, dy = cy - y;
           if (Math.abs(dx * hx + dy * hy) > hl || Math.abs(dx * px + dy * py) > hw) continue;
         }
-        if (applyCell(f, k, op, cropK, out)) { changed++; touch(f, k); }
+        if (applyCell(f, k, op, cropK, out)) { changed++; touch(f, k); if (capStamp(f, k, op, now.day)) fresh++; }
       }
       if (!changed) continue;
-      touched.push({ f, changed, kg: out.kg - before });
+      touched.push({ f, changed, fresh, kg: out.kg - before });
       res.cellsChanged += changed;
       if (!res.fieldId) res.fieldId = f.id;
       f.lastWorked = now.t;
@@ -501,7 +527,7 @@ export function createModel(W, env) {
       const f = t.f;
       const wasSown = f.counts[S.SOWN] + f.counts[S.RIPE] - (op === 'seed' ? t.changed : 0);
       summarize(f);
-      queue('crops:worked', 'w|' + f.id + '|' + tool, now.t, { fieldId: f.id, parcelId: f.parcelId, tool, cells: t.changed, areaM2: t.changed * f.cellArea, x, y }, ['cells', 'areaM2']);
+      queue('crops:worked', 'w|' + f.id + '|' + tool, now.t, { fieldId: f.id, parcelId: f.parcelId, tool, cells: t.changed, areaM2: t.fresh * f.cellArea, x, y }, ['cells', 'areaM2']);
       if (op === 'seed') {
         const crop = cropOf(cropK);
         if (!wasSown) emit('crops:sown', { fieldId: f.id, crop, phase: 'start', sownCells: f.counts[S.SOWN], cells: f.nCells });
@@ -553,14 +579,16 @@ export function createModel(W, env) {
     const c = f.cells;
     // serpentine lanes along the rows, like a machine working the field, until the booked area is done
     const G = f.grid;
+    let fresh = 0;
     const maxCells = Number.isFinite(maxAreaM2) ? Math.max(0, Math.round(maxAreaM2 / f.cellArea)) : Infinity;
     for (let j = 0; j < G.nv && res.cellsChanged < maxCells; j++) {
       for (let q = 0; q < G.nu && res.cellsChanged < maxCells; q++) {
         const k = j * G.nu + (j % 2 ? G.nu - 1 - q : q);
-        if (c.state[k] && applyCell(f, k, op, cropK, out)) { res.cellsChanged++; touch(f, k); }
+        if (c.state[k] && applyCell(f, k, op, cropK, out)) { res.cellsChanged++; touch(f, k); if (capStamp(f, k, op, now.day)) fresh++; }
       }
     }
-    res.areaM2 = res.cellsChanged * f.cellArea;
+    res.areaM2 = res.cellsChanged * f.cellArea;      // area changed (the booking)
+    res.newAreaM2 = fresh * f.cellArea;
     if (!res.cellsChanged) return res;
     f.lastWorked = now.t;
     if (op === 'seed') { f.sownDay = now.day; f.notified.ripe = false; f.notified.withered = false; }
@@ -568,7 +596,7 @@ export function createModel(W, env) {
     res.yieldKg = +(op === 'bale' ? Object.values(out.baleKg).reduce((a, b) => a + b, 0) : out.kg).toFixed(2);
     res.item = op === 'bale' ? Object.keys(out.baleKg)[0] || null : out.item;
     res.strawKg = +out.strawKg.toFixed(2); res.baleKg = out.baleKg; res.mownKg = +out.mownKg.toFixed(2);
-    emit('crops:worked', { fieldId: f.id, parcelId: f.parcelId, tool, cells: res.cellsChanged, areaM2: res.areaM2, contractor: true });
+    emit('crops:worked', { fieldId: f.id, parcelId: f.parcelId, tool, cells: res.cellsChanged, areaM2: res.newAreaM2, contractor: true });
     if (op === 'seed') emit('crops:sown', { fieldId: f.id, crop: cropOf(cropK), phase: 'complete', sownCells: f.counts[S.SOWN], cells: f.nCells });
     if ((op === 'harvest' && out.kg > 0) || (op === 'bale' && res.yieldKg > 0)) emit('crops:harvested', { fieldId: f.id, crop: f.crop, item: res.item, kg: res.yieldKg, cells: res.cellsChanged, complete: true, contractor: true });
     if (report) reportJobs(f, op, cropK);
@@ -651,11 +679,11 @@ export function createModel(W, env) {
             const u = UNITS[C.units][m];
             if (C.frostKill && u === 0 && c.growth[k] > 0.06) { setState(f, k, S.WITHERED); c.age[k] = 0; break; }
             const mf = moistF(c.moist[k]), ff = fertF(c.fert[k]);
-            const dg = (u / C.need) * (0.35 + 0.65 * mf) * (0.85 + 0.15 * ff);
+            const dg = (u / C.need) * (0.6 + 0.4 * mf) * (0.85 + 0.15 * ff);   // drought slows growth a little, costs yield (health) more
             c.growth[k] += dg;
             c.fert[k] = Math.max(0, c.fert[k] - dg * 0.55);
-            c.weeds[k] = Math.min(1, c.weeds[k] + 0.02 * u * (1 - 0.6 * Math.min(1, c.growth[k])));   // canopy shades weeds out
-            const q = mf * ff * (1 - 0.4 * c.weeds[k]);
+            c.weeds[k] = Math.min(1, c.weeds[k] + (0.03 + 0.05 * c.weeds[k]) * u * Math.max(0, 1 - 1.4 * Math.min(1, c.growth[k])));   // seed bank: weedy cells get weedier
+            const q = mf * ff * (1 - 0.95 * c.weeds[k]);
             c.health[k] += (q - c.health[k]) * Math.min(1, dg * 2.2);
             if (c.growth[k] >= 1) { c.growth[k] = 1; setState(f, k, S.RIPE); c.age[k] = 0; }
             break;
@@ -772,6 +800,12 @@ export function createModel(W, env) {
     return true;
   }
 
+  /** clear the CAP-year stamps of all fields on a parcel (simulation resets its share on rent/buy/sale) */
+  function resetCap(parcelId) {
+    let n = 0;
+    for (const f of W.fields) if (f.parcelId === parcelId) { f.cells.cap.fill(0); n++; }
+    return n;
+  }
   /** recompute summary + visuals of a field after direct edits of its cell arrays */
   function refresh(fieldId) {
     const f = byId.get(fieldId);
@@ -832,7 +866,7 @@ export function createModel(W, env) {
       bales: W.bales.map((b) => ({ ...b })),
       fields: W.fields.map((f) => {
         const o = { id: f.id, poly: f.poly, angle: f.angle, cell: f.grid.cell, parcelId: f.parcelId, name: f.name, soilQ: f.soilQ,
-          baseMoist: f.baseMoist, plannedCrop: f.plannedCrop || null, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, arrays: {} };
+          baseMoist: f.baseMoist, plannedCrop: f.plannedCrop || null, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, capYear: f.capYear != null ? f.capYear : null, arrays: {} };
         for (const [k] of ARRAYS) o.arrays[k] = toB64(f.cells[k]);
         return o;
       }),
@@ -846,7 +880,8 @@ export function createModel(W, env) {
       const f = newField(o.poly, { id: o.id, angle: o.angle, cell: o.cell, parcelId: o.parcelId, name: o.name });
       const c = allocCells(f);
       const N = f.grid.nu * f.grid.nv;
-      for (const [k, T] of ARRAYS) c[k] = fromB64(o.arrays[k], T, N);
+      for (const [k, T] of ARRAYS) if (o.arrays[k]) c[k] = fromB64(o.arrays[k], T, N);
+      f.capYear = o.capYear != null ? o.capYear : null;
       f.soilQ = o.soilQ; f.baseMoist = o.baseMoist; if (o.plannedCrop) f.plannedCrop = o.plannedCrop; f.sownDay = o.sownDay; f.lastWorked = o.lastWorked;
       f.baleAcc = { ...o.baleAcc }; f.notified = { ...o.notified };
       computeStatic(f);
@@ -873,7 +908,7 @@ export function createModel(W, env) {
   }
 
   return {
-    W, byId, createField, removeField, fieldAtObj, work, workField, flush, dayTick, beginDay, stepDay, pendingDay: () => (dayJob ? dayJob.day : null), plantAll, forceStage, refresh, stats, cellAt, summarize,
+    W, byId, createField, removeField, fieldAtObj, work, workField, flush, dayTick, beginDay, stepDay, pendingDay: () => (dayJob ? dayJob.day : null), plantAll, forceStage, refresh, resetCap, stats, cellAt, summarize,
     save, load, digest, cellCenter, cellIndexAt, toGrid, yieldKgCell, visKey, cropOf,
     fieldPublic(f) { return f ? { id: f.id, crop: f.crop, stage: f.stage, state: f.state, parcelId: f.parcelId, area: f.area, growth: f.growth } : null; },
   };
