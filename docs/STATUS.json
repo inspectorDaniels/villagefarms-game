@@ -340,11 +340,26 @@
     },
     "demo": {
       "wave": 3,
-      "status": "built-unreviewed",
-      "score": null,
+      "status": "failing",
+      "score": 6,
       "pass": false,
-      "rounds": [],
-      "openIssues": [],
+      "rounds": [
+        {
+          "round": 1,
+          "score": 6,
+          "pass": false,
+          "review": "docs/reviews/demo-r1.md"
+        }
+      ],
+      "openIssues": [
+        "Haul/deliver jobs uncompletable; potato jobs without harvester (r2.1 simulation)",
+        "Plough objective ~1 h real driving (r2.2)",
+        "Sell hint points to impossible trailer delivery (r2.2)",
+        "Starting pickup resells \u20ac24.8k (r2.3)",
+        "Opening frame unclear: zoom 40, rain, tractor off-screen (r2.4 characters+demo)",
+        "perf: village 24-35 ms (buildings 6.6-10), overview 48-72 ms (terrain JS 18-24 ms)",
+        "should: year-1 cash flow unproven live, seed drill barley in March, trailer blocks seeder, seed ledger spam, job pay \u20ac280-340/ha vs \u20ac80-110 brief"
+      ],
       "note": "built: startGame composes valley (36 parcels, 45 buildings, 13 vehicles, villagers), office panel, objectives; playthrough: boot 3.3 s, drive+plough, job, sell, hire, save/load. Registered. Perf: village 39-56 ms, overview 24-50 ms headless (fill-rate; needs GPU check). Gaps: trailer-to-co-op not scripted, no starting hand, NPC farms idle."
     }
   },

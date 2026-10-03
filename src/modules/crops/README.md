@@ -45,17 +45,18 @@ Yield, straw, product and months come from simulation's `CROPS`. The sowing and 
 simulation's too. **Growth units per day** follow the month: cool crops 0.15 in winter up to 1.1 in
 summer, warm crops 0 in Dec–Feb up to 1.3. Each crop needs `need` units. `need` is derived from the
 calendar so that a crop sown mid sowing-month under good conditions ripens mid harvest-month.
-For example, winter wheat sown on 30 Oct ripens around doy 23 (August).
+For example, winter wheat sown on 30 Oct ripens around doy 23 (August) with average rain. In a dry year, such as environment's plan in `tests/game.cjs` where soil moisture falls to 0.06, it ripens in September. Drought slows growth (`0.6+0.4·moistF`) and costs yield through health.
 
 Per game day and per cell:
 - `moist = moist·(1−evap) + rainMm/30 + base·0.06`, where evap is 0.24 in winter and 0.47 in summer.
 - `dg = units/need · (0.35+0.65·moistF) · (0.85+0.15·fertF)`
 - Fertiliser is used up at `0.55·dg`.
-- Weeds grow at `0.02·units`. The canopy shades them out.
-- Health follows `moistF·fertF·(1−0.4·weeds)`.
+- Weeds grow at `(0.03+0.05·weeds)·units`. They feed on their own seed bank until the canopy closes them out at growth ≈ 0.7. Ploughing buries 65 % of them, cultivating 60 %, and spraying clears them.
+- Health follows `moistF·fertF·(1−0.95·weeds)`.
+- Measured in the season test: sprayed wheat 8.35 t/ha, unsprayed 7.71 (+€134/ha against a ~€95/ha spray), and no fertiliser or spray 5.40.
 
 At harvest, per cell:
-**`kg = yieldT·1000·cellArea/1e4 · (0.9+0.25·soilQ) · health · patchiness(0.88..1.12, edges −7 %)`**.
+**`kg = yieldT·1000·cellArea/1e4 · (0.97+0.25·soilQ) · health · patchiness(0.88..1.12, edges −7 %)`**.
 Straw is `strawT·(0.8+0.2·health)` and lies in the stubble until it is baled or ploughed in. Bales are
 250 kg (hay) and 210 kg (straw).
 
@@ -67,7 +68,7 @@ If neither is available, a deterministic monthly climate is used.
 
 ## API (`ctx.modules.get('crops')`)
 Units: metres, radians (0 = north, clockwise), kg, m².
-- `createField(poly, { parcelId?, crop?, stage?, state?, angle?, cell?=2, soil?, name?, paintTerrain?=true })` → id.
+- `createField(poly, { parcelId?, crop?, stage?, state?, angle?, cell?=2, soil?, name?, paintTerrain?=true, plannedCrop? })` → id, or **`null` + one `ctx.warn`** for bad input. Bad input means: not an array, fewer than 3 points, non-finite coordinates, an area under 4 m² (collinear or degenerate), or a shape smaller than one cell. It never throws.
   - Rows run along the longest edge unless `angle` is given.
   - `state` is `grass` (the default), `stubble`, `ploughed` or `cultivated`.
   - `crop` + `stage` (`'auto'`, the default) plants the crop at the growth it would have today on its calendar. Out of season, you get stubble, cultivated ground or grass.
@@ -104,7 +105,9 @@ up to 1, so simulation auto-completes it. The demo/buildtools must create fields
 
 ### CAP and contractors (simulation r4)
 - Crops does **not** call `recordFieldWork`. Simulation listens to `crops:worked` for CAP. Every `crops:worked` carries `{ fieldId, parcelId, tool, cells, areaM2 }`.
-  - `areaM2` is the area actually changed.
+  - `areaM2` is the **newly worked** area this CAP year. Each cell keeps a per-operation bit (plough, cultivate, seed, fertilise, spray, harvest, mow, rake, bale, water). A cell counts toward `areaM2` only the first time an operation touches it in a CAP year, so alternating plough and cultivate on one strip cannot farm CAP area. `cells` is still every change.
+  - The stamps reset when the CAP year rolls over. The CAP year is `floor((day − 27) / 36)`, so it starts on 1 October, day-of-year 27, the day simulation pays CAP. They also reset on `land:parcel-changed`, because simulation resets the parcel's share on rent, buy, lease end or sale.
+  - Pending coalesced events are flushed by `save()` and every step while the clock is paused.
   - Events are coalesced per field and tool, at most one per 60 game-seconds, and `areaM2`/`cells` are summed across the merged calls.
   - Contractor work emits the event with `contractor: true`, so simulation can skip it and avoid counting the booked area twice.
 - `economy:contractor-done` is handled for both payload shapes, `{ parcelId|fieldId, operation, areaM2?, crop? }` and r3 `{ booking:{ parcelId, op } }`.
@@ -126,7 +129,7 @@ up to 1, so simulation auto-completes it. The demo/buildtools must create fields
 - `fields: [{ id, poly, parcelId, angle, grid, cells:{size,nu,nv,state,crop,growth,health,fert,weeds,moist,mass,age (typed arrays)}, crop, stage, state, growth, readiness, soil:{moisture,fertility,weeds}, sownDay, lastWorked, counts, area }]`
 - `bales`, `day` (last processed day), `dayOffset`, `rain`
 
-Save and load use base64 typed arrays. A 1.2 ha field is about 40 KB of JSON.
+Save and load use base64 typed arrays: 29 bytes per 2 m cell, which is about 100 KB of JSON per hectare (60 ha ≈ 6 MB).
 
 ## Rendering
 Each field is split into world-aligned 32 m chunk canvases at LOD 4/8/16/32 px/m, cached in an LRU capped at 160 MB.
