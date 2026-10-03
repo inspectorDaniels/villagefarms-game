@@ -384,8 +384,26 @@ export async function init(ctx) {
     if (!t) { promptEl.style.display = 'none'; return true; }
     const m = t.match(/^(\S{1,7})\s+[—–-]\s+(.+)$/);
     promptEl.innerHTML = m ? `<span class="kc lg">${esc(m[1])}</span><span>${esc(m[2])}</span>` : `<span>${esc(t)}</span>`;
-    promptEl.style.display = '';
+    promptEl.style.display = promptOff ? 'none' : '';
     return true;
+  }
+  // The prompt describes what the active character can do; hide it while he is off-screen (camera panned away).
+  let promptOff = false;
+  function updatePromptVis() {
+    let off = false;
+    const id = W.player && W.player.activeCharacterId;
+    if (id != null && ctx.camera && typeof ctx.camera.worldToScreen === 'function') {
+      const chm = ctx.modules.get('characters');
+      let p = chm && typeof chm.positionOf === 'function' ? foreign('characters.positionOf', chm.positionOf, id) : null;
+      if (!p) p = charRec(id);
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+        const sc = ctx.camera.worldToScreen(p.x, p.y), cw = ctx.camera.w, chh = ctx.camera.h;
+        if (sc && Number.isFinite(cw) && Number.isFinite(chh)) off = sc.sx < -30 || sc.sx > cw + 30 || sc.sy < -30 || sc.sy > chh + 30;
+      }
+    }
+    if (off === promptOff) return;
+    promptOff = off;
+    promptEl.style.display = promptText && !off ? '' : 'none';
   }
   const toolName = el('div', 'hv-toolname');
   const toolsEl = el('div', 'hv-tools');
@@ -772,6 +790,7 @@ export async function init(ctx) {
     hudT += dt;
     if (hudT >= 0.1) {
       hudT = 0;
+      updatePromptVis();
       for (const h of huds.values()) if (typeof h.spec.update === 'function') foreign(`hud ${h.id} update`, h.spec.update, h.el);
     }
     panelT += dt;

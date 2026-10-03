@@ -225,6 +225,18 @@ export function builtinPanels(K) {
     shopHelp: ['Village work', 'shop'], villageWork: ['Village work', 'shop'], snowClear: ['Snow clearing', 'snow'],
   };
   let jobFilter = 'offered';
+  // r6 pay breakdown: "€105/ha + €100 call-out" (payPerUnit per unit of work + callout trip fee)
+  const UNIT_LABEL = { ha: 'ha', m2: 'ha', t: 't', load: 'load', loads: 'load', h: 'h', hour: 'h', hours: 'h' };
+  const payLine = (j) => {
+    const ppu = typeof j.payPerUnit === 'number' && Number.isFinite(j.payPerUnit) ? j.payPerUnit : null;
+    const co = typeof j.callout === 'number' && Number.isFinite(j.callout) && j.callout > 0 ? j.callout : null;
+    if (ppu == null && co == null) return '';
+    const u = UNIT_LABEL[j.unit] || (j.unit ? String(j.unit) : 'unit');
+    const parts = [];
+    if (ppu != null) parts.push(`${money(ppu, { dec: ppu < 20 ? 2 : 0 })}/${esc(u)}`);
+    if (co != null) parts.push(`${money(co, { dec: 0 })} call-out`);
+    return `<div class="rate">${parts.join(' + ')}</div>`;
+  };
   const jobGroup = (j) => (j.status === 'accepted' || j.status === 'active' ? 'active' : j.status === 'completed' || j.status === 'failed' || j.status === 'expired' ? 'done' : 'offered');
   const jobs = {
     id: 'jobs', title: 'Jobs board', icon: 'jobs', hotkey: 'KeyJ', order: 3,
@@ -256,6 +268,7 @@ export function builtinPanels(K) {
             <div class="ttl">${esc(j.title || kind)}</div>
             <div class="who">${icon('person')}${esc(j.client || 'A neighbour')}</div>
             ${g === 'active' ? `<div style="display:flex;align-items:center;gap:8px;margin-top:2px"><div class="hv-bar" style="flex:1"><i style="width:${Math.round((j.progress || 0) * 100)}%"></i></div><span class="muted" style="font-size:11.5px;width:32px;text-align:right">${Math.round((j.progress || 0) * 100)}%</span></div>` : ''}
+            ${payLine(j)}${j.crew || j.crewOnly ? `<div class="crew">${icon('person')}${esc(j.label || 'Crew job — delegate it to a hand')}</div>` : ''}
             <div class="foot"><span class="pay ${g === 'done' && j.status === 'failed' ? 'faint' : ''}">${money(j.pay || 0, { dec: 0 })}</span>${due}
             ${g === 'offered' ? `<button class="hv-btn pri" data-accept="${esc(j.id)}">${icon('check')}Accept</button>` : ''}</div></div>`;
         }
@@ -266,10 +279,11 @@ export function builtinPanels(K) {
       el.querySelectorAll('[data-accept]').forEach((b) => {
         b.onclick = K.safe('accept job', () => {
           const j = all.find((x) => x.id === b.dataset.accept);
-          if (data.acceptJob(b.dataset.accept)) {
+          const why = data.acceptRefusal ? data.acceptRefusal(b.dataset.accept) : null;
+          if (!why && data.acceptJob(b.dataset.accept)) {
             K.toast(`<b>Contract accepted</b><br>${esc(j ? j.title : '')}`, { kind: 'success', icon: 'jobs', html: true });
             K.emit('ui:action', { id: 'job-accepted', jobId: b.dataset.accept });
-          } else K.toast('That contract is no longer available.', { kind: 'warn' });
+          } else K.toast(why || (data.acceptRefusal && data.acceptRefusal(b.dataset.accept)) || 'That contract is no longer available.', { kind: 'warn', title: "Can't take this contract" });
           K.rerender('jobs');
         });
       });

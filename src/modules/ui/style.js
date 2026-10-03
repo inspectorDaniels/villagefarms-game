@@ -96,6 +96,9 @@ export function buildCss(P, tex) {
 .hv-ui .hv-money .val.neg { color: var(--danger); }
 .hv-ui .hv-money .delta { position: absolute; left: 58px; top: 100%; margin-top: 4px; font: 600 14px Georgia, serif; white-space: nowrap;
   padding: 1px 8px; border-radius: 10px; opacity: 0; transition: opacity .35s, transform .9s ease-out; transform: translateY(-4px); }
+/* the expense/income chip hangs below the money card: keep it above and clear of any card stacked under it */
+.hv-ui .hv-moneycard { position: relative; z-index: 3; }
+.hv-ui .hv-slot.tl > .hv-moneycard:not(:last-child) { margin-bottom: 22px; }
 .hv-ui .hv-money .delta.on { opacity: 1; transform: translateY(0); }
 .hv-ui .hv-money .delta.pos { color: #2f5a2b; background: rgba(233,240,214,.92); box-shadow: 0 0 0 1px rgba(63,107,58,.35); }
 .hv-ui .hv-money .delta.neg { color: #8a2e25; background: rgba(245,226,214,.92); box-shadow: 0 0 0 1px rgba(168,57,47,.35); }
@@ -324,6 +327,9 @@ export function buildCss(P, tex) {
 .hv-ui .hv-job .ttl { font: 600 15px/1.25 Georgia, serif; }
 .hv-ui .hv-job .who { font: italic 12.5px Georgia, serif; color: var(--ink2); display: flex; align-items: center; gap: 5px; }
 .hv-ui .hv-job .who .hv-ic { width: 14px; height: 14px; }
+.hv-ui .hv-job .rate { font: 12px Georgia, serif; color: var(--ink2); }
+.hv-ui .hv-job .crew { font: 600 11.5px Georgia, serif; color: #7a4a12; display: flex; align-items: center; gap: 5px; }
+.hv-ui .hv-job .crew .hv-ic { width: 13px; height: 13px; }
 .hv-ui .hv-job .foot { display: flex; align-items: center; gap: 8px; margin-top: 3px; padding-top: 7px; border-top: 1px dashed rgba(116,96,63,.4); }
 .hv-ui .hv-job .pay { font: 600 18px Georgia, serif; color: #2f5a2b; flex: 1; }
 .hv-ui .hv-job .due { font-size: 11.5px; color: var(--ink2); }

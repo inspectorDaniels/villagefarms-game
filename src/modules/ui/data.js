@@ -263,6 +263,19 @@ export function createData(ctx) {
       if (s) return arr(fn(s, 'jobs') ? s.jobs() : (ctx.world.jobs && ctx.world.jobs.list)).filter(Boolean);
       return S() ? S().jobs : [];
     },
+    /** why acceptJob(id) would be / was refused (simulation only returns false) — null when unknown */
+    acceptRefusal(id) {
+      const s = sim();
+      if (!s) return null;
+      const j = this.jobs().find((x) => x.id === id);
+      if (!j || j.status !== 'offered') return 'That contract is no longer available.';
+      const hands = fn(s, 'workers') ? arr(s.workers()).length : 0;
+      if (j.crewOnly && !hands) return 'This is a crew job — hire a hand first, then delegate it to them.';
+      const cap = fn(s, 'activeJobCap') ? s.activeJobCap() : null;
+      const held = this.jobs().filter((x) => x.status === 'accepted').length;
+      if (typeof cap === 'number' && held >= cap) return `You already hold ${held} of ${cap} contracts. Finish one${hands ? '' : ' or hire a hand'} to take on more.`;
+      return null;
+    },
     acceptJob(id) {
       const s = sim();
       if (s) return fn(s, 'acceptJob') ? s.acceptJob(id) !== false : false;
