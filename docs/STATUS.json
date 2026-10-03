@@ -297,7 +297,7 @@
         }
       ],
       "openIssues": [],
-      "note": "passed r3 7/10; follow-ups done: isAvailable false while possessed/driving, workerId in list(), Stop-to-get-out prompt, retry throttle (19/19 + 22/22) | exact-polygon push-out vs rotated buildings/vehicles"
+      "note": "passed r3 7/10; follow-ups done: isAvailable false while possessed/driving, workerId in list(), Stop-to-get-out prompt, retry throttle (19/19 + 22/22) | exact-polygon push-out vs rotated buildings/vehicles | setFollowZoom(z) (8-80, persisted, driving zooms relative). Note: round-1 suite real-time checks flaky headless -> convert to stepped timing"
     },
     "animals": {
       "wave": 2,

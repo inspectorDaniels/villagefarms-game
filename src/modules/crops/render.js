@@ -201,7 +201,7 @@ export function createRenderer(ctx, model, tiles) {
     // (terrain on its 32 px/m, 1024 px tiles) any extra texture over ~1.5 MB per frame makes textures
     // re-upload every frame (+25 ms headless, measured in tests/pan.cjs). There the layer is kept at half
     // resolution (800×450 = 1.4 MB) and upscaled 2×; further out it is full resolution.
-    const S = 0.5;
+    const S = 0.5;   // A/B (tests/pan.cjs): full-res layers re-upload ≥ 2 MB/frame → +5…26 ms; half-res stays ≤ 1.5 ms
     const A = m.a * S;
     const res = pickRes(A);
     // while the camera moves, paint less per frame (the shifted composite hides nothing; new strips fill in)

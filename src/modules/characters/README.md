@@ -128,6 +128,7 @@ They carry umbrellas in rain.
 | `setAutoSpawn(bool)` | The full game auto-spawns the player and one hired hand at a dry, flat spot near the map centre. Demo calls `setAutoSpawn(false)` to take over. |
 | `hire(opts?)` → id | Calls `simulation.hireWorker` (wages), then spawns the hand. Workers hired elsewhere are synced every 2 s, and fired workers leave. |
 | `setTool(id, toolId)`, `useTool(id)`, `tools()` | |
+| `setFollowZoom(z)` → applied zoom or null | Sets the follow camera's on-foot zoom in px/m, clamped to 8–80; demo calls `setFollowZoom(22)`. While driving, the camera zooms out with speed relative to it, down to 0.45×, and returns to it on exit. A wheel zoom on foot becomes the new base. Saved and loaded. |
 
 Events emitted:
 - `characters:spawned`

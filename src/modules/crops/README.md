@@ -146,22 +146,31 @@ The collector submits:
 - shadow walls on the sun-facing boundaries of tall crops (merged runs of equal height, staircase steps skipped),
 - round bales as y-sorted objects with box shadows.
 
-## Performance
-The visible chunks are composited into one screen-sized layer. That layer is re-composited only when
-the view or a chunk changes, so a static camera costs one blit per frame. Headless, each 256 px chunk
-blit costs about 0.5 ms, which is why this matters.
-- Measured in the showcase shot JSONs: crops takes 0.23–0.59 ms per frame.
-- While panning, the composite is redone every frame. This is slower headless: about 10–40 ms for 60–70 chunks.
+## Performance (round 2: A/B frame cost)
+`tests/pan.cjs` measures the real cost, including deferred raster work that the module's own `msAvg` cannot see. It loads the full game (1600×900, headless) with an 18-field patchwork (6×3, every crop, mixed stages). Each camera script runs once to warm the caches. Then the crops render parts are switched off/on/off/on/off/on (`?cropsdebug=1` → `__CROPS__.off`), and the three on-runs and three off-runs are averaged. Alternating cancels the slow drift of other modules' caches.
+
+| scenario | without fields avg/p95 | with fields avg/p95 | Δ avg | Δ p95 |
+|---|---|---|---|---|
+| static, 6 px/m | 5.65 / 7.7 | 6.33 / 8.53 | +0.68 | +0.83 |
+| static, 12 px/m | 5.98 / 8.9 | 6.44 / 9.17 | +0.46 | +0.27 |
+| static, 24 px/m | 5.51 / 8.57 | 5.86 / 8.33 | +0.35 | −0.24 |
+| pan, 12 px/m, 8 px/frame | 7.44 / 11.6 | 8.91 / 13.37 | +1.47 | +1.77 |
+| follow a tractor at 3 m/s, 24 px/m | 12.44 / 23.1 | 12.93 / 22.03 | +0.49 | −1.07 |
+
+What made the difference (r1: +26 ms static and +16 ms following, both at 24 px/m):
+- **Per-frame texture budget.** Chrome's per-frame texture budget is shared with terrain. At close zoom terrain is on 1024 px tiles, and any extra texture above about 1.5 MB per frame made textures re-upload every frame. Probe: a full-screen canvas blit cost +26 ms, while 800×450 cost +0.
+- **Half-resolution layer.** The field layer is composited at half resolution (800×450 = 1.4 MB) and drawn upscaled 2×. Chunks are painted at the matching LOD (~1.3–1.5× upscale), which makes the fields slightly soft at close zoom.
+- **Panning.** The layer is double-buffered and shifted by the whole-pixel pan offset. Only the exposed strips and changed chunks are redrawn. Chunk painting drops to 450 cells per frame while the camera moves.
+- **Sway.** Drawn only at zoom ≥ 16 px/m, on visible cereal/rape fields at growth ≥ 0.75, at most 6 fields, with one pattern fill each.
+- **Things that did not help (measured):**
+  - a layer larger than the screen, as a pan margin;
+  - ImageBitmap snapshots;
+  - CPU-backed (`willReadFrequently`) canvases (pan p95 +76 ms);
+  - an in-place `copy` self-shift.
+
+Other numbers:
 - Day processing is incremental (4000 cells per update step). A 60 ha farm takes about 25 ms per day in total, spread over about 40 steps.
-- `work()` takes about 8–10 µs per call when ploughing a 3 m swath, and about 27 µs when harvesting.
-
-`?cropsdebug=1` exposes `globalThis.__CROPS__` (model, renderer) for profiling.
-
-Panning, measured with `tests/pan.cjs` in the full game (18 fields, 240 frames at 8 px/frame):
-- The composite is double-buffered and shifted by the whole-pixel pan offset. Only the exposed strips and changed chunks are redrawn.
-- Chunk painting drops to 450 cells per frame while the camera moves.
-- Crops costs about 2–3 ms per frame while panning, and 0.15–0.3 ms static.
-- A layer larger than the screen (to absorb pans without shifting) blits on a slow path, about 8 ms, so there is no margin.
+- `work()` takes about 7 µs per call when ploughing and about 25 µs when harvesting.
 
 ## Showcase presets
 Ten fields on a dry spot of the default seed:

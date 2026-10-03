@@ -15,7 +15,7 @@ export const manifest = {
   optionalDeps: ['terrain', 'environment', 'roads', 'simulation', 'ui', 'audio', 'effects', 'vehicles', 'crops', 'animals', 'buildings'],
   namespaces: ['characters', 'player'],
   api: ['spawn', 'despawn', 'list', 'get', 'active', 'setActive', 'cycle', 'assignTask', 'positionOf', 'villagers',
-    'setAutoSpawn', 'hire', 'setTool', 'useTool', 'tools', 'isAvailable'],
+    'setAutoSpawn', 'hire', 'setTool', 'useTool', 'tools', 'isAvailable', 'setFollowZoom'],
   emits: ['characters:switched', 'characters:spawned', 'characters:interact', 'characters:despawned'],
   listens: ['jobs:completed', 'jobs:failed', 'vehicles:exited'],
 };
@@ -106,6 +106,17 @@ export async function init(ctx) {
   let driveZoom = null; // zoom before entering a vehicle (restored on exit)
   function restoreZoom() { if (driveZoom != null) { zoomBack = driveZoom; driveZoom = null; } }
   let zoomBack = null;
+  // follow-camera zoom on foot (px/m). Set by demo (setFollowZoom) or adopted from the player's own wheel zoom.
+  let followZoom = null;
+  const clampZoom = (z) => Math.max(8, Math.min(80, +z));
+  function setFollowZoom(z) {
+    if (!Number.isFinite(+z)) return null;
+    followZoom = clampZoom(z);
+    const a = active();
+    if (a && a.vehicleId) driveZoom = followZoom;   // driving zooms out relative to the new base
+    else { zoomBack = null; ctx.camera.set(null, null, followZoom); }
+    return followZoom;
+  }
   function camTarget(c) {
     if (!c) return null;
     if (c.vehicleId) {
@@ -198,7 +209,7 @@ export async function init(ctx) {
     if (veh.enter(v.id, c.id) === false) return false;
     c.vehicleId = v.id; c.state = 'driving'; c.action = null; c.walk = 0; c.speed = 0; c._vehIdle = 0;
     if (c.id === W.player.activeCharacterId) promptT = 0;
-    if (c.id === W.player.activeCharacterId && driveZoom == null) { driveZoom = ctx.camera.zoom; handover = { x0: ctx.camera.x, y0: ctx.camera.y, t0: now, dur: 0.5 }; }
+    if (c.id === W.player.activeCharacterId && driveZoom == null) { driveZoom = followZoom != null ? followZoom : ctx.camera.zoom; handover = { x0: ctx.camera.x, y0: ctx.camera.y, t0: now, dur: 0.5 }; }
     return true;
   }
   function leaveVehicle(c, x, y) {
@@ -441,7 +452,7 @@ export async function init(ctx) {
     const pid = spawn({ role: 'player', name: 'You', x: p.x, y: p.y, rot: 0, tool: 'hoe', sex: 'm', age: 'adult' });
     setActive(pid, true);
     hire({ x: p.x + 2.6, y: p.y + 1.1, rot: -0.6 });
-    if (!ctx.params.cam) ctx.camera.set(p.x, p.y, Math.max(ctx.camera.zoom, 46));
+    if (!ctx.params.cam) ctx.camera.set(p.x, p.y, followZoom != null ? followZoom : Math.max(ctx.camera.zoom, 46));
     handover = null;
     follow();
   }
@@ -718,12 +729,15 @@ export async function init(ctx) {
       if (a && a.vehicleId && driveZoom != null) {
         const v = vehicleOf(a);
         const sp = v ? Math.abs(v.speed || 0) : 0;
-        const target = Math.max(20, Math.min(driveZoom, driveZoom - sp * 2.2));
+        // zoom out with speed, relative to the on-foot zoom (−2.2 px/m per m/s at a 46 px/m base)
+        const target = Math.max(driveZoom * 0.45, Math.min(driveZoom, driveZoom - sp * 2.2 * driveZoom / 46));
         ctx.camera.set(null, null, ctx.camera.zoom + (target - ctx.camera.zoom) * k);
       } else if (zoomBack != null) {
         const z = ctx.camera.zoom + (zoomBack - ctx.camera.zoom) * Math.min(1, k * 2);
         ctx.camera.set(null, null, z);
-        if (Math.abs(z - zoomBack) < 0.3) zoomBack = null;
+        if (Math.abs(z - zoomBack) < 0.3) { ctx.camera.set(null, null, zoomBack); zoomBack = null; }
+      } else if (a && !a.vehicleId && followZoom != null && Math.abs(ctx.camera.zoom - followZoom) > 0.01) {
+        followZoom = clampZoom(ctx.camera.zoom); // the player zoomed with the wheel: keep it as the new base
       }
     }
     const fx = mod('effects');
@@ -926,6 +940,8 @@ export async function init(ctx) {
     setTool: (id, tool) => setTool(id, tool),
     useTool: (id) => useTool(id),
     tools: () => TOOLS.map((t) => ({ ...t })),
+    /** follow-camera zoom in px/m (clamped 8–80); driving zooms out relative to it. Returns the applied value. */
+    setFollowZoom,
     /** r4.7: is the hand linked to this simulation worker awake and able to take a job? */
     isAvailable(workerId) {
       const c = C.list.find((q) => q.workerId === workerId || q.id === workerId);
@@ -943,7 +959,7 @@ export async function init(ctx) {
     frame,
     save() {
       return {
-        v: 1, nextId: C.nextId, active: W.player.activeCharacterId, plots: C.plots, jobSites: C.jobSites, autoSpawn,
+        v: 1, nextId: C.nextId, active: W.player.activeCharacterId, followZoom: driveZoom != null ? driveZoom : followZoom, plots: C.plots, jobSites: C.jobSites, autoSpawn,
         list: C.list.map((c) => { const o = {}; for (const k of SAVE_FIELDS) if (c[k] !== undefined) o[k] = c[k]; if (o.task) { o.task = { ...o.task }; delete o.task._spot; } return JSON.parse(JSON.stringify(o)); }),
       };
     },
@@ -961,6 +977,7 @@ export async function init(ctx) {
       const a = d.active && get(d.active) ? d.active : (C.list.find(farmhand) || {}).id;
       if (a) setActive(a, true);
       lastBarSig = ''; barT = 0; toolbarSet = false;
+      if (Number.isFinite(d.followZoom)) { driveZoom = null; zoomBack = null; setFollowZoom(d.followZoom); }
     },
     dispose() {
       const ui = mod('ui');

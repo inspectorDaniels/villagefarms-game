@@ -55,13 +55,16 @@ const { findChrome, chromeArgs } = require(path.resolve(__dirname, '../../../../
     let job = null;
     for (let d = 0; d < 36 && !job; d++) {
       await nextDay();
-      job = sim.jobs('offered').find((j) => ['plough', 'sow', 'harvest', 'mow'].includes(j.type) && parcels.includes(j.parcelId));
+      job = sim.jobs('offered').find((j) => ['plough', 'sow', 'harvest', 'mow'].includes(j.type) && j.parcelId && sim.parcel(j.parcelId));
     }
     let jobField = null;
-    if (ok(!!job, job ? `simulation offered "${job.title}" (${job.type}) for ${job.clientFarm} on ${job.parcelId} (pay €${job.pay})` : 'no area job offered on test parcels within 36 days')) {
+    if (ok(!!job, job ? `simulation offered "${job.title}" (${job.type}) for ${job.clientFarm} on ${job.parcelId} (pay €${job.pay})` : 'no area job offered within 36 days')) {
       const m0 = sim.money();
       ok(sim.acceptJob(job.id), 'job accepted');
-      jobField = fields[parcels.indexOf(job.parcelId)];
+      // the demo world may already have a crops field on that parcel; otherwise lay one out on the parcel polygon
+      const existing = C.fields().find((f) => f.parcelId === job.parcelId);
+      jobField = existing ? existing.id : C.createField(sim.parcel(job.parcelId).poly, { parcelId: job.parcelId, state: 'stubble' });
+      for (const f of C.fields()) if (f.parcelId === job.parcelId && f.id !== jobField) C.removeField(f.id); // one field per job parcel
       let t;
       if (job.type === 'plough') t = drive(jobField, 'plough', 3);
       else if (job.type === 'sow') { C.forceStage(jobField, 'cultivated'); t = drive(jobField, 'seed:' + (job.crop || 'wheat'), 4); }
