@@ -57,6 +57,45 @@ export function installEconomy(sim) {
     sim.emit('economy:transaction', { ...entry, ...(extra || {}) });
   };
 
+  /** r6: one ledger row per `key` per game day. Repeated calls the same day add to that row (it moves to the end
+   *  with the new running balance) instead of writing a new one. parts: {category: signed €} — each part is
+   *  booked to its own category in the day totals (P&L stays split); the row shows the first part's category.
+   *  acc: numbers summed on the row (e.g. {ha}); describe(row) → memo. Always books (like a forced charge). */
+  sim.recordGrouped = function recordGrouped(key, parts, describe, acc, extra) {
+    const r2 = (x) => Math.round(x * 100) / 100;
+    const day = sim.today();
+    let i = -1;
+    for (let k = E.ledger.length - 1; k >= Math.max(0, E.ledger.length - 60); k--) if (E.ledger[k].key === key && E.ledger[k].day === day) { i = k; break; }
+    const old = i >= 0 ? E.ledger[i] : null;
+    const exact = { ...((old && old.exact) || {}) };
+    // book whole cents of the exact running total, so many small calls add up to the cent
+    const ps = [];
+    for (const [k, v] of Object.entries(parts || {})) {
+      if (!Number.isFinite(+v) || +v === 0) continue;
+      const before = r2(exact[k] || 0);
+      exact[k] = (exact[k] || 0) + +v;
+      ps.push([k, r2(r2(exact[k]) - before)]);
+    }
+    if (!ps.length) return null;
+    const amount = r2(ps.reduce((t, [, v]) => t + v, 0));
+    E.money = r2(E.money + amount);
+    const row = old ? E.ledger.splice(i, 1)[0] : { key, day, amount: 0, category: ps[0][0], parts: {}, acc: {} };
+    row.exact = exact;
+    row.t = sim.now();
+    row.amount = r2(row.amount + amount);
+    for (const [k, v] of ps) row.parts[k] = r2((row.parts[k] || 0) + v);
+    for (const [k, v] of Object.entries(acc || {})) row.acc[k] = (row.acc[k] || 0) + (+v || 0);
+    row.balance = E.money;
+    row.memo = describe ? describe(row) : key;
+    E.ledger.push(row);
+    if (E.ledger.length > CONST.ledgerMax) E.ledger.splice(0, E.ledger.length - CONST.ledgerMax);
+    const b = bucket(day);
+    for (const [k, v] of ps) { if (v > 0) b.income += v; else b.expenses -= v; if (v) b.by[k] = r2((b.by[k] || 0) + v); }
+    E.version++;
+    sim.emit('economy:transaction', { ...row, parts: { ...row.parts }, acc: { ...row.acc }, exact: undefined, amount, rowTotal: row.amount, merged: i >= 0, ...(extra || {}) });
+    return row;
+  };
+
   function catalogEntry(def) {
     return {
       id: def.id, category: def.category || 'misc', name: def.name || def.id, price: +def.price || 0,
@@ -106,7 +145,7 @@ export function installEconomy(sim) {
       return true;
     },
     /** newest first */
-    ledger(n = 20) { return E.ledger.slice(-n).reverse().map((e) => ({ ...e })); },
+    ledger(n = 20) { return E.ledger.slice(-n).reverse().map((e) => ({ ...e, ...(e.parts ? { parts: { ...e.parts }, acc: { ...e.acc } } : {}) })); },
     /** totals over the last `periodDays` game days (inclusive of today). operating* excludes capital/financing. */
     summary(periodDays = YEAR_DAYS, endDay) {
       const to = endDay == null ? sim.today() : endDay;

@@ -144,3 +144,13 @@ still show builder > renter > smallfarm and builder > jobs; contractor vs jobs m
 contracting weak — plausible). The €250–400k band applies at ×1. Harness prints must use these targets.
 Characters owns availability: `isAvailable(workerId)` returns false while the hand is possessed by the player or
 driving; simulation additionally skips any hour in which possessed time was logged for that hand.
+
+---
+## Revision r6 (director, 2026-10-03) — year-1 target for the live demo start
+The r3 "€35–60k cash end of year 1" target assumed the harness's own start. From the live demo start (€17.7k cash,
+0.6 ha owned, 1.8 ha rented, old kit, no hand) the target is **growth**: end of year 1 cash ≥ start + €5k for a
+solo player and ≥ start + €10k for a player who hires a hand and delegates crew jobs, with net worth measured
+after demo's cheap starting kit (demo r2.3). Current harness (`--start=demo`): solo €23k, with a hand €31k → met.
+Known weakness (not a game bug): the scripted builder strategy can over-finance in years 4–5 on some seeds
+(harvest-3 → €124k); the year-10 band holds on 6/8 seeds. Acceptable; revisit with the strategy script, not prices.
+Job offers show `payPerUnit` + `callout` separately; ui should display both.

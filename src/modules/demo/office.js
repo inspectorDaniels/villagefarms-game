@@ -1,15 +1,16 @@
 // The game-flow layer on top of the composed world: tutorial toasts, the "Getting started" objectives card,
 // and the Farm office panel (K): store sales, the seed drill's crop, hands (hire / fire / delegate jobs) and
-// contractor bookings for the player's own fields. Also charges seed & inputs when the player sows
-// (nobody else does yet; see docs/core-requests/demo.md).
+// contractor bookings for the player's own fields. Seed & inputs are charged by simulation when sowing.
 
+const STRIP_M2 = 1500; // the first, hands-on target: 0.15 ha (≈ 3–4 runs, a few real minutes)
 const GOALS = [
-  ['tractor', 'Get into your tractor', 'Walk to the tractor in the yard and press F'],
-  ['plough', 'Plough Lindeveldje', 'Drive south to the rented field, E lowers the plough'],
+  ['tractor', 'Get into your tractor', 'Walk to the red tractor in the yard (marked) and press F'],
+  ['strip', 'Plough a first strip (0.15 ha)', 'Drive south onto Lindeveldje, press E to lower the plough and drive along the field'],
+  ['ploughed', 'Get Lindeveldje ploughed', 'Any way you like: finish it yourself (any of your people can drive: Tab switches), or book a contractor (K → Fields & contractors)'],
   ['job', 'Accept a contract job', 'J opens the jobs board'],
-  ['sell', 'Sell grain', 'Farm office (K): sell last year\'s wheat, or deliver a trailer at the co-op (R)'],
-  ['hire', 'Hire a farmhand', 'Farm office (K) → Hire. Tab switches between people'],
-  ['sow', 'Sow Lindeveldje', 'H unhitches the plough; hitch the seed drill (H), pick the crop in K, E to sow'],
+  ['sell', 'Sell last year\'s wheat', 'Farm office (K) → Store & seed → Sell all: the co-op collects it from your yard'],
+  ['hire', 'Hire a farmhand', 'Farm office (K) → Hands → Hire. Tab switches between people'],
+  ['sow', 'Sow Lindeveldje', 'H unhitches the plough; hitch the seed drill (H), pick the crop in K, E to sow — or book a contractor in K'],
 ];
 const TIPS = [
   [1.5, 'Welcome to Hoeve Ter Linde', 'You own the farmyard and rent Lindeveldje (1.8 ha) just south of it. Money is tight: contract jobs pay the bills this first year.'],
@@ -35,6 +36,7 @@ export function createOffice(ctx, D) {
     const g = GOALS.find((x) => x[0] === key);
     ctx.events.emit('demo:objective', { id: key, info: info || null });
     if (g) toast(`Done: ${g[1]}`, { kind: 'success', icon: 'check', ms: 4500 });
+    if (key === 'tractor') tractorLabel(false);
     const next = GOALS.find((x) => !D.objectives[x[0]]);
     if (next) setTimeoutToast(next);
     else toast('The farm is yours to grow: rent more land (M), buy better machines, hire hands and delegate jobs.', { kind: 'info', title: 'Getting started — complete', ms: 9000 });
@@ -61,6 +63,10 @@ export function createOffice(ctx, D) {
   ctx.events.on('crops:worked', (e) => {
     if (!e || e.contractor) return;
     D.stats.lastWorked = { tool: e.tool, parcelId: e.parcelId, areaM2: e.areaM2 };
+    if (e.tool === 'plough' && D.parcels.start && e.parcelId === D.parcels.start && e.areaM2 > 0) {
+      D.progress.strip = (D.progress.strip || 0) + e.areaM2;
+      if (D.progress.strip >= STRIP_M2) done('strip', { areaM2: Math.round(D.progress.strip) });
+    }
     // seed & inputs are charged by simulation on crops:worked (seed:<crop>) since simulation r6
   });
 
@@ -92,6 +98,15 @@ export function createOffice(ctx, D) {
     const id = CH.hire(home ? { x: home.x - 14 + n * 1.5, y: home.y - 20 } : {});
     if (id) done('hire');
     return id;
+  }
+
+  /** world-ui label on the tractor until it is first entered (r2.4) */
+  function tractorLabel(on) {
+    const ui = mod('ui'), V = mod('vehicles');
+    if (!ui || !ui.worldLabel) return;
+    const v = on && D.ids.tractor && V && V.get ? V.get(D.ids.tractor) : null;
+    if (v && !D.objectives.tractor) ui.worldLabel('demo:tractor', { x: v.x, y: v.y - 3, text: 'Your tractor · F to get in', kind: 'job' });
+    else if (ui.removeWorldLabel) ui.removeWorldLabel('demo:tractor');
   }
 
   // ---------------------------------------------------------------- panel
@@ -206,7 +221,8 @@ export function createOffice(ctx, D) {
     for (const [k, title, hint] of GOALS) {
       const ok = !!D.objectives[k];
       let extra = '';
-      if (k === 'plough' && !ok) extra = ` ${Math.round((progress.plough || 0) * 100)}%`;
+      if (k === 'strip' && !ok) extra = ` ${Math.min(99, Math.round(((D.progress.strip || 0) / STRIP_M2) * 100))}%`;
+      if (k === 'ploughed' && !ok) extra = ` ${Math.round((progress.plough || 0) * 100)}%`;
       if (k === 'sow' && !ok) extra = ` ${Math.round((progress.sow || 0) * 100)}%`;
       h += `<div style="font-size:12px;line-height:1.35;${ok ? 'opacity:.55;text-decoration:line-through' : ''}" title="${esc(hint)}">${ok ? '&#10003;' : '&#9675;'} ${esc(title)}${extra}</div>`;
     }
@@ -223,6 +239,7 @@ export function createOffice(ctx, D) {
       UI.addPanel('demo:office', { title: 'Farm office', icon: 'barn', hotkey: 'KeyK', order: 5, subtitle: 'Store, seed, hands, contractors', sig, render(el) { el.innerHTML = panelHtml(); bind(el); } });
     }
     showGoals();
+    tractorLabel(true);
   }
   function showGoals() {
     if (!UI || !UI.registerHud || hudOn) return;
@@ -245,7 +262,8 @@ export function createOffice(ctx, D) {
       checkT = 0.5;
       progress.plough = fieldShare(['ploughed', 'cultivated', 'sown']);
       progress.sow = fieldShare(['sown', 'ripe']);
-      if (progress.plough >= 0.95) done('plough');
+      if (progress.plough >= 0.95) done('ploughed');
+      if (!D.objectives.tractor) tractorLabel(true);
       if (progress.sow >= 0.95) done('sow');
       const S = mod('simulation');
       if (S && S.workers && (S.workers() || []).length) done('hire');
@@ -255,7 +273,7 @@ export function createOffice(ctx, D) {
 
   return {
     start, update, sellFromStore, hireHand,
-    reload() { tipT = 999; if (started) showGoals(); },
-    objectives: () => GOALS.map(([id, title]) => ({ id, title, done: !!D.objectives[id], progress: id === 'plough' ? progress.plough || 0 : id === 'sow' ? progress.sow || 0 : D.objectives[id] ? 1 : 0 })),
+    reload() { tipT = 999; if (!D.progress) D.progress = {}; if (started) { showGoals(); tractorLabel(true); } },
+    objectives: () => GOALS.map(([id, title]) => ({ id, title, done: !!D.objectives[id], progress: D.objectives[id] ? 1 : id === 'strip' ? Math.min(1, (D.progress.strip || 0) / STRIP_M2) : id === 'ploughed' ? progress.plough || 0 : id === 'sow' ? progress.sow || 0 : 0 })),
   };
 }

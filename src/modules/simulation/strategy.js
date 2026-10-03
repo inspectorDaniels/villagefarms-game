@@ -529,7 +529,9 @@ export function createManager(sim, opts) {
     // machinery for the hands (dealer finance)
     const cereals = myParcels().filter((p) => { const f = fields.get(p.id); return f && !f.yard && f.crop !== 'sugarBeet'; }).reduce((t, p) => t + p.area / 1e4, 0);
     const roots = myParcels().filter((p) => { const f = fields.get(p.id); return f && f.crop === 'sugarBeet'; }).reduce((t, p) => t + p.area / 1e4, 0);
-    const downOK = (id) => { const c = api.catalog().find((x) => x.id === id); return c && api.money() - reserve() * 0.3 > c.price * 0.25 + 3000; };
+    // r6: …and after the deposit and the financed loan the farm can still pay a season's inputs (else fallow → spiral)
+    const downOK = (id) => { const c = api.catalog().find((x) => x.id === id); return c && api.money() - reserve() * 0.3 > c.price * 0.25 + 3000
+      && api.creditLimit() - 0.3 * c.price + (api.money() - reserve() * 0.3 - c.price * 0.25) > 450 * farmedHa(); };
     const declined = (need) => recent(M.crewSeen.filter((x) => x[2] === need), d) - recent(M.crewTaken.filter((x) => x[2] === need), d);
     if (!owned('sprayer').length && (ha >= 8) && cash() > 5000) buyMachine('sprayer');
     const tiers = tractorTiers();

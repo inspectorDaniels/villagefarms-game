@@ -3,7 +3,7 @@
 // driving/walking) or crew-sized (≈1–2 hand-days, meant to be delegated with assignJob). Every job has
 // world coordinates. Jobs assigned to a hired hand are worked by the simulation at the AI rate.
 import { JOB_TYPES, CLIENTS, CROPS, ITEMS, CONST, YEAR_DAYS, MONTH_DAYS } from './data.js';
-import { haPerGameHour, haulTripHours } from './work.js';
+import { haPerGameHour, haulTripHours, SELF_PROPELLED } from './work.js';
 import { hashString } from './util.js';
 
 const PRESENCE = ['animalCare', 'shopHelp', 'villageWork'];
@@ -13,6 +13,8 @@ const CROP_FOR = {
   harvest: ['wheat', 'barley', 'rapeseed', 'maize', 'potatoes', 'sugarBeet', 'oats'],
 };
 const ROOTS = ['potatoes', 'sugarBeet'];
+// r6: no hauling gameplay yet → these are offered only as crew jobs (a hand works them abstractly)
+const CREW_ONLY = ['transport', 'deliver'];
 const h01 = (s) => hashString(String(s)) / 4294967296;
 
 export function installJobs(sim) {
@@ -35,6 +37,15 @@ export function installJobs(sim) {
   const E = () => sim.world.economy;
   const owned = (cat) => (E().assets || []).filter((a) => a.mode === 'owned' && a.category === cat);
   const hands = () => (E().workers || []).length;
+  /** r6: the player owns or leases a machine of this category */
+  const hasKit = (cat) => (E().assets || []).some((a) => (a.mode === 'owned' || a.mode === 'leased') && a.category === cat);
+  /** r6: can the player do this job himself with the kit he has (owned or leased)? */
+  function playerCanDo(j) {
+    if (CREW_ONLY.includes(j.type)) return false;
+    if (!j.requiresMachine) return true;
+    if (j.needs && !hasKit(j.needs)) return false;
+    return !!SELF_PROPELLED[j.op] || j.needs === 'tractor' || hasKit('tractor');
+  }
   const bounds = () => sim.world.bounds || { w: 1024, h: 1024 };
 
   function place(spOrParcel) {
@@ -95,8 +106,9 @@ export function installJobs(sim) {
     const sps = Object.values(E().sellPoints || {});
     const farm = clientFarm(client);
     // crew-sized offers become more common with more hands (and with reputation)
-    const crew = T.machine && type !== 'snowClear' && rng.chance(Math.min(0.75, 0.3 + 0.15 * Math.min(CONST.marketHands, hands()) + 0.2 * Math.max(0, J.reputation - 0.5)));
+    const crewRoll = T.machine && type !== 'snowClear' && rng.chance(Math.min(0.75, 0.3 + 0.15 * Math.min(CONST.marketHands, hands()) + 0.2 * Math.max(0, J.reputation - 0.5)));
 
+    const crew = crewRoll || CREW_ONLY.includes(type);
     const job = {
       id: `simulation:job:${J.nextId++}`, type, client: client.name, clientFarm: client.farm,
       unit: T.unit, requiresMachine: T.machine, progress: 0, status: 'offered', offeredDay: day,
@@ -147,14 +159,21 @@ export function installJobs(sim) {
     const unitRate = type === 'transport' ? T.rate + T.perTkm * km : T.rate;
     let pay = unitRate * job.amount * repMult * (1 + T.spread * (rng.float() * 2 - 1));
     if (job.op === 'lift') pay *= 1.6;
+    const work = pay;
     if (T.machine && type !== 'snowClear') pay += rng.range(CONST.callout[0], CONST.callout[1]); // the trip is paid too
     job.pay = Math.max(40, Math.round(pay / 5) * 5);
+    // r6: what the pay is made of (a small job is mostly call-out): € per unit for the work + the call-out fee
+    job.payPerUnit = +(work / job.amount).toFixed(2);
+    job.callout = Math.round(pay - work);
     job.estPlayerMin = Math.round(workHours(job, 'player')); // 1 game hour = 1 real minute at 60×
     job.estAiHours = +workHours(job, 'ai').toFixed(1);
     const quick = PRESENCE.includes(type) || type === 'snowClear';
     job.deadlineDay = day + (quick ? rng.int(1, 2) : crew ? Math.ceil(job.estAiHours / CONST.hoursPerDayHand) + rng.int(1, 3) : rng.int(1, 3));
     job.expiresDay = quick ? day + 1 : Math.min(job.deadlineDay - 1, day + rng.int(1, 3));
     job.title = titleFor(job);
+    if (CREW_ONLY.includes(type)) { job.crewOnly = true; job.label = 'Crew job — delegate it to a hand'; job.title += ' (crew job)'; }
+    // r6: a player-sized offer the player has no kit for is not offered (rng use is unchanged)
+    if (!job.crew && !playerCanDo(job)) { J.nextId--; return null; }
     J.list.push(job);
     J.stats.offered++;
     E().version++;
@@ -212,6 +231,7 @@ export function installJobs(sim) {
     acceptJob(id) {
       const j = find(id);
       if (!j || j.status !== 'offered') return false;
+      if (j.crewOnly && !hands()) return false; // r6: nobody to haul it
       if (J.list.filter((x) => x.status === 'accepted').length >= activeCap()) return false;
       j.status = 'accepted'; j.acceptedDay = sim.today();
       E().version++;
@@ -225,6 +245,7 @@ export function installJobs(sim) {
       if (!j) return false;
       if (j.status === 'offered' && !api.acceptJob(id)) return false;
       if (j.status !== 'accepted') return false;
+      if (j.crewOnly && !isWorker(assigneeId)) return false; // r6: crew-only jobs go to a hired hand
       if (assigneeId && String(assigneeId).startsWith('simulation:worker:') && !(E().workers || []).some((w) => w.id === assigneeId)) return false;
       j.assignee = assigneeId || null;
       if (j.assignee) J.stats.delegated++;

@@ -213,25 +213,27 @@ export function installLand(sim) {
     if (!(a > 0) || !Number.isFinite(a)) return;
     // r6: sowing the player's land pays the season's inputs for the newly sown area (crops reports only cells
     // that changed, so re-sowing sown cells costs nothing). Contractor sowing too: a booking is work only (€/ha).
-    if (typeof e.tool === 'string' && e.tool.startsWith('seed:')) chargeSowing(p, e.tool.slice(5), Math.min(a, p.area) / 1e4, !!e.contractor);
+    if (typeof e.tool === 'string' && e.tool.startsWith('seed:')) chargeSowing(p, e.tool.slice(5), Math.min(a, p.area) / 1e4, !!e.contractor, e.fieldId);
     // r4c: contractor work is credited once, by contractorDay (booked area) — ignore crops' echo of it
     if (e.contractor) return;
     p.cropsFields = true; // crops reports this parcel's work itself from now on
     creditWork(p, String(e.tool || 'work'), a);
   };
 
-  /** seed + fertiliser + spray (inputCost × ha), booked per category; on credit (forced) when cash is short */
-  function chargeSowing(p, crop, haSown, byContractor) {
+  /** seed + fertiliser + spray (inputCost × ha), split by category in the P&L but ONE ledger row per field (or
+   *  parcel) per crop per game day (r6: crops reports sowing in many small coalesced events); always booked,
+   *  on the overdraft when cash is short. */
+  function chargeSowing(p, crop, haSown, byContractor, fieldId) {
     const c = api.inputCost(crop);
     if (!c || !(haSown > 0)) return 0;
-    const name = (api.yieldTable()[crop] || {}).name || crop;
-    const tag = `${haSown.toFixed(2)} ha ${String(name).toLowerCase()} — ${p.name}${byContractor ? ' (contractor-sown)' : ''}`;
-    let paid = 0;
-    for (const k of ['seed', 'fertiliser', 'spray']) {
-      const v = (c[k] || 0) * haSown;
-      if (v > 0 && api.charge(v, k, `${k[0].toUpperCase() + k.slice(1)} for ${tag}`, { force: true })) paid += v;
-    }
-    return paid;
+    const name = String((api.yieldTable()[crop] || {}).name || crop).toLowerCase();
+    const area = (h) => (h >= 0.1 ? `${h.toFixed(2)} ha` : `${Math.max(1, Math.round(h * 1e4))} m²`);
+    const parts = {};
+    for (const k of ['seed', 'fertiliser', 'spray']) if (c[k] > 0) parts[k] = -c[k] * haSown;
+    const row = sim.recordGrouped(`sow|${fieldId || p.id}|${crop}|${byContractor ? 'c' : 'p'}`, parts,
+      (r) => `Seed & inputs — ${area(r.acc.ha)} ${name}, ${p.name}${byContractor ? ' (contractor-sown)' : ''}`, { ha: haSown },
+      { parcelId: p.id, fieldId: fieldId || null, crop });
+    return row ? -Object.values(parts).reduce((t, v) => t + v, 0) : 0;
   }
   sim.chargeSowing = chargeSowing;
 

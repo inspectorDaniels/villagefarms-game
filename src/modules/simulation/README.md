@@ -100,7 +100,7 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 
 **Field work & CAP (r4: the worked share)**
 - **The module listens to `crops:worked {fieldId, parcelId, tool, areaM2}`** and credits the worked m² to the parcel. This only counts when the player owns or rents the parcel.
-- **(r6) Sowing pays the inputs.** For `tool: 'seed:<crop>'` on owned/rented land, the season's inputs for the newly sown area are charged: `inputCost(crop)` × `areaM2`/1e4 (capped at the parcel), booked as `seed`, `fertiliser` and `spray`. If cash is short they go on the overdraft. crops reports only cells that changed, so re-sowing sown cells costs nothing. **Contractor-sown area (`contractor: true`) is charged too**, because a contractor booking is work only (`sow` €75/ha) with no seed in it. Only the CAP credit skips contractor echoes. demo can drop its `office.js` workaround.
+- **(r6) Sowing pays the inputs.** For `tool: 'seed:<crop>'` on owned/rented land, the season's inputs for the newly sown area are charged: `inputCost(crop)` × `areaM2`/1e4 (capped at the parcel), booked in the P&L as `seed`, `fertiliser` and `spray`, but written as **one ledger row per field (or parcel) per crop per game day** (r6). The row is `category: 'seed'`, with `parts` and `acc.ha`, and a memo like "Seed & inputs — 1.80 ha spring oats, Lindeveldje"; areas under 0.1 ha are shown in m². Later events that day add to the row, which moves to the end with the new balance. Whole cents of the exact running total are booked, so many small events add up to the cent. If cash is short they go on the overdraft. crops reports only cells that changed, so re-sowing sown cells costs nothing. **Contractor-sown area (`contractor: true`) is charged too**, because a contractor booking is work only (`sow` €75/ha) with no seed in it. Only the CAP credit skips contractor echoes. demo can drop its `office.js` workaround.
   - **r4c:** events with `contractor: true` are ignored. The booking already credited its area when `economy:contractor-done` fired, so each area counts once.
 - `recordFieldWork(parcelId, op, {areaM2, workerId?, hours?})` → bool. It is for land that is not a crops field. It returns false when:
   - the parcel is not owned/rented by the player;
@@ -143,6 +143,9 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
   2. the client's farm (`defineClientFarm`, or a parcel the client owns);
   3. a deterministic point inside `world.bounds`.
 - **Player-sized offers** take about 5–20 real minutes. **Crew-sized offers** (`crew: true`) take about 1–2 hand-days. Each carries `estPlayerMin` / `estAiHours`.
+- **(r6) Kit filter.** A player-sized offer is only made when the player owns or leases what it needs: the `needs` category (`tillage`, `combine`, `harvester` for lifting, `mower`, …) plus a tractor unless the machine is self-propelled. Crew offers are not filtered; they are the demand signal the harness uses to buy kit.
+- **(r6) `transport` / `deliver` are crew-only** until a haul loop exists: `crew: true`, `crewOnly: true`, `label: 'Crew job — delegate it to a hand'`, and the title ends in "(crew job)". `acceptJob` refuses them when the farm has no hand. `assignJob` accepts only a hired hand's id, not `null` or a character.
+- **(r6) Pay breakdown.** Each offer carries `payPerUnit` (€ per ha/t/load/h for the work, after reputation and the crew market) and `callout` (€60–110 trip fee on machine jobs). Rates are plough €105/ha, drill €72/ha, combine €160/ha (lift ×1.6) and mow €58/ha. A small player job is mostly call-out: a 0.57 ha plough job pays €60 of work plus about €100 call-out, so €160 is ≈ €280/ha. This is intended, because a contractor bills the trip, and the ui can show "€105/ha + €100 call-out".
 - **r4 — the contract market saturates:**
   - 2–4 offers a day, +1.2 per hand only **up to 3 hands**, at most **7 a day**;
   - at most 8 + 2 × min(hands, 3) open at once;
@@ -280,6 +283,8 @@ Net worth:
 | 8 | €86k | €95k | €147k | €180k | €214k (43 ha, 7.9 owned) |
 | 10 | €98k | €112k | €176k | €243k | **€303k** (51 ha, 11.9 owned, 3 hands) |
 
+**r6 (kit filter + crew-only hauling):** Y10 is now jobs €86k · contractor €117k · smallfarm €165k · renter €250k · builder **€337k**, and Y1 is €49k for all of them. Player job income in Y1 drops from €6k to €4k because the player can no longer haul. The builder's Y10 band holds in 6/8 seeds. In one seed (harvest-3) the builder buys land and kit on credit in Y4–5, its credit line runs dry, it leaves the fields fallow and spirals; this is a strategy weakness exposed by a different job flow. In another seed it overshoots (€415k). The tables below are r5.
+
 The builder, year by year:
 
 | builder | Y1 | Y2 | Y3 | Y4 | Y6 | Y8 | Y10 |
@@ -304,8 +309,8 @@ Printed at the end of each `progression.mjs` run.
 | first owned parcel year 3–4 | median year 3 |
 | combine year 4–6 | median year 6 |
 | 40–60 ha by year 8 | median 43.6 ha, 8/8 in range |
-| **net worth €250–400k at year 10** (r4b) | median €303k, **8/8 in range** ✔ |
-| **builder > renter > smallfarm > contractor > jobs** (r4c, required at ×1) | €303k > €243k > €176k > €112k > €98k ✔ |
+| **net worth €250–400k at year 10** (r4b) | median €303k, **8/8 in range** ✔ (r6: €337k, 6/8) |
+| **builder > renter > smallfarm > contractor > jobs** (r4c, required at ×1) | €303k > €243k > €176k > €112k > €98k ✔ (r6: €337k > €250k > €165k > €117k > €86k ✔) |
 
 Each run prints the rule for its own factor. At ×1 the strict chain is required; at ×0.5 and ×2 it prints the relaxed rule with ✔ or ✘.
 
@@ -334,7 +339,18 @@ Fast-forwarding does not skip the economy: costs are per game day, CAP needs wor
 - mean **+€2,452/yr**, median €2,878;
 - mean per year: sales €9.2k, CAP €2.3k, rent −€2.6k, inputs −€1.8k, contractors −€2.5k.
 
-### Exploit probes (`exploits.mjs`, default 8 seeds: 31/31 closed)
+### Year 1 from the live demo start (r6: `progression.mjs 1 8 --start=demo [--hire=1]`)
+The demo start is €17,664 cash, the owned 0.6 ha yard, 1.8 ha rented, the old tractor, plough & drill, trailer and pickup. End of year 1 (36 game days), median of 8 seeds:
+
+| play | cash | net worth | contract jobs | wages |
+|---|---|---|---|---|
+| alone (jobs / smallfarm / renter / builder) | €23k | €60k | €4k | 0 |
+| one hand hired on day 1, crew jobs delegated (jobs / smallfarm) | €31k | €67k | €18k | €5k |
+| contractor (2 hands + bought kit) | €21k | €62k | €12k | €3k |
+
+**The brief's year-1 target of €35–60k cash is not reached.** The best scripted play ends at about €31k cash. Net worth (€60–67k) is in or above that band. The pickup is booked at the simulation's 85 % resale, so part of the net worth is the vehicle.
+
+### Exploit probes (`exploits.mjs`, default 8 seeds: 37/37 closed; r6 added 6)
 | probe | median | verdict |
 |---|---|---|
 | **r5 credit line → diesel before insolvency** (42,355 l bought on the whole credit line, then a −€120k shock) | 0 l kept; diesel seized at 50 % in the settlement | closed |

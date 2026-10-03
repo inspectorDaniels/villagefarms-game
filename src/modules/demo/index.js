@@ -23,7 +23,7 @@ const MARCH_CROPS = ['wheat', 'wheat', 'barley', 'sugarBeet', 'rapeseed', 'wheat
 export async function init(ctx) {
   const W = ctx.world;
   const D = W.demo;
-  Object.assign(D, { v: 1, started: false, sites: null, pois: [], ids: {}, parcels: {}, fields: {}, objectives: {}, tutorial: 0, stats: {} });
+  Object.assign(D, { v: 1, progress: {}, clearMorning: null, started: false, sites: null, pois: [], ids: {}, parcels: {}, fields: {}, objectives: {}, tutorial: 0, stats: {} });
   const mod = (id) => ctx.modules.get(id);
   const rng = ctx.rng('layout');
   let L = null;
@@ -237,22 +237,33 @@ export async function init(ctx) {
     step('vehicles', () => {
       if (!V) return 'absent';
       const F = st.farm, ids = D.ids;
-      const t = V.purchase('tractor_t1', F.x + 4, F.y + 10, Math.PI, { grant: true }) || []; // faces the field gate (south)
-      const kit = V.purchase('tillage_s', F.x + 16, F.y + 6, Math.PI, { grant: true }) || [];
-      const tr = V.purchase('trailer', F.x + 13, F.y + 29, -Math.PI / 2, { grant: true }) || [];
-      const pk = V.purchase('pickup', F.x - 12, F.y - 8, Math.PI / 2, { grant: true }) || [];
-      ids.tractor = t[0] || null; ids.plough = kit[0] || null; ids.seeder = kit[1] || null; ids.trailer = tr[0] || null; ids.pickup = pk[0] || null;
+      // r2.3 old, cheap starting kit: granted as long-owned assets (book value at simulation's 20 % floor) with
+      // high wear, so the whole kit resells for ≈ €9k (half the starting cash). The pickup is the family car:
+      // spawned without an asset record, so it cannot be sold and carries no upkeep.
+      const old = S && S.today ? { boughtDay: S.today() - 16 * 36 } : {};
+      const grant = (item) => (S && S.grantAsset ? S.grantAsset(item, old) : null);
+      const put = (type, x, y, rot, assetId, wear, extra) => V.spawn(type, x, y, rot, { owner: 'owned', assetId, wear, ...(extra || {}) }) || null;
+      const tA = grant('tractor_t1'), kA = grant('tillage_s'), trA = grant('trailer');
+      // seed drill loaded with a crop that can be sown now (r2.5)
+      const cal = CR && CR.calendar ? CR.calendar() || {} : {};
+      const seed = ['oats', 'barley', 'wheat', 'sugarBeet', 'potatoes', 'maize', 'rapeseed'].find((c) => cal[c] && cal[c].canSow) || Object.keys(cal).find((c) => cal[c] && cal[c].canSow) || 'barley';
+      ids.tractor = put('tractor_t1', F.x + 4, F.y + 10, Math.PI, tA, 0.55, { fuel: 80 }); // faces the field (south)
+      ids.plough = put('plough_s', F.x + 16, F.y + 6, Math.PI, kA, 0.5);
+      ids.seeder = put('seeder_s', F.x + 11, F.y + 6, Math.PI, kA, 0.45, { seed });
+      // the grain trailer stands east of the implements, clear of their exit lane south (r2.5)
+      ids.trailer = put('trailer_grain', F.x + 33, F.y + 24, Math.PI, trA, 0.4);
+      ids.pickup = put('pickup', F.x - 12, F.y - 8, Math.PI / 2, null, 0.35);
       if (ids.tractor && ids.plough && V.attach) V.attach(ids.tractor, ids.plough);
-      if (ids.seeder && V.setSeed) V.setSeed(ids.seeder, 'barley');
+      if (ids.seeder && V.setSeed) V.setSeed(ids.seeder, seed);
       // neighbours' machinery parked in their yards
       const npc = [];
       st.farms.forEach((f) => {
         const lane = f.key === 'B' ? -1 : 1;
-        const put = (type, dx, dy, rot) => { const id = V.spawn(type, f.x + dx, f.y + dy * lane, rot, { owner: null }); if (id) npc.push(id); return id; };
-        put(f.key === 'C' ? 'tractor_t3' : 'tractor_t2', -3, 16, 0);
-        put('trailer_grain', 6, 18, 0);
-        if (f.key === 'B') put('combine_s', 2, -2, Math.PI / 2);
-        if (f.key === 'C') put('plough_l', 3, -2, Math.PI / 2);
+        const putN = (type, dx, dy, rot) => { const id = V.spawn(type, f.x + dx, f.y + dy * lane, rot, { owner: null }); if (id) npc.push(id); return id; };
+        putN(f.key === 'C' ? 'tractor_t3' : 'tractor_t2', -3, 16, 0);
+        putN('trailer_grain', 6, 18, 0);
+        if (f.key === 'B') putN('combine_s', 2, -2, Math.PI / 2);
+        if (f.key === 'C') putN('plough_l', 3, -2, Math.PI / 2);
       });
       ids.npcVehicles = npc;
       return 4 + npc.length;
@@ -293,7 +304,16 @@ export async function init(ctx) {
     D.started = true;
 
     // camera follows the farmer (characters does this on setActive); make sure of a sensible zoom
-    if (!ctx.params.cam && !ctx.params.showcase) ctx.camera.set(st.farm.x - 20, st.farm.y - 26, 24);
+    // r2.4 opening frame: ~22 px/m on the farmer and the tractor, a clear first morning, a label on the tractor
+    if (CH && typeof CH.setFollowZoom === 'function') CH.setFollowZoom(22);
+    if (!ctx.params.cam && !ctx.params.showcase) {
+      const tv = D.ids.tractor && V ? V.get(D.ids.tractor) : null;
+      const fp = D.ids.farmer && CH ? CH.positionOf(D.ids.farmer) : null;
+      if (tv && fp) ctx.camera.set((tv.x + fp.x) / 2, (tv.y + fp.y) / 2, 22);
+      else ctx.camera.set(st.farm.x, st.farm.y, 22);
+    }
+    const E = mod('environment');
+    if (E && E.setWeather && !ctx.params.weather && !ctx.params.showcase) { E.setWeather('clear', 0.5, { instant: true }); D.clearMorning = { day: ctx.clock.dayOfYear }; }
     office.start({ UI, parcels: D.parcels, fields: D.fields });
     ctx.events.emit('demo:started', { stats: D.stats });
     return D.stats;
@@ -375,6 +395,7 @@ export async function init(ctx) {
     if (sc.follow) {
       const CH = mod('characters');
       const id = W.player.activeCharacterId || D.ids.farmer;
+      if (CH && typeof CH.setFollowZoom === 'function') CH.setFollowZoom(sc.zoom);
       if (CH && CH.positionOf) {
         ctx.camera.follow(() => { const p = CH.positionOf(W.player.activeCharacterId || id); return p ? { x: p.x, y: p.y } : null; });
         const p = CH.positionOf(id);
@@ -403,13 +424,21 @@ export async function init(ctx) {
 
   return {
     api,
-    update(dt) { if (D.started) office.update(dt); },
+    update(dt) {
+      if (!D.started) return;
+      office.update(dt);
+      if (D.clearMorning && (ctx.clock.hour >= 13 || ctx.clock.dayOfYear !== D.clearMorning.day)) {
+        const E = mod('environment');
+        if (E && E.setWeather) E.setWeather('auto');
+        D.clearMorning = null;
+      }
+    },
     save() {
-      return { v: 1, started: D.started, sites: D.sites, pois: D.pois, ids: D.ids, parcels: D.parcels, fields: D.fields, npcParcels: D.npcParcels, objectives: D.objectives, tutorial: D.tutorial };
+      return { v: 1, started: D.started, sites: D.sites, pois: D.pois, ids: D.ids, parcels: D.parcels, fields: D.fields, npcParcels: D.npcParcels, objectives: D.objectives, tutorial: D.tutorial, progress: D.progress, clearMorning: D.clearMorning };
     },
     load(d) {
       if (!d || d.v !== 1) return;
-      for (const k of ['started', 'sites', 'pois', 'ids', 'parcels', 'fields', 'npcParcels', 'objectives', 'tutorial']) if (d[k] !== undefined) D[k] = JSON.parse(JSON.stringify(d[k]));
+      for (const k of ['started', 'sites', 'pois', 'ids', 'parcels', 'fields', 'npcParcels', 'objectives', 'tutorial', 'progress', 'clearMorning']) if (d[k] !== undefined) D[k] = JSON.parse(JSON.stringify(d[k]));
       office.reload();
     },
   };
