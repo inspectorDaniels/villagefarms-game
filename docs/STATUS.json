@@ -409,9 +409,14 @@
     {
       "t": "2026-10-02",
       "event": "integrator seam fix: removed demo/office.js seed-charge workaround (simulation now charges inputs on sowing) to avoid double charge"
+    },
+    {
+      "t": "2026-10-07",
+      "event": "docs/ONBOARDING.md + CLAUDE.md added for context-free agents; in-repo scratchpad/ removed and gitignored. Crops critic r2 and demo r2 interrupted by session limit (WIP committed)."
     }
   ],
   "resume": [
+    "0. Read docs/ONBOARDING.md (agents: also CLAUDE.md)",
     "1. npm run serve (port 5173); node tools/status.js for the queue",
     "2. Priority: mechanics/gameplay (see 'priority')",
     "3. Finish simulation r2 + critic; characters build + critic; register characters in registry",

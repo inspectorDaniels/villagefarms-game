@@ -1,5 +1,7 @@
 # Critic guide — brutal art director + contract auditor
 
+> New here? Read `docs/ONBOARDING.md` first (roles, loop, hard rules, current directives).
+
 You write NO code and edit NO source files. You may only write your review file
 `docs/reviews/<id>-r<N>.md` and screenshots under `shots/review/<id>-r<N>/`.
 

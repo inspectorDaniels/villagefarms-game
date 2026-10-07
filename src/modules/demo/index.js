@@ -15,6 +15,7 @@ export const manifest = {
   listens: ['crops:worked', 'vehicles:entered', 'jobs:accepted', 'economy:transaction'],
 };
 
+const MAX_HOUSES = 20; // village houses (22→14 made no measurable frame-time difference; see core-requests)
 const MAX_FIELDS = 34; // NPC parcels (crops cost per field; harness valley ≈ 48 parcels)
 const INST = new WeakMap(); // ctx → api (showcase)
 
@@ -166,7 +167,8 @@ export async function init(ctx) {
       if (!B) return 'absent';
       const ids = D.ids;
       const F = st.farm;
-      ids.farmhouse = placeNear('farmhouse', F.x - 22, F.y - 22, 0, { owner: 'player', grant: true, variant: 0, name: 'Farmhouse' }, 6);
+      // the farmhouse door opens onto the yard (south)
+      ids.farmhouse = placeNear('farmhouse', F.x - 22, F.y - 22, Math.PI, { owner: 'player', grant: true, variant: 0, name: 'Farmhouse' }, 6);
       ids.barn = placeNear('barn', F.x + 29, F.y - 6, -Math.PI / 2, { owner: 'player', grant: true, variant: 0 }, 6);
       ids.shed = placeNear('machine_shed', F.x - 17, F.y + 25, 0, { owner: 'player', grant: true, variant: 0 }, 6);
       ids.coop = placeNear('chicken_coop', F.x - 37, F.y + 2, Math.PI / 2, { owner: 'player', grant: true, variant: 0 }, 6);
@@ -186,7 +188,7 @@ export async function init(ctx) {
         const pts = chain(name);
         if (pts.length < 2) continue;
         let len = 0; for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
-        for (let s = 13; s < len - 10 && houses.length < 22; s += 13) {
+        for (let s = 13; s < len - 10 && houses.length < MAX_HOUSES; s += 13) {
           // point at arc length s
           let acc = 0, p = null;
           for (let i = 1; i < pts.length && !p; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); if (acc + l >= s) { const t = (s - acc) / l; p = [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t]; } acc += l; }
@@ -247,12 +249,12 @@ export async function init(ctx) {
       // seed drill loaded with a crop that can be sown now (r2.5)
       const cal = CR && CR.calendar ? CR.calendar() || {} : {};
       const seed = ['oats', 'barley', 'wheat', 'sugarBeet', 'potatoes', 'maize', 'rapeseed'].find((c) => cal[c] && cal[c].canSow) || Object.keys(cal).find((c) => cal[c] && cal[c].canSow) || 'barley';
-      ids.tractor = put('tractor_t1', F.x + 4, F.y + 10, Math.PI, tA, 0.55, { fuel: 80 }); // faces the field (south)
+      ids.tractor = put('tractor_t1', F.x - 2, F.y - 4, Math.PI, tA, 0.55, { fuel: 80 }); // faces the field (south), in view of the farmhouse door
       ids.plough = put('plough_s', F.x + 16, F.y + 6, Math.PI, kA, 0.5);
       ids.seeder = put('seeder_s', F.x + 11, F.y + 6, Math.PI, kA, 0.45, { seed });
       // the grain trailer stands east of the implements, clear of their exit lane south (r2.5)
       ids.trailer = put('trailer_grain', F.x + 33, F.y + 24, Math.PI, trA, 0.4);
-      ids.pickup = put('pickup', F.x - 12, F.y - 8, Math.PI / 2, null, 0.35);
+      ids.pickup = put('pickup', F.x - 36, F.y - 9, Math.PI / 2, null, 0.35);
       if (ids.tractor && ids.plough && V.attach) V.attach(ids.tractor, ids.plough);
       if (ids.seeder && V.setSeed) V.setSeed(ids.seeder, seed);
       // neighbours' machinery parked in their yards

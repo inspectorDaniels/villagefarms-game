@@ -18,7 +18,7 @@ G.loadGame = (o) => { for (const { id, inst } of instances) if (inst.load && o[i
 plus `ctx.game = { save, load }` so `ui` can offer Save/Load buttons (localStorage). Note: the full save is ~4.8 MB
 JSON, most of it from other modules' typed arrays — worth compressing before localStorage (5 MB quota).
 
-## 3. simulation: charge seed & inputs when the player sows
+## 3. simulation: charge seed & inputs when the player sows — DONE (simulation r6; demo's handler removed)
 Nothing charges seed when the player drills a field with the seeder. `demo/office.js` currently listens to
 `crops:worked` with tool `seed:<crop>` on owned/rented parcels and calls `simulation.buyInputs(crop, ha)`
 (falls back to `charge(..., {force:true})`). This belongs in simulation (it already listens to `crops:worked` for CAP);
@@ -32,7 +32,7 @@ module's JS. So it is fill-rate in software raster (headless swiftshader): many 
 half-res shadow canvas composite. Suggest the renderer measure this on a real GPU and, if needed, cache the static
 shadow layer per camera position/sun step. Demo can reduce village density (22 houses) if the director prefers.
 
-## 5. characters: follow zoom
+## 5. characters: follow zoom — DONE (`setFollowZoom`, demo calls it with 22)
 `scene('play')` sets zoom 24 after `camera.follow(...)`, but the view ends at ~40 px/m (characters' follow
 zoom). A `characters.setFollowZoom(z)` or respecting the current zoom would let the game start at a wider view.
 
@@ -40,3 +40,26 @@ zoom). A `characters.setFollowZoom(z)` or respecting the current zoom would let 
 **Integrator (iteration 2): #1 registry APPLIED. #2 APPLIED as `ctx.game` / `__GAME__.game` (save, load, saveToStorage, loadFromStorage, slots; gzip). #3 forwarded to simulation, #5 to characters, #4 noted (needs real-GPU measurement).**
 
 **#3 DONE in simulation (inputs charged on crops:worked seed:<crop>); integrator removed demo's workaround handler to avoid a double charge.**
+
+---
+## Round 2 (r2) additions
+
+### 6. buildings: grain co-op costs 35–47 ms of buildings JS per frame when on screen
+Measured in the full game (health msAvg, 11:00, 150 sampled frames):
+camera on the village houses (880,330 @11 px/m) 13 ms/frame with buildings < 1 ms;
+camera on the **grain co-op** (737,480 @11) 40 ms/frame with **buildings 47 ms**; overview (3 px/m, both
+`grain_coop` instances visible — co-op and the sugar/potato depot) **buildings 34–37 ms**. A/B on the village view:
+without the buildings module 13.5 ms vs 55 ms with it. Village density is not the lever: 22 → 14 houses gave no
+measurable change (70→71–85 ms on a loaded machine), so demo keeps 20 houses. Please cache the co-op's per-frame
+work (silos / shadows / lights?) like the other types.
+
+### 7. vehicles: granted kit value / wear
+Not needed any more: demo grants the starting kit itself through `simulation.grantAsset(item, {boughtDay})`
+(book value at the 20 % floor: tractor €5.2k, plough & drill €1.8k, trailer €2.2k = €9.2k vs €17.7k cash) and spawns
+the machines with `vehicles.spawn(type, …, {owner:'owned', assetId, wear})`. The pickup is the family car, spawned without
+an asset (cannot be sold, no upkeep). A `vehicles.purchase(..., {grant:true, boughtDay, wear})` option would make this
+one call; nice to have.
+
+### 8. simulation: contractor quote vs booking lead time
+K → Fields shows "plough €198 (2d)" from `contractorQuote`, the booking then reports `leadDays: 1` (done on day +2).
+Make the quote's `leadDays` match the booking's.

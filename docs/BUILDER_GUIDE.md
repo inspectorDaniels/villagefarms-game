@@ -1,5 +1,7 @@
 # Builder guide (read fully before writing code)
 
+> New here? Read `docs/ONBOARDING.md` first (roles, loop, hard rules, current directives).
+
 You are the builder of exactly ONE module: `src/modules/<id>/`. Read `ARCHITECTURE.md` first,
 then skim `src/core/*.js` (read-only for you) — especially `boot.js` (ctx), `renderer.js`
 (layers, collectors, shadow/light API), `art.js` (painting helpers), `palette.js`.
