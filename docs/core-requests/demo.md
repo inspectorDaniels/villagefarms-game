@@ -63,3 +63,13 @@ one call; nice to have.
 ### 8. simulation: contractor quote vs booking lead time
 K → Fields shows "plough €198 (2d)" from `contractorQuote`, the booking then reports `leadDays: 1` (done on day +2).
 Make the quote's `leadDays` match the booking's.
+
+---
+## Round 3 (r3, smaller first field)
+
+### 9. vehicles / director: the 10–15 min "plough + sow" target vs the starting kit's work rate
+Lindeveldje is now 0.40 ha (24 × 167 m, 8 passes of the 3 m plough), the bottom of the r3 range. With the starting
+kit the pure driving time alone is plough 0.40 ha ÷ (3 m × 2.04 m/s measured, worn t1 + plough_s) ≈ 11 min and
+sow ≈ 8–9 min (10 km/h drill), plus headland turns — see the measured numbers in the demo r3 report. Plough + sow in
+10–15 real minutes needs either ≈ 0.2–0.25 ha or game-scale working speeds (e.g. implement working speed ×1.5–2,
+which also helps contract jobs). Director to decide; demo can shrink the field in one line (`layout.js`, `field`).

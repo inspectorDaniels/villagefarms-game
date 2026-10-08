@@ -173,7 +173,7 @@ export async function init(ctx) {
       // the farmhouse door opens onto the yard (south)
       ids.farmhouse = placeNear('farmhouse', F.x - 22, F.y - 22, Math.PI, { owner: 'player', grant: true, variant: 0, name: 'Farmhouse' }, 6);
       ids.barn = placeNear('barn', F.x + 29, F.y - 6, -Math.PI / 2, { owner: 'player', grant: true, variant: 0 }, 6);
-      ids.shed = placeNear('machine_shed', F.x - 17, F.y + 25, 0, { owner: 'player', grant: true, variant: 0 }, 6);
+      ids.shed = placeNear('machine_shed', F.x - 26, F.y + 25, 0, { owner: 'player', grant: true, variant: 0 }, 6);
       ids.coop = placeNear('chicken_coop', F.x - 37, F.y + 2, Math.PI / 2, { owner: 'player', grant: true, variant: 0 }, 6);
       // village: specials first, then houses along every street
       const reg = chain('regional'), main = chain('main'), westS = chain('west'), eastS = chain('east'), northS = chain('north');
@@ -363,7 +363,7 @@ export async function init(ctx) {
     const out = [];
     const add = (id, name, x, y, kind, zoom = 16) => { if (Number.isFinite(x) && Number.isFinite(y)) out.push({ id, name, x: +x.toFixed(1), y: +y.toFixed(1), kind, zoom }); };
     add('farm', 'Hoeve Ter Linde (your farm)', S.farm.x, S.farm.y, 'farm', 14);
-    add('field', 'Lindeveldje (rented, 0.45 ha)', S.field[0], S.field[1], 'field', 10);
+    add('field', 'Lindeveldje (rented, 0.40 ha)', S.field[0], S.field[1], 'field', 10);
     if (S.fieldEast) add('fieldEast', 'Lindekouter (to rent, 1.0 ha)', S.fieldEast[0], S.fieldEast[1], 'field', 10);
     add('village', 'Village centre', S.cross.x, S.cross.y + 20, 'village', 10);
     if (S.bridge) add('bridge', 'River bridge', S.bridge.x, S.bridge.y, 'road', 18);

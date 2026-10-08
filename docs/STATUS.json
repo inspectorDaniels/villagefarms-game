@@ -241,6 +241,7 @@
         }
       ],
       "openIssues": [
+        "PERF: grain co-op costs 30-47 ms/frame of buildings code when on screen (village 55 ms -> 13.5 ms without buildings)",
         "cosmetic (deferred)"
       ],
       "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42 | follow-ups: writeOff on granted demolish, asset-backed capacity only, old-save purchased flag, pump removed on demolish; 45/45"
@@ -345,7 +346,7 @@
     },
     "demo": {
       "wave": 3,
-      "status": "failing",
+      "status": "r2-built-unreviewed",
       "score": 6,
       "pass": false,
       "rounds": [
@@ -366,7 +367,7 @@
         "perf: village 24-35 ms (buildings 6.6-10), overview 48-72 ms (terrain JS 18-24 ms)",
         "should: year-1 cash flow unproven live, seed drill barley in March, trailer blocks seeder, seed ledger spam, job pay \u20ac280-340/ha vs \u20ac80-110 brief"
       ],
-      "note": "built: startGame composes valley (36 parcels, 45 buildings, 13 vehicles, villagers), office panel, objectives; playthrough: boot 3.3 s, drive+plough, job, sell, hire, save/load. Registered. Perf: village 39-56 ms, overview 24-50 ms headless (fill-rate; needs GPU check). Gaps: trailer-to-co-op not scripted, no starting hand, NPC farms idle."
+      "note": "r2+r3: first field 0.40 ha (-> 0.25 per addendum), 8 objectives, old cheap kit (\u20ac9.2k resale), opening at 22 px/m with tractor label; play 6.2 ms, village 38 ms / overview 35 ms (buildings co-op 30-47 ms own code)"
     }
   },
   "game": {

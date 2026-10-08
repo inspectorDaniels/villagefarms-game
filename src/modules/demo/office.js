@@ -14,7 +14,7 @@ const GOALS = [
   ['rent2', 'Rent a second field', 'Lindekouter (1 ha) lies just east of the farm track: open Land (M) and rent it'],
 ];
 const TIPS = [
-  [1.5, 'Welcome to Hoeve Ter Linde', 'You own the farmyard and rent Lindeveldje (0.45 ha) just south of it. Money is tight: contract jobs pay the bills this first year.'],
+  [1.5, 'Welcome to Hoeve Ter Linde', 'You own the farmyard and rent Lindeveldje (0.4 ha) just south of it. Money is tight: contract jobs pay the bills this first year.'],
   [9, 'Walking', 'WASD or arrows walk, Shift runs. Tab switches between your people. 1–5 pick a hand tool, E uses it.'],
   [17, 'Machines', 'F gets in or out of the vehicle next to you. In a tractor: E lowers or raises the implement, H hitches or unhitches, G refuels at the machine shed, L lights.'],
   [25, 'Buildings', 'Stop next to a sell point or workshop and press R to sell your load or repair the machine.'],

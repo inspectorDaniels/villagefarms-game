@@ -11,7 +11,10 @@ pois, save/load, showcase), `office.js` (tutorial toasts, "Getting started" obje
 1. **terrain** — `flatten()` pads for farm (r 44), village (r 62), 3 neighbour farms, depot; flatten + paint the yard `farmyard`.
 2. **roads** — `generateNetwork(plan)`: regional road W→E with a bridge, 6 village streets, lanes to the farm, neighbours,
    depot, a farm track along the rented field, and field tracks along the lattice (≈38 nodes / 37 edges).
-3. **parcels** — yard "Hoeve Ter Linde" 0.60 ha **owned** (not tradeable); "Lindeveldje" 1.80 ha **rented**; up to 34 NPC
+3. **parcels** — yard "Hoeve Ter Linde" 0.60 ha **owned** (not tradeable); "Lindeveldje" **0.40 ha rented** (r3: a 24 × 167 m
+   rectangle straight below the yard's drive-out; 8 passes of the 3 m plough; rent scales with area in simulation);
+   "Lindekouter" 1.04 ha **forRent** just east of the farm track (the "second field"); "Smalle Strook" 0.43 ha NPC wheat
+   west of it; up to 34 NPC
    parcels (0.5–2.5 ha, ≈50 ha) owned by the 3 neighbour clients (+ other clients); the 2 nearest 1–3.2 ha parcels
    are `forRent`, one 1.5–4.5 ha `forSale`. Client farms via `defineClientFarm`.
 4. **buildings** — player: farmhouse, barn, machine shed, chicken coop (`grant:true`); village: grain co-op, dealer,
@@ -46,14 +49,15 @@ pois, save/load, showcase), `office.js` (tutorial toasts, "Getting started" obje
 Opening (r2.4): camera ~22 px/m (`characters.setFollowZoom(22)`, null-safe) framing the farmer at the farmhouse door and
 the tractor; the first morning is forced clear (released to the seasonal plan at 13:00 or the next day); a world-ui label
 "Your tractor · F to get in" sits on the tractor until it is first entered.
-Tutorial toasts (welcome, walking, machines, buildings, panels). Objectives HUD top-left (r2.2):
+Tutorial toasts (welcome, walking, machines, buildings, panels). Objectives HUD top-left (r2.2 / r3):
 1. Get into your tractor (`vehicles:entered`).
-2. Plough a first strip (0.15 ha) — the player's own `crops:worked` plough area on Lindeveldje (≈ 4 runs, a few minutes).
-3. Get Lindeveldje ploughed — any means: ≥ 95 % of cells ploughed/cultivated/sown (you, a hand you switch to, or a
-   contractor booked in K → Fields; verified: contractor booking completes it in 2 game days).
-4. Accept a contract job (`jobs:accepted`). 5. Sell last year's wheat — hint points to K → Sell all.
-6. Hire a farmhand. 7. Sow Lindeveldje (≥ 95 % sown; you or a contractor). Farm office panel (K): sell store items,
-pick the seed drill's crop, hire/let go hands, delegate accepted jobs, book contractors for own fields.
+2. Plough your first strip (0.1 ha) — the player's own `crops:worked` plough area on Lindeveldje (≈ 2 passes).
+3. Get Lindeveldje ploughed — any means: ≥ 95 % of cells ploughed/cultivated/sown (you, any of your people, or a
+   contractor booked in K → Fields; verified r2: a contractor booking completes it in 2 game days).
+4. Sow Lindeveldje (≥ 95 % sown; the drill sows straight into ploughed ground, or a contractor).
+5. Accept a contract job (hint: field jobs need your kit; haul jobs are crew-only → delegate to a hand).
+6. Sell last year's wheat — K → Store & seed → Sell all. 7. Hire a farmhand.
+8. Rent a second field — Lindekouter, Land panel (M); done when any further parcel is rented or owned.
 Seed & inputs are charged by simulation when sowing.
 
 ## Events
@@ -68,14 +72,20 @@ is saved by the owning modules. Verified round trip with all modules' save/load 
 `default`(=farm), `farm` 09:30, `village` 11:00, `overview` 12:30 (3 px/m, the camera minimum), `night` 22:30,
 `rain` 15:00, `autumn` (day 28), `winter` (day 1), `play` 08:00 following the farmer.
 
-## Verified (scripted puppeteer playthrough, full game)
-Boot 3.3–4.5 s; farmer spawns 6.5 m from the farmhouse; walks to the tractor, F enters, drives 48 m south to
-Lindeveldje, E lowers the plough, 145 m run → 72 cells ploughed, `crops:worked {tool:'plough', parcelId:'simulation:parcel:2'}`;
-F exits; jobs board (J) Accept; Farm office (K) sells 12 t wheat at the co-op (+€2,038); hire → worker + character
-linked; save/load round trip restores money, objectives, field cells, workers, tractor position. 0 console errors.
+## Verified (scripted puppeteer playthroughs, full game, r3)
+Boot 3.2–4.9 s. Opening: 22 px/m, clear first morning, farmer at the farmhouse door with the labelled tractor in view.
+Starting kit resale €9.2k (tractor €5.2k, plough & drill €1.8k, trailer €2.2k) vs €17.7k cash; drill loaded with oats.
+Lindeveldje 0.40 ha (996 cells): walk to tractor 18 s; scripted serpentine (8 passes, slow bot turns ≈ 30 s each):
+plough 880 s real at 1× (69 % coverage: bot spacing gaps), sow 742 s (61 %). Pure driving for full coverage: plough
+≈ 11 min + turns, sow ≈ 8–9 min + turns → ≈ 23 min for a tidy human, above the 10–15 min target (core request #9).
+Strip objective (0.1 ha) done after 2 passes (~3 min). Contractor plough booking completes "Get Lindeveldje ploughed"
+in 2 game days (r2). Jobs (J) accept, K sell 12 t wheat (+€2.1k), hire, rent Lindekouter (1.04 ha, €534/ha/yr; the
+first field €542/ha/yr) → "Rent a second field" done. Save/load round trip restores money, objectives, field cells,
+workers, vehicles. 0 console errors.
+Perf (frameMsAvg, headless): play 6.2, farm 5.9, field 6.5, night 6.3, village 38.5, overview 34.6 (buildings JS 30 ms).
 
 ## Known limitations
-- Village / overview views are slow in headless software raster (35–55 ms); farm/field/play 6–7 ms. See core request #4.
+- Village / overview views are slow (village 38 ms, overview 35 ms; buildings JS 30–47 ms when the grain co-op is on screen). See core requests #4, #6.
 - No whole-game save entry point in core yet (core request #2).
 - The road plan is designed for the 1024 m map; other sizes scale the design but are untested.
 - NPC fields grow but nobody works them (no NPC farming AI); neighbours' machinery is parked only.

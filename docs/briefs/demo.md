@@ -48,3 +48,6 @@ with the starting kit — measure it), close to the yard, simple rectangular sha
 Keep the economy honest: rent scales with area; the larger neighbouring land stays available to rent/buy as
 the next step (point to it in a later objective: "Rent a second field"). Simulation re-checks year-1 cash from
 the new start (`progression.mjs --start=demo`) after demo lands.
+**r3 addendum (director, 2026-10-08):** request #9 — keep implement speeds physical (they feed
+`simulation.workRates()`, which the whole economy is tuned on). Shrink the first field to **~0.25 ha** instead so a
+clean plough + sow fits ~12–15 real minutes. The 1.04 ha Lindekouter stays as the "rent a second field" step.
