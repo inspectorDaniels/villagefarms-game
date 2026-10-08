@@ -11,7 +11,7 @@ pois, save/load, showcase), `office.js` (tutorial toasts, "Getting started" obje
 1. **terrain** — `flatten()` pads for farm (r 44), village (r 62), 3 neighbour farms, depot; flatten + paint the yard `farmyard`.
 2. **roads** — `generateNetwork(plan)`: regional road W→E with a bridge, 6 village streets, lanes to the farm, neighbours,
    depot, a farm track along the rented field, and field tracks along the lattice (≈38 nodes / 37 edges).
-3. **parcels** — yard "Hoeve Ter Linde" 0.60 ha **owned** (not tradeable); "Lindeveldje" **0.40 ha rented** (r3: a 24 × 167 m
+3. **parcels** — yard "Hoeve Ter Linde" 0.60 ha **owned** (not tradeable); "Lindeveldje" **0.25 ha rented** (r3 addendum: a 24 × 104 m
    rectangle straight below the yard's drive-out; 8 passes of the 3 m plough; rent scales with area in simulation);
    "Lindekouter" 1.04 ha **forRent** just east of the farm track (the "second field"); "Smalle Strook" 0.43 ha NPC wheat
    west of it; up to 34 NPC
@@ -51,7 +51,7 @@ the tractor; the first morning is forced clear (released to the seasonal plan at
 "Your tractor · F to get in" sits on the tractor until it is first entered.
 Tutorial toasts (welcome, walking, machines, buildings, panels). Objectives HUD top-left (r2.2 / r3):
 1. Get into your tractor (`vehicles:entered`).
-2. Plough your first strip (0.1 ha) — the player's own `crops:worked` plough area on Lindeveldje (≈ 2 passes).
+2. Plough your first strip (0.06 ha) — the player's own `crops:worked` plough area on Lindeveldje (≈ 2 passes).
 3. Get Lindeveldje ploughed — any means: ≥ 95 % of cells ploughed/cultivated/sown (you, any of your people, or a
    contractor booked in K → Fields; verified r2: a contractor booking completes it in 2 game days).
 4. Sow Lindeveldje (≥ 95 % sown; the drill sows straight into ploughed ground, or a contractor).

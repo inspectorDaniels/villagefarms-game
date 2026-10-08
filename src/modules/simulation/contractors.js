@@ -11,6 +11,9 @@ export function installContractors(sim) {
 
   function initContractors() { E.contractors = []; }
 
+  /** r6: the lead-time roll of the NEXT booking — contractorQuote and hireContractor both use it, so a quote's
+   *  leadDays is exactly what booking now gives (the roll only advances when a booking is made) */
+  const nextRng = () => sim.rngFor('contractor:' + ((E.contractorSeq || 0) + 1));
   /** internal quote; opts.ha / opts.name for a field that is not a parcel */
   function quote(id, op, opts = {}, rng) {
     const C = CONTRACTOR[op];
@@ -33,13 +36,13 @@ export function installContractors(sim) {
   Object.assign(api, {
     /** price, lead time and duration for having `op` done on a parcel (no booking) */
     /** opts: {ha | areaM2, fieldId?, crop?} — the parcel must be owned or rented by the player */
-    contractorQuote(id, op, opts = {}) { return quote(id, op, opts, null); },
+    contractorQuote(id, op, opts = {}) { return quote(id, op, opts, nextRng()); },
     /** book (and pay for) a contractor; returns the booking or null */
     hireContractor(id, op, opts = {}) {
       if (!OPS.includes(op) || sim.blocked()) return null;
-      const n = (E.contractorSeq = (E.contractorSeq || 0) + 1);
-      const q = quote(id, op, opts, sim.rngFor('contractor:' + n));
+      const q = quote(id, op, opts, nextRng());
       if (!q) return null;
+      const n = (E.contractorSeq = (E.contractorSeq || 0) + 1);
       if (!api.charge(q.price, 'contractor', `Contractor: ${op} ${q.ha.toFixed(1)} ha — ${q.name}`)) return null;
       const today = sim.today();
       const b = { id: `simulation:contract:${n}`, ...q, bookedDay: today, startDay: today + q.leadDays, doneDay: today + q.leadDays + q.days, status: 'booked' };

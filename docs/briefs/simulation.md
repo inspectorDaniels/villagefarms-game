@@ -154,3 +154,14 @@ after demo's cheap starting kit (demo r2.3). Current harness (`--start=demo`): s
 Known weakness (not a game bug): the scripted builder strategy can over-finance in years 4–5 on some seeds
 (harvest-3 → €124k); the year-10 band holds on 6/8 seeds. Acceptable; revisit with the strategy script, not prices.
 Job offers show `payPerUnit` + `callout` separately; ui should display both.
+
+---
+## Revision r7 (director, 2026-10-08) — the demo start must work
+From the r3 demo start (0.25 ha first field) year-1 cash misses the r6 targets, mainly because the granted starting
+buildings are booked as new (€4.55k/yr upkeep, €243k phantom net worth). Decisions:
+1. **Granted assets can be old:** `grantAsset(item, { ageYears })` values them like the old kit (depreciated to the
+   floor) and **upkeep scales with current value**, not list price. Demo grants the starting farmhouse/barn/shed/coop
+   as ~40-year-old buildings (and the machines at 16 years, as now). Owners: simulation (API), demo (calls it).
+2. **A guaranteed first job:** on game days 1–2 at least one player-sized field job the starting kit can do (plough
+   or drill, ≤1 ha, near the farm) is offered. Owner: simulation. It is a hook and teaches the job loop.
+3. Targets (r6) stay; re-measure with `--start=demo` after both.

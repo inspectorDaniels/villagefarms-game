@@ -81,11 +81,11 @@ export function planValley(T, bounds, rng) {
   const farmC = dry(...S(230, 598));
   const yard = rect(farmC.x, farmC.y, 84, 72);
   const yardTop = farmC.y - 36, yardBot = farmC.y + 36;
-  // the land south of the yard (r3): a small first field (24 × 167 m = 0.40 ha) straight below the yard's drive-out,
+  // the land south of the yard (r3): a small first field (24 × 104 m = 0.25 ha, r3 addendum) straight below the yard's drive-out,
   // a larger neighbouring field east of the farm track (the "second field" to rent) and a narrow strip west
   const R4 = (x0, x1, y0, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
   const fieldBig = R4(farmC.x - 55, farmC.x + 95, yardBot + 12, yardBot + 182);
-  const field = R4(farmC.x - 14, farmC.x + 10, yardBot + 12, yardBot + 179); // 24 × 167 m = 0.40 ha: 8 passes of the 3 m plough
+  const field = R4(farmC.x - 14, farmC.x + 10, yardBot + 12, yardBot + 116); // 24 × 104 m = 0.25 ha: 8 passes of the 3 m plough
   const fieldEast = R4(farmC.x + 27, farmC.x + 92, yardBot + 12, yardBot + 172);
   const fieldWest = R4(farmC.x - 52, farmC.x - 25, yardBot + 12, yardBot + 172);
   const cross = dry(...S(800, 405));

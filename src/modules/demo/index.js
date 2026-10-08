@@ -363,7 +363,7 @@ export async function init(ctx) {
     const out = [];
     const add = (id, name, x, y, kind, zoom = 16) => { if (Number.isFinite(x) && Number.isFinite(y)) out.push({ id, name, x: +x.toFixed(1), y: +y.toFixed(1), kind, zoom }); };
     add('farm', 'Hoeve Ter Linde (your farm)', S.farm.x, S.farm.y, 'farm', 14);
-    add('field', 'Lindeveldje (rented, 0.40 ha)', S.field[0], S.field[1], 'field', 10);
+    add('field', 'Lindeveldje (rented, 0.25 ha)', S.field[0], S.field[1], 'field', 10);
     if (S.fieldEast) add('fieldEast', 'Lindekouter (to rent, 1.0 ha)', S.fieldEast[0], S.fieldEast[1], 'field', 10);
     add('village', 'Village centre', S.cross.x, S.cross.y + 20, 'village', 10);
     if (S.bridge) add('bridge', 'River bridge', S.bridge.x, S.bridge.y, 'road', 18);

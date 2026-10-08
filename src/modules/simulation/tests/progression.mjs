@@ -1,8 +1,9 @@
 // Headless progression harness (Node 14+):
 //   node src/modules/simulation/tests/progression.mjs [years=10] [seeds=8] [--ai=1] [--hands=3] [--strategies=a,b]
 //     [--start=demo] [--hire=N]
-// --start=demo: the live demo start (r6) — €17,664 cash, owned 0.6 ha yard, 1.8 ha rented (the starter plot + a
-//   0.64 ha strip), old tractor, plough & drill, trailer and the pickup. --hire=N: N hands hired on day 1.
+//     [--rent2]
+// --start=demo: the live demo start (demo r3) — see demoStart(). --hire=N: N hands hired on day 1.
+// --rent2: also rent Lindekouter (1.04 ha) on day 1.
 // Runs the real module code (sim.js …) with scripted strategies × seeds on the standard valley (fits the
 // 1024 m map) and prints year-by-year medians [min–max], the r3 target check and the 5 ha self-check.
 // --ai multiplies AI_WORK_FACTOR (0.25) — e.g. --ai=0.5 / --ai=2 for the sensitivity runs in the README.
@@ -23,6 +24,7 @@ const MAX_HANDS = Number(flag('hands', 0)) || undefined; // cap on hired hands (
 const START = 6; // 1 March, year 1
 const START_KIND = flag('start', 'harness');
 const HIRE = Number(flag('hire', 0)) || 0;
+const RENT2 = args.includes('--rent2'); // --start=demo: also rent Lindekouter on day 1
 
 function mkSim(seed) {
   const world = { seed, economy: {}, land: {}, jobs: {}, environment: {}, bounds: { w: 1024, h: 1024 } };
@@ -37,7 +39,7 @@ export function runOne(strategy, seed, years = YEARS) {
   const { ids } = defineValley(sim.api);
   const mgr = createManager(sim, { strategy, rng: createRng(seed, 'strategy', strategy), ids, maxHands: MAX_HANDS });
   mgr.setup();
-  if (START_KIND === 'demo') demoStart(sim);
+  if (START_KIND === 'demo') demoStart(sim, ids);
   for (let i = 0; i < HIRE; i++) sim.api.hireWorker();
   const rows = [];
   let hP = 0, hJ = 0, cs = 0;
@@ -72,15 +74,23 @@ export function runOne(strategy, seed, years = YEARS) {
   return rows;
 }
 
-/** r6: the live demo's opening position (demo/index.js): cash, 1.8 ha rented, the granted pickup */
-function demoStart(sim) {
+/** the live demo's opening position (demo/index.js + demo/layout.js, demo r3 addendum):
+ *  €17,664 cash; owned 0.6 ha yard; Lindeveldje rented, 24 × 104 m = 0.25 ha; Lindekouter (65 × 160 m = 1.04 ha)
+ *  to let next door; the old kit (tractor, plough & drill, trailer) granted 16 years old → €9.2k at the 20 % floor;
+ *  the pickup is the family car (no asset); the farm buildings granted by buildings (grant: true → upkeep). */
+const DEMO_BUILDINGS = [['bld_farmhouse', 180000, 'farmhouse'], ['bld_barn', 65000, 'barn'], ['bld_machine_shed', 55000, 'machine_shed'], ['bld_chicken_coop', 3500, 'chicken_coop']];
+function demoStart(sim, ids) {
   const a = sim.api;
-  a.defineParcel({ id: 'demo:strip', name: 'Strook', poly: [[2000, 400], [2080, 400], [2080, 480], [2000, 480]], soil: 0.62, state: 'rented' });
-  const rented = a.parcels().filter((p) => p.state === 'rented').reduce((t, p) => t + p.area / 1e4, 0);
-  if (Math.abs(rented - 1.8) > 0.05) throw new Error('demo start: rented ' + rented.toFixed(2) + ' ha');
-  a.registerCatalogItem({ id: 'pickup', category: 'car', name: 'Pickup truck', price: 28000 });
-  a.grantAsset('pickup', { boughtDay: sim.today() - 360 });
+  const p = a.parcel(ids.start), [cx, cy] = p.center;
+  a.defineParcel({ ...p, id: p.id, poly: [[cx - 12, cy - 52], [cx + 12, cy - 52], [cx + 12, cy + 52], [cx - 12, cy + 52]], state: 'rented' });
+  ids.lindekouter = a.defineParcel({ id: 'demo:lindekouter', name: 'Lindekouter', poly: [[2000, 400], [2065, 400], [2065, 560], [2000, 560]], soil: 0.66, state: 'forRent' });
+  const rented = a.parcels().filter((q) => q.state === 'rented').reduce((t, q) => t + q.area / 1e4, 0);
+  if (Math.abs(rented - 0.25) > 0.01) throw new Error('demo start: rented ' + rented.toFixed(2) + ' ha');
+  const old = sim.today() - 16 * YEAR_DAYS;
+  for (const x of sim.world.economy.assets) x.boughtDay = old; // the harness kit, aged like demo's
+  for (const [id, price, building] of DEMO_BUILDINGS) { a.registerCatalogItem({ id, category: 'building', name: building, price, meta: { building } }); a.grantAsset(id); }
   sim.world.economy.money = 17664;
+  if (RENT2) a.rentParcel(ids.lindekouter);
 }
 
 /** brief self-check: 5 ha of rented winter wheat (plus the yard), starter kit, contractors, no contract work */
@@ -114,7 +124,7 @@ function main() {
     all[strat] = [];
     for (let i = 0; i < SEEDS; i++) all[strat].push(runOne(strat, 'harvest-' + (i + 1)));
   }
-  console.log(`AI_WORK_FACTOR = ${(AI_WORK_FACTOR * AI_MULT).toFixed(3)} (×${AI_MULT}); max hands ${MAX_HANDS || 3}; ${SEEDS} seeds; valley 1024 m; start ${START_KIND}${HIRE ? `, ${HIRE} hand(s) hired on day 1` : ''}`);
+  console.log(`AI_WORK_FACTOR = ${(AI_WORK_FACTOR * AI_MULT).toFixed(3)} (×${AI_MULT}); max hands ${MAX_HANDS || 3}; ${SEEDS} seeds; valley 1024 m; start ${START_KIND}${HIRE ? `, ${HIRE} hand(s) hired on day 1` : ''}${RENT2 ? ', Lindekouter rented day 1' : ''}`);
   for (const strat of Object.keys(all)) {
     console.log(`\n### ${strat} — ${STRATEGY_INFO[strat]}  (${SEEDS} seeds, median [min–max])`);
     console.log('| yr | cash € | net worth € | owned ha | rented ha | hands | t2 tractor | combine | contract jobs € | crops+CAP € | contractors € | wages € | op. net € |');

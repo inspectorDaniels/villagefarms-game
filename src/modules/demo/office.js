@@ -2,10 +2,10 @@
 // and the Farm office panel (K): store sales, the seed drill's crop, hands (hire / fire / delegate jobs) and
 // contractor bookings for the player's own fields. Seed & inputs are charged by simulation when sowing.
 
-const STRIP_M2 = 1000; // the first, hands-on target: 0.1 ha ploughed by the player (≈ 2 runs)
+const STRIP_M2 = 600; // the first, hands-on target: 0.06 ha ploughed by the player (≈ 2 passes)
 const GOALS = [
   ['tractor', 'Get into your tractor', 'Walk to the red tractor in the yard (marked) and press F'],
-  ['strip', 'Plough your first strip (0.1 ha)', 'Drive straight south onto Lindeveldje, press E to lower the plough and drive along the field'],
+  ['strip', 'Plough your first strip (0.06 ha)', 'Drive straight south onto Lindeveldje, press E to lower the plough and drive along the field'],
   ['ploughed', 'Get Lindeveldje ploughed', 'Finish it yourself (any of your people can drive: Tab switches), or book a contractor (K → Fields & contractors)'],
   ['sow', 'Sow Lindeveldje', 'Back in the yard: H unhitches the plough, reverse onto the seed drill and H to hitch it, E to sow. Crop: K → Store & seed. Or book a contractor in K'],
   ['job', 'Accept a contract job', 'J opens the jobs board: field jobs need the kit you own; haul jobs are crew-only (give them to a hand in K)'],
@@ -14,7 +14,7 @@ const GOALS = [
   ['rent2', 'Rent a second field', 'Lindekouter (1 ha) lies just east of the farm track: open Land (M) and rent it'],
 ];
 const TIPS = [
-  [1.5, 'Welcome to Hoeve Ter Linde', 'You own the farmyard and rent Lindeveldje (0.4 ha) just south of it. Money is tight: contract jobs pay the bills this first year.'],
+  [1.5, 'Welcome to Hoeve Ter Linde', 'You own the farmyard and rent Lindeveldje (0.25 ha) just south of it. Money is tight: contract jobs pay the bills this first year.'],
   [9, 'Walking', 'WASD or arrows walk, Shift runs. Tab switches between your people. 1–5 pick a hand tool, E uses it.'],
   [17, 'Machines', 'F gets in or out of the vehicle next to you. In a tractor: E lowers or raises the implement, H hitches or unhitches, G refuels at the machine shed, L lights.'],
   [25, 'Buildings', 'Stop next to a sell point or workshop and press R to sell your load or repair the machine.'],

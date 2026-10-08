@@ -88,7 +88,7 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
   - `grain_store` and `grain_store_l` (category `storage`, `meta.capacity` in t).
 
 **Contractors (r3, validated in r4)**
-- `contractorQuote(parcelId, op, {ha | areaM2, fieldId?, crop?})` → `{parcelId, fieldId, crop, op, ha, areaM2, price, leadDays, days}`. It returns null when the op is unknown, or the parcel is unknown or not owned/rented by the player.
+- `contractorQuote(parcelId, op, {ha | areaM2, fieldId?, crop?})` → `{parcelId, fieldId, crop, op, ha, areaM2, price, leadDays, days}`. **(r6)** The quote's `leadDays` is the roll the next booking will use, so `hireContractor` right after it gives the same `leadDays`, `days` and `price`. It returns null when the op is unknown, or the parcel is unknown or not owned/rented by the player.
 - `hireContractor(parcelId, op, {ha | areaM2, fieldId?, crop?})` books the work and returns the booking, or null.
   - The area is capped at the parcel. The price has an €80 minimum.
   - The booking is paid when made.
@@ -339,18 +339,26 @@ Fast-forwarding does not skip the economy: costs are per game day, CAP needs wor
 - mean **+€2,452/yr**, median €2,878;
 - mean per year: sales €9.2k, CAP €2.3k, rent −€2.6k, inputs −€1.8k, contractors −€2.5k.
 
-### Year 1 from the live demo start (r6: `progression.mjs 1 8 --start=demo [--hire=1]`)
-The demo start is €17,664 cash, the owned 0.6 ha yard, 1.8 ha rented, the old tractor, plough & drill, trailer and pickup. End of year 1 (36 game days), median of 8 seeds:
+### Year 1 from the live demo start (`progression.mjs 1 8 --start=demo [--hire=1] [--rent2]`)
+The demo r3 start is:
+- €17,664 cash and the owned 0.6 ha yard;
+- **Lindeveldje rented, 0.25 ha**, with Lindekouter (1.04 ha) available to rent;
+- the old kit granted 16 years old (€9.2k at the 20 % floor); the pickup is the family car, not an asset;
+- the farmhouse, barn, machine shed and coop granted by buildings. They are booked new: 80 % value, and **€4.55k/yr upkeep**.
 
-| play | cash | net worth | contract jobs | wages |
-|---|---|---|---|---|
-| alone (jobs / smallfarm / renter / builder) | €23k | €60k | €4k | 0 |
-| one hand hired on day 1, crew jobs delegated (jobs / smallfarm) | €31k | €67k | €18k | €5k |
-| contractor (2 hands + bought kit) | €21k | €62k | €12k | €3k |
+The r6 target is end-of-year-1 cash ≥ start + €5k (€22.7k) solo, and ≥ start + €10k (€27.7k) with a hand. Median of 8 seeds:
 
-**The brief's year-1 target of €35–60k cash is not reached.** The best scripted play ends at about €31k cash. Net worth (€60–67k) is in or above that band. The pickup is booked at the simulation's 85 % resale, so part of the net worth is the vehicle.
+| play | cash | target |
+|---|---|---|
+| solo | €16k | ✘ (−€6.7k) |
+| solo + Lindekouter rented on day 1 | €18k | ✘ |
+| one hand from day 1, crew jobs delegated | €24k | ✘ (−€3.7k) |
+| hand + Lindekouter | €26k | ✘ |
+| *without the buildings' upkeep:* solo / hand / solo + Lindekouter | €20k / €29k / €22k | ✘ / ✔ / ✘ (−€0.6k) |
 
-### Exploit probes (`exploits.mjs`, default 8 seeds: 37/37 closed; r6 added 6)
+Net worth reads about €273k only because the granted buildings are booked as new. Without them it is €40–49k.
+
+### Exploit probes (`exploits.mjs`, default 8 seeds: 38/38 closed; r6 added 7)
 | probe | median | verdict |
 |---|---|---|
 | **r5 credit line → diesel before insolvency** (42,355 l bought on the whole credit line, then a −€120k shock) | 0 l kept; diesel seized at 50 % in the settlement | closed |
