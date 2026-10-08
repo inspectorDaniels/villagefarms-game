@@ -54,7 +54,11 @@ Upkeep and leases are charged daily by simulation (asset records); this module c
   fresh; after 3 stale steps the parking brake holds (never reverses), and after 5 s the engine switches off (no fuel burn).
   Brake at a standstill = reverse. `implementDown:'toggle'` with nothing attached couples the nearest implement;
   it **never uncouples** (that is H / `hitchNearest`).
-- `attach(id, implId)` (snaps behind; one rear + one front) · `detach(id, implId?)` · `hitchNearest(id)` (couple a free implement within 2.6 m of a free hitch, else uncouple the rear one)
+- `attach(id, implId)` (snaps behind; one rear + one front) · `detach(id, implId?)` · `hitchNearest(id)` (H): couples the
+  nearest free implement or trailer whose hitch point is within **4.5 m** and **±60°** of straight behind the tractor's hitch
+  (front loader: ahead of the front hitch), snapping it into line (refused with a toast if the snapped rig would collide);
+  with nothing in range it uncouples the rear one · `hitchCandidate(id)` → `{implementId, type, name, dist, text}` or null.
+  While the player drives (stopped), the module shows `text` ("H — Hitch seed drill") through `ui.setPrompt` each frame.
 - `setImplement(id, down|'toggle')` · `setLights(id, on|'toggle')` · `setSeed(id, crop)`
 - `refuel(id, litres?, {anywhere})` → litres. **Where:** within 12 m of a fuel point (`addFuelPoint(x, y, r?)`, saved):
   the farm's diesel stock first, then `simulation.buy('diesel')` as money allows. On the **farmyard** surface: only from
@@ -117,7 +121,7 @@ headlights/beacons · `closeup` plough at 56 px/m. The scene is placed on a dry,
 
 ## Tests
 ```
-node src/modules/vehicles/tests/drive.test.cjs        # 37 physics/economy/r2 checks, deterministic (engine.step by hand)
+node src/modules/vehicles/tests/drive.test.cjs        # 39 physics/economy/r2/hitch checks, deterministic (engine.step by hand)
 node src/modules/vehicles/tests/characters.test.cjs   # F/W/A/D/E/S/L through the characters module
 ```
 `SIM_FROM_GIT=1` serves simulation from git HEAD when its builder is mid-edit.

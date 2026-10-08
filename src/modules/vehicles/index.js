@@ -17,7 +17,7 @@ export const manifest = {
   namespaces: ['vehicles'],
   api: ['spawn', 'despawn', 'list', 'get', 'nearest', 'enter', 'exit', 'driverOf', 'control', 'attach', 'detach',
     'refuel', 'repair', 'upgrade', 'purchase', 'sell', 'catalog', 'types', 'setImplement', 'setLights', 'setSeed',
-    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder', 'workRate', 'addFuelPoint', 'removeFuelPoint'],
+    'unload', 'rigOf', 'hitchNearest', 'exitPosition', 'surfaceUnder', 'workRate', 'addFuelPoint', 'removeFuelPoint', 'hitchCandidate'],
   emits: ['vehicles:entered', 'vehicles:exited', 'vehicles:purchased', 'vehicles:worked', 'vehicles:attached',
     'vehicles:detached', 'vehicles:refuelled', 'vehicles:repaired', 'vehicles:sold'],
   listens: [],
@@ -439,12 +439,14 @@ export async function init(ctx) {
     return n > 0;
   }
   /** couple the nearest free implement to the matching hitch, or uncouple the rear one */
-  function hitchNearest(id, opts = {}) {
+  // forgiving hitching: any free implement whose hitch point is within HITCH_R of the tractor's hitch and
+  // within ±HITCH_ANG of straight behind (front: straight ahead); it is then snapped into line.
+  const HITCH_R = 4.5, HITCH_ANG = Math.PI / 3;
+  function hitchCandidate(id) {
     const v = byId.get(id);
-    if (!drivable(v)) return false;
-    if (Math.abs(v.speed) > 0.8) return false;
+    if (!drivable(v)) return null;
     const T = ALL[v.type];
-    let best = null, bd = 2.6;
+    let best = null, bs = Infinity;
     for (const cand of W.list) {
       if (!IMPLEMENTS[cand.type] || cand.hitchedTo) continue;
       const I = ALL[cand.type];
@@ -453,12 +455,36 @@ export async function init(ctx) {
       if (partsOf(v).some((p) => (ALL[p.type].mount === 'front') === front)) continue; // that hitch is taken
       const [hx, hy] = driver.hitchPoint(v, front);
       const [ix, iy] = driver.implementHitch(cand);
-      const d = Math.hypot(hx - ix, hy - iy);
-      if (d < bd) { bd = d; best = cand; }
+      const d = Math.hypot(ix - hx, iy - hy);
+      if (d > HITCH_R) continue;
+      if (d > 0.6) {
+        // bearing of the implement's hitch point, seen from the tractor's hitch, vs straight behind (front: ahead)
+        const ax = front ? Math.sin(v.rot) : -Math.sin(v.rot), ay = front ? -Math.cos(v.rot) : Math.cos(v.rot);
+        const bx = ix - hx, by = iy - hy, bl = d;
+        if (Math.acos(Math.max(-1, Math.min(1, (bx * ax + by * ay) / bl))) > HITCH_ANG) continue;
+      }
+      const score = d;
+      if (score < bs) { bs = score; best = cand; }
     }
-    if (best) {
-      // keep the implement where it stands if nearly aligned; snap otherwise
-      return attach(id, best.id);
+    return best ? { implementId: best.id, type: best.type, name: best.name, dist: +bs.toFixed(2), text: `H — Hitch ${String(best.name).replace(/^\d+(\.\d+)? ?m |^[\d-]+-furrow /, '').replace(/ \(.*\)$/, '').toLowerCase()}` } : null;
+  }
+  /** couple the best free implement in the hitch window (snapped into line if it fits), or uncouple the rear one */
+  function hitchNearest(id, opts = {}) {
+    const v = byId.get(id);
+    if (!drivable(v)) return false;
+    if (Math.abs(v.speed) > 0.8) return false;
+    const c = hitchCandidate(id);
+    if (c) {
+      const imp = byId.get(c.implementId);
+      const keep = { x: imp.x, y: imp.y, rot: imp.rot };
+      if (!attach(id, imp.id)) return false;
+      const fit = driver.rigFits(v, v.x, v.y, v.rot, 1);
+      if (!fit.ok && fit.hit) { // snapped position collides: undo, leave it where it was
+        detach(id, imp.id); Object.assign(imp, keep); moved(imp);
+        const ui = mod('ui'); if (ui && ui.toast && isPlayer(v.driverId)) ui.toast(`No room to hitch the ${imp.name}`, { kind: 'warn' });
+        return false;
+      }
+      return true;
     }
     if (opts.coupleOnly) return false;
     const rear = partsOf(v).find((p) => ALL[p.type].mount !== 'front') || partsOf(v)[0];
@@ -660,6 +686,16 @@ export async function init(ctx) {
     if (inp.pressed('KeyU') && ALL[v.type].header) v.unloading = !v.unloading;
   }
 
+  // H prompt: set after the characters module's own prompt refresh (frame runs after all updates)
+  let promptShown = false;
+  function hitchPrompt() {
+    const ui = mod('ui');
+    if (!ui || !ui.setPrompt) return;
+    const v = activeDriven();
+    const c = v && Math.abs(v.speed) < 0.8 ? hitchCandidate(v.id) : null;
+    if (c) { ui.setPrompt(c.text); promptShown = true; }
+    else if (promptShown) { promptShown = false; ui.setPrompt(v ? 'F — Get out' : null); }
+  }
   // ---------------------------------------------------------------- update
   function update(dt) {
     if (world.time && world.time.paused) return; // user pause: nothing drives, burns or works
@@ -712,7 +748,7 @@ export async function init(ctx) {
     setImplement, setLights, unload, hitchNearest, exitPosition, workRate,
     /** copies (read-only snapshots); use get(id) for the live record */
     list: (filter) => (filter ? W.list.filter((v) => (typeof filter === 'function' ? filter(v) : Object.entries(filter).every(([k, val]) => v[k] === val))) : W.list).map(snap),
-    addFuelPoint, removeFuelPoint,
+    addFuelPoint, removeFuelPoint, hitchCandidate,
     driverOf: (id) => { const v = byId.get(id); return v ? v.driverId || null : null; },
     types: typesApi,
     setSeed: (id, crop) => { const v = byId.get(id); if (!v) return false; v.seed = String(crop); for (const p of partsOf(v)) p.seed = v.seed; return true; },
@@ -723,7 +759,7 @@ export async function init(ctx) {
   const inst = {
     api,
     update,
-    frame: (dt) => render.frame(dt),
+    frame: (dt) => { render.frame(dt); hitchPrompt(); },
     save, load,
     dispose() { for (const v of W.list) { ctx.spatial.remove(v.id); render.release(v); } hud.dispose(); },
   };

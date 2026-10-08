@@ -58,6 +58,21 @@ const { findChrome, chromeArgs } = require(path.join(root, 'tools/shot.js'));
     check('character rides with the vehicle', Math.hypot(chPos.x - v.x, chPos.y - v.y) < 0.01, { d: Math.hypot(chPos.x - v.x, chPos.y - v.y), chPos, v: [v.x, v.y] });
     G.input.press('KeyS'); step(75); G.input.release('KeyS');
     check('S brakes to a stop', Math.abs(v.speed) < 0.6, +v.speed.toFixed(2));
+    {
+      // stopped with the plough on: drop it with H, then a seed drill behind → prompt "H — Hitch seed drill", H couples it
+      const vinst = G.engine.instances.find((i) => i.id === 'vehicles').inst;
+      key('KeyH', 1);
+      const dropped = V.get(tr).attached.length === 0;
+      V.despawn(pl);
+      const rear = [v.x - Math.sin(v.rot) * 1.95, v.y + Math.cos(v.rot) * 1.95];
+      const b = v.rot + Math.PI + 0.5;
+      const sd = V.spawn('seeder_s', rear[0] + Math.sin(b) * 3.5 - Math.sin(v.rot - 0.4) * 1.1, rear[1] - Math.cos(b) * 3.5 + Math.cos(v.rot - 0.4) * 1.1, v.rot - 0.4);
+      step(12); vinst.frame(1 / 60);
+      const promptText = [...document.querySelectorAll('#ui *')].filter((e) => e.children.length === 0 && /Hitch/.test(e.textContent)).map((e) => e.parentElement.textContent.trim())[0] || null;
+      key('KeyH', 1);
+      check('H prompt shown and H couples the drill', dropped && /H\s*Hitch seed drill/.test(promptText || '') && V.get(tr).attached.includes(sd), { dropped, promptText, attached: V.get(tr).attached.slice() });
+      vinst.frame(1 / 60);
+    }
     key('KeyL', 1);
     check('L toggles lights off', v.lights === false);
     key('KeyF', 1); step(2);

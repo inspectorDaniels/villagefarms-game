@@ -338,6 +338,43 @@ const ONLY = process.env.ONLY || 'terrain,environment,roads,simulation,crops,eff
       V.despawn(a);
       check('despawn evicts the driver', V.get(a) === null && !sp.get(a));
     }
+
+    // forgiving hitch: stopped 4 m from a seed drill at 40° off the rear axis → H hitches and snaps it
+    {
+      const hx = site.x + 40, hy = site.y - 100;
+      const id = V.spawn('tractor_t2', hx, hy, 0.3, { fuel: 50 });
+      V.enter(id, 'test:hitch');
+      const q = V.get(id);
+      const rear = [q.x - Math.sin(q.rot) * 2.4, q.y + Math.cos(q.rot) * 2.4];           // tractor hitch (t2 hitchR 2.4)
+      const place = (deg, dist, implRot) => {
+        const b = q.rot + Math.PI + deg * Math.PI / 180;                                   // bearing from the hitch
+        const px = rear[0] + Math.sin(b) * dist, py = rear[1] - Math.cos(b) * dist;        // drill hitch point here
+        const d = V.spawn('seeder_s', 0, 0, implRot);
+        const I = V.types().seeder_s;
+        const dv = V.get(d); const hitchLocal = 1.1;                                        // drill hitch is 1.1 m ahead of its centre
+        dv.x = px - Math.sin(implRot) * hitchLocal; dv.y = py + Math.cos(implRot) * hitchLocal;
+        return d;
+      };
+      const far = place(90, 4, q.rot + 1.2);
+      const cand90 = V.hitchCandidate(id);
+      V.despawn(far);
+      const drill = place(40, 4, q.rot + 0.5);
+      const cand = V.hitchCandidate(id);
+      const ok = V.hitchNearest(id);
+      const dv = V.get(drill);
+      out.nums.hitch = { cand, cand90, ok, attached: V.get(id).attached.slice(), drillRot: r2(dv.rot), tractorRot: r2(q.rot) };
+      check('H hitches a drill 4 m away at 40° and snaps it in line', cand && cand.implementId === drill && /seed drill/.test(cand.text) && ok === true && V.get(id).attached.includes(drill) && Math.abs(dv.rot - q.rot) < 1e-9 && cand90 === null, out.nums.hitch);
+      const tr = V.spawn('trailer_grain', 0, 0, 0); V.hitchNearest(id); // drill attached → H uncouples it
+      V.despawn(drill);
+      const tv = V.get(tr); tv.rot = q.rot - 0.6; tv.x = rear[0] - Math.sin(q.rot) * 3 + Math.sin(tv.rot) * -0.9 * 0 ; tv.y = rear[1] + Math.cos(q.rot) * 3;
+      // put the trailer's drawbar eye ~3 m behind the hitch
+      const tongue = 5.0, axleY = 0.9;
+      const eye = [rear[0] - Math.sin(q.rot) * 3, rear[1] + Math.cos(q.rot) * 3];
+      tv.x = eye[0] - Math.sin(tv.rot) * (tongue - axleY); tv.y = eye[1] + Math.cos(tv.rot) * (tongue - axleY);
+      const okT = V.hitchNearest(id);
+      check('trailers hitch the same way', okT === true && V.get(id).attached.includes(tr) && Math.abs(V.get(tr).rot - q.rot) < 1e-9, { okT, attached: V.get(id).attached.slice() });
+      V.exit(id); V.despawn(tr); V.despawn(id);
+    }
     // ---- 12. perf: 8 moving rigs, measured over 600 steps
     const rigs = [];
     for (let k = 0; k < 8; k++) {

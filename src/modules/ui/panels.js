@@ -122,7 +122,7 @@ export function builtinPanels(K) {
 
   const finances = {
     id: 'finances', title: 'Finances', icon: 'ledger', hotkey: 'KeyO', order: 1,
-    sig: () => [data.money(), data.ledger(1).map((e) => e.t).join(), K.clock.day].join('|'),
+    sig: () => [data.money(), data.ledger(1).map((e) => e.t).join(), K.clock.day, data.machines().map((q) => q.id).join()].join('|'),
     render(el) {
       const m = data.money();
       if (m == null) { el.innerHTML = empty('ledger', 'The books are closed', 'No accounts have been opened for this farm yet. Income and expenses will be written here as they happen.'); return; }
@@ -171,7 +171,32 @@ export function builtinPanels(K) {
         }
         h += `</div>`;
       }
+      const machines = data.machines();
+      if (machines.length) {
+        h += `<h3>Machines</h3><div class="hv-rows">`;
+        for (const mc of machines) {
+          const leased = mc.mode === 'leased' || mc.mode === 'lease';
+          h += `<div class="hv-row"><span class="ico">${icon('tractor')}</span><div class="grow"><div class="ttl">${esc(mc.name)}</div>
+            <div class="meta">${mc.asset ? (leased ? 'Leased' : 'Owned · worth about ' + money(mc.value || 0, { dec: 0 })) : 'Not on the asset register'}</div></div>
+            <button class="hv-btn" data-sellm="${esc(mc.id)}">${leased ? 'Hand back' : 'Sell'}</button></div>`;
+        }
+        h += `</div>`;
+      }
       el.innerHTML = h;
+      el.querySelectorAll('[data-sellm]').forEach((b) => {
+        b.onclick = K.safe('sell machine', async () => {
+          const mc = machines.find((q) => q.id === b.dataset.sellm);
+          if (!mc) return;
+          const pre = data.sellRefusal(mc.id);
+          if (pre) { K.toast(pre, { kind: 'warn', icon: 'tractor', title: `Can't sell ${mc.name}` }); return; }
+          const ok = await K.confirm({ title: `Sell ${mc.name}?`, text: mc.mode === 'owned' ? `The dealer offers about ${money(mc.value || 0, { dec: 0 })}. Any loan on it is repaid from the proceeds, and attached kit of the same purchase goes with it.` : 'The machine goes back to the leasing company.', okLabel: 'Sell', cancelLabel: 'Keep it', icon: 'coin', danger: true });
+          if (!ok) return;
+          const r = data.sellMachine(mc.id);
+          if (r.ok) K.toast(`<b>Sold ${esc(mc.name)}</b><br>${money(r.value || 0, { sign: true, dec: 0 })}`, { kind: 'money', icon: 'coin', html: true });
+          else K.toast(r.reason, { kind: 'warn', icon: 'tractor', title: `Can't sell ${mc.name}` });
+          K.rerender('finances');
+        });
+      });
     },
   };
 
@@ -291,16 +316,17 @@ export function builtinPanels(K) {
   };
 
   let selParcel = null;
-  const STATE_LABEL = { owned: 'Owned', rented: 'Rented', forSale: 'For sale', npc: 'Neighbour' };
-  const STATE_FILL = { owned: 'rgba(63,107,58,.42)', rented: 'rgba(201,154,46,.42)', forSale: 'rgba(184,101,46,.14)', npc: 'rgba(116,96,63,.16)' };
-  const STATE_STROKE = { owned: '#3a6334', rented: '#8a6a1a', forSale: '#a65a26', npc: '#8a7e6c' };
+  const STATE_LABEL = { owned: 'Owned', rented: 'Rented', forSale: 'For sale', forRent: 'To let', npc: 'Neighbour' };
+  const STATE_FILL = { owned: 'rgba(63,107,58,.42)', rented: 'rgba(201,154,46,.42)', forSale: 'rgba(184,101,46,.14)', forRent: 'rgba(201,154,46,.14)', npc: 'rgba(116,96,63,.16)' };
+  const STATE_STROKE = { owned: '#3a6334', rented: '#8a6a1a', forSale: '#a65a26', forRent: '#8a6a1a', npc: '#8a7e6c' };
+  const perYear = (p) => { const t = data.leaseTerms(p); return t ? t.year : null; };
   const land = {
     id: 'land', title: 'Land', icon: 'land', hotkey: 'KeyM', order: 4,
     sig: () => (selParcel || '') + '|' + data.money() + '|' + data.parcels().map((p) => p.id + p.state).join(),
     render(el) {
       const ps = data.parcels();
       if (!ps.length) { el.innerHTML = empty('map', 'No parcels surveyed', 'The land registry has no parcels for this valley yet. Fields for sale or rent will be listed here.'); return; }
-      if (!selParcel || !ps.find((p) => p.id === selParcel)) selParcel = (ps.find((p) => p.state === 'forSale') || ps[0]).id;
+      if (!selParcel || !ps.find((p) => p.id === selParcel)) selParcel = (ps.find((p) => p.state === 'forRent') || ps.find((p) => p.state === 'forSale') || ps[0]).id;
       let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
       for (const p of ps) for (const [x, y] of p.poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
       const pad = Math.max(x1 - x0, y1 - y0) * 0.06;
@@ -318,33 +344,37 @@ export function builtinPanels(K) {
         const sel = p.id === selParcel;
         svg += `<path d="${d}" fill="${STATE_FILL[st]}" data-pid="${esc(p.id)}" style="cursor:pointer"/>`;
         if (st === 'npc') svg += `<path d="${d}" fill="url(#lh${id})" pointer-events="none"/>`;
-        if (st === 'forSale') svg += `<path d="${d}" fill="url(#ls${id})" pointer-events="none"/>`;
-        svg += `<path d="${d}" fill="none" stroke="${sel ? '#2e2a24' : STATE_STROKE[st]}" stroke-width="${sel ? 2.4 : 1.2}" ${st === 'forSale' && !sel ? 'stroke-dasharray="4 2.5"' : ''} stroke-linejoin="round" pointer-events="none"/>`;
+        if (st === 'forSale' || st === 'forRent') svg += `<path d="${d}" fill="url(#ls${id})" pointer-events="none"/>`;
+        svg += `<path d="${d}" fill="none" stroke="${sel ? '#2e2a24' : STATE_STROKE[st]}" stroke-width="${sel ? 2.4 : 1.2}" ${(st === 'forSale' || st === 'forRent') && !sel ? 'stroke-dasharray="4 2.5"' : ''} stroke-linejoin="round" pointer-events="none"/>`;
         const cx = p.poly.reduce((a, q) => a + q[0], 0) / p.poly.length, cy = p.poly.reduce((a, q) => a + q[1], 0) / p.poly.length;
         svg += `<text x="${X(cx)}" y="${Y(cy)}" text-anchor="middle" dominant-baseline="middle" pointer-events="none" ${sel ? 'style="font-weight:700;font-style:normal"' : ''}>${esc(p.name || p.id)}</text>`;
       }
       svg += `</svg>`;
       const owned = ps.filter((p) => p.state === 'owned' || p.state === 'rented');
       const haFarm = owned.reduce((a, p) => a + (p.area || 0), 0) / 10000;
-      const rentDay = ps.filter((p) => p.state === 'rented').reduce((a, p) => a + (p.rentPerDay || 0), 0);
+      const rentYear = ps.filter((p) => p.state === 'rented').reduce((a, p) => a + (perYear(p) || 0), 0);
       let h = `<div class="hv-stats" style="margin-bottom:14px">
         <div class="hv-stat"><div class="k">${icon('land')}Farmed</div><div class="v">${haFarm.toFixed(2)} ha</div><div class="s">${owned.length} parcel${owned.length === 1 ? '' : 's'} owned or rented</div></div>
-        <div class="hv-stat"><div class="k">${icon('calendar')}Rent</div><div class="v">${money(rentDay)}<span class="faint" style="font:12px 'Segoe UI',sans-serif"> / day</span></div><div class="s">Charged every morning</div></div>
-        <div class="hv-stat"><div class="k">${icon('coin')}On the market</div><div class="v">${ps.filter((p) => p.state === 'forSale').length}</div><div class="s">parcels for sale or lease</div></div></div>`;
+        <div class="hv-stat"><div class="k">${icon('calendar')}Rent</div><div class="v">${money(rentYear, { dec: 0 })}<span class="faint" style="font:12px 'Segoe UI',sans-serif"> / year</span></div><div class="s">Paid monthly in advance (${money(rentYear / 12, { dec: 0 })} a month)</div></div>
+        <div class="hv-stat"><div class="k">${icon('coin')}On the market</div><div class="v">${ps.filter((p) => p.state === 'forSale' || p.state === 'forRent').length}</div><div class="s">${ps.filter((p) => p.state === 'forSale').length} for sale · ${ps.filter((p) => p.state === 'forRent').length} to let</div></div></div>`;
       h += `<div class="hv-land"><div><div class="hv-landmap">${svg}</div><div class="hv-legend">
         <span><i style="background:${STATE_FILL.owned}"></i>Owned</span><span><i style="background:${STATE_FILL.rented}"></i>Rented</span>
-        <span><i style="background:repeating-linear-gradient(-45deg,rgba(184,101,46,.35) 0 2px,rgba(243,234,214,1) 2px 5px)"></i>For sale</span><span><i style="background:repeating-linear-gradient(45deg,rgba(138,126,108,.4) 0 2px,rgba(243,234,214,1) 2px 5px)"></i>Neighbours</span></div></div><div class="hv-rows">`;
+        <span><i style="background:repeating-linear-gradient(-45deg,rgba(184,101,46,.35) 0 2px,rgba(243,234,214,1) 2px 5px)"></i>For sale</span><span><i style="background:repeating-linear-gradient(-45deg,rgba(201,154,46,.4) 0 2px,rgba(243,234,214,1) 2px 5px)"></i>To let</span><span><i style="background:repeating-linear-gradient(45deg,rgba(138,126,108,.4) 0 2px,rgba(243,234,214,1) 2px 5px)"></i>Neighbours</span></div></div><div class="hv-rows">`;
       const m = data.money();
       for (const p of ps) {
         const st = STATE_LABEL[p.state] ? p.state : 'npc';
         const ha = (p.area || 0) / 10000;
         let act = '';
+        const yr = perYear(p);
         if (st === 'forSale') {
           const afford = data.canAfford(p.price || 0);
-          act = `<div style="display:flex;gap:5px"><button class="hv-btn" data-rent="${esc(p.id)}" title="Rent for ${money(p.rentPerDay || 0)} per day">Rent</button><button class="hv-btn warm ${afford ? '' : 'dis'}" data-buy="${esc(p.id)}" title="${afford ? '' : 'Not enough money'}">Buy</button></div>`;
-        } else if (st === 'owned' || st === 'rented') act = `<span class="chip ${st}">${STATE_LABEL[st]}</span>`;
+          act = `<button class="hv-btn warm ${afford ? '' : 'dis'}" data-buy="${esc(p.id)}" title="${afford ? '' : 'Not enough money'}">Buy</button>`;
+        } else if (st === 'forRent') act = `<button class="hv-btn" data-rent="${esc(p.id)}" title="${yr != null ? 'Rent for ' + money(yr, { dec: 0 }) + ' a year' : 'Rent'}">Rent</button>`;
+        else if (st === 'rented') act = `<div style="display:flex;gap:5px;align-items:center"><span class="chip rented">Rented</span><button class="hv-btn" data-endlease="${esc(p.id)}">End lease</button></div>`;
+        else if (st === 'owned') act = `<span class="chip ${st}">${STATE_LABEL[st]}</span>`;
         else act = `<span class="chip">${STATE_LABEL[st]}</span>`;
-        const priceLine = st === 'forSale' ? `${money(p.price || 0, { dec: 0 })} · or ${money(p.rentPerDay || 0)}/day` : st === 'rented' ? `Rent ${money(p.rentPerDay || 0)}/day` : st === 'owned' ? esc(p.crop || 'Your field') : 'Farmed by a neighbour';
+        const rentTxt = yr != null ? `${money(yr, { dec: 0 })}/yr (${money(p.rentPerHaYear != null ? p.rentPerHaYear : yr / Math.max(ha, 1e-6), { dec: 0 })}/ha)` : '';
+        const priceLine = st === 'forSale' ? `For sale · ${money(p.price || 0, { dec: 0 })}` : st === 'forRent' ? `To let · ${rentTxt}` : st === 'rented' ? `Rent ${rentTxt}` : st === 'owned' ? esc(p.crop || 'Your field') : 'Farmed by a neighbour';
         h += `<div class="hv-row click ${p.id === selParcel ? 'sel' : ''}" data-sel="${esc(p.id)}"><div class="grow"><div class="ttl">${esc(p.name || p.id)} <span class="faint" style="font:12px 'Segoe UI',sans-serif">${ha.toFixed(2)} ha</span></div>
           <div class="meta" style="display:flex;align-items:center;gap:6px">${stars(p.soil != null ? p.soil : 0.6)}<span>${priceLine}</span></div></div>${act}</div>`;
       }
@@ -369,10 +399,27 @@ export function builtinPanels(K) {
         b.onclick = K.safe('rent parcel', async () => {
           const p = ps.find((q) => q.id === b.dataset.rent);
           if (!p) return;
-          const ok = await K.confirm({ title: `Rent ${p.name}?`, text: `${((p.area || 0) / 10000).toFixed(2)} ha for ${money(p.rentPerDay || 0)} per day, charged each morning. You can end the lease at any time.`, okLabel: 'Sign lease', cancelLabel: 'Not now', icon: 'land' });
+          const pre = data.rentRefusal(p.id);
+          if (pre) { K.toast(pre, { kind: 'warn', icon: 'land', title: `Can't rent ${p.name}` }); return; }
+          const t = data.leaseTerms(p);
+          const terms = t ? `${((p.area || 0) / 10000).toFixed(2)} ha at ${money(t.perHa, { dec: 0 })}/ha a year: ${money(t.year, { dec: 0 })} a year, paid monthly in advance (${money(t.month)} a month, the first month due now). The minimum term is one year; ending the lease earlier costs the rest of that year's rent, at most three months (${money(t.exitMax, { dec: 0 })}).`
+            : `${((p.area || 0) / 10000).toFixed(2)} ha. Rent is paid monthly in advance, with a one-year minimum term and an early-exit fee of up to three months' rent.`;
+          const ok = await K.confirm({ title: `Rent ${p.name}?`, text: terms, okLabel: 'Sign lease', cancelLabel: 'Not now', icon: 'land' });
           if (!ok) return;
-          if (data.rentParcel(p.id)) { K.toast(`<b>Lease signed</b><br>${esc(p.name)} · ${money(p.rentPerDay || 0)}/day`, { kind: 'success', icon: 'land', html: true }); K.emit('ui:action', { id: 'parcel-rented', parcelId: p.id }); }
-          else K.toast('The owner turned the lease down.', { kind: 'warn' });
+          if (data.rentParcel(p.id)) { K.toast(`<b>Lease signed</b><br>${esc(p.name)}${t ? ` · ${money(t.year, { dec: 0 })}/yr · first month ${money(-t.month, { dec: 0 })}` : ''}`, { kind: 'success', icon: 'land', html: true }); K.emit('ui:action', { id: 'parcel-rented', parcelId: p.id }); }
+          else K.toast(data.rentRefusal(p.id) || 'The owner turned the lease down.', { kind: 'warn', icon: 'land', title: `Can't rent ${p.name}` });
+          K.rerender('land');
+        });
+      });
+      el.querySelectorAll('[data-endlease]').forEach((b) => {
+        b.onclick = K.safe('end lease', async () => {
+          const p = ps.find((q) => q.id === b.dataset.endlease);
+          if (!p) return;
+          const fee = data.leaseExitCost(p.id);
+          const ok = await K.confirm({ title: `End the lease on ${p.name}?`, text: fee > 0 ? `The one-year minimum term isn't served yet: handing it back now costs ${money(fee)}. Rent stops from today.` : 'The minimum term is served, so there is no exit fee. Rent stops from today.', okLabel: 'End lease', cancelLabel: 'Keep it', icon: 'land', danger: fee > 0 });
+          if (!ok) return;
+          if (data.endLease(p.id)) K.toast(`<b>Lease ended</b><br>${esc(p.name)}${fee > 0 ? ' · exit fee ' + money(-fee) : ''}`, { kind: 'info', icon: 'land', html: true });
+          else K.toast('The lease could not be ended.', { kind: 'warn' });
           K.rerender('land');
         });
       });

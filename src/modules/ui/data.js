@@ -298,6 +298,74 @@ export function createData(ctx) {
       x.ledger.push({ t: ctx.clock.t, amount: -p.price, category: 'land', memo: 'Bought parcel ' + p.name });
       return true;
     },
+    /** lease terms of a for-rent parcel, from the parcel record (simulation: monthly in advance, 1-year minimum,
+     *  early exit = min(rest of the minimum term, 3 months' rent); a game year is 12 months × 3 days) */
+    leaseTerms(p) {
+      if (!p) return null;
+      const ha = (p.area || 0) / 10000;
+      const perHa = typeof p.rentPerHaYear === 'number' ? p.rentPerHaYear : (typeof p.rentPerDay === 'number' && ha > 0 ? p.rentPerDay * 36 / ha : null);
+      if (perHa == null) return null;
+      const year = perHa * ha;
+      return { perHa, year, month: year / 12, exitMax: year * 3 / 12, minYears: 1 };
+    },
+    rentRefusal(id) {
+      const s = sim();
+      if (!s) return null;
+      const p = this.parcels().find((q) => q.id === id);
+      if (!p || p.state !== 'forRent') return 'That parcel is no longer offered to let.';
+      const sv = fn(s, 'solvency') ? s.solvency() : null;
+      if ((sv && sv.blocked) || (fn(s, 'blocked') && s.blocked())) return 'The bank has blocked new land deals until the farm is back under its credit limit.';
+      const t = this.leaseTerms(p);
+      if (t && fn(s, 'money') && s.money() < t.month) return `The first month's rent (€${Math.round(t.month).toLocaleString('en-GB')}) is due in advance, and the account can't cover it.`;
+      return null;
+    },
+    leaseExitCost(id) { const s = sim(); return s && fn(s, 'leaseExitCost') ? s.leaseExitCost(id) : null; },
+    endLease(id) {
+      const s = sim();
+      if (s) return fn(s, 'endLease') ? s.endLease(id) !== false : false;
+      const x = S(); const p = x && x.parcels.find((q) => q.id === id);
+      if (!p) return false;
+      p.state = 'npc';
+      return true;
+    },
+    /** machines/kit the player can sell: one row per asset (vehicles' kit despawns together) */
+    machines() {
+      const veh = ctx.modules.get('vehicles'), s = sim();
+      if (!veh || !fn(veh, 'list')) return [];
+      const assets = s && fn(s, 'assets') ? arr(s.assets()) : [];
+      const seen = new Set(), out = [];
+      for (const v of arr(veh.list())) {
+        if (!v || v.owner === 'npc') continue;
+        const key = v.assetId || v.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const a = v.assetId ? assets.find((q) => q.id === v.assetId) : null;
+        if (!v.assetId && v.owner !== 'owned' && v.owner !== 'leased') continue;
+        out.push({ id: v.id, name: v.name || v.type, type: v.type, assetId: v.assetId || null, asset: a || null, mode: a ? a.mode : (v.owner || null), value: a ? a.value : null, driverId: v.driverId || null });
+      }
+      return out;
+    },
+    /** why vehicles.sell(id) would refuse, mirroring its checks (it only returns false) */
+    sellRefusal(id) {
+      const veh = ctx.modules.get('vehicles'), s = sim();
+      if (!veh || !fn(veh, 'sell')) return 'Machines can’t be traded right now.';
+      const v = fn(veh, 'get') ? veh.get(id) : null;
+      if (!v) return 'That machine is gone.';
+      const nm = v.name || v.type || 'This machine';
+      if (!v.assetId) return `${nm} isn’t on the farm’s asset register, so the dealer won’t take it.`;
+      if (v.driverId) return `Someone is sitting in the ${nm}. Get out first.`;
+      if (!s || !fn(s, 'releaseAsset')) return 'No dealer is open to buy machines.';
+      if (fn(s, 'assets') && !arr(s.assets()).some((a) => a.id === v.assetId)) return `${nm} has no papers in the farm’s books (its asset record is missing), so it can’t be sold.`;
+      return null;
+    },
+    sellMachine(id) {
+      const why = this.sellRefusal(id);
+      if (why) return { ok: false, reason: why };
+      const veh = ctx.modules.get('vehicles');
+      const r = veh.sell(id);
+      if (r === false || r === undefined || r === null) return { ok: false, reason: this.sellRefusal(id) || 'The dealer refused the sale.' };
+      return { ok: true, value: typeof r === 'number' ? r : 0 };
+    },
     rentParcel(id) {
       const s = sim();
       if (s) return fn(s, 'rentParcel') ? s.rentParcel(id) !== false : false;
