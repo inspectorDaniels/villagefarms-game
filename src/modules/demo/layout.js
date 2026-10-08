@@ -81,7 +81,13 @@ export function planValley(T, bounds, rng) {
   const farmC = dry(...S(230, 598));
   const yard = rect(farmC.x, farmC.y, 84, 72);
   const yardTop = farmC.y - 36, yardBot = farmC.y + 36;
-  const field = [[farmC.x - 55, yardBot + 12], [farmC.x + 55, yardBot + 12], [farmC.x + 55, yardBot + 176], [farmC.x - 55, yardBot + 176]];
+  // the land south of the yard (r3): a small first field (30 × 150 m ≈ 0.45 ha) straight below the yard's drive-out,
+  // a larger neighbouring field east of the farm track (the "second field" to rent) and a narrow strip west
+  const R4 = (x0, x1, y0, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  const fieldBig = R4(farmC.x - 55, farmC.x + 95, yardBot + 12, yardBot + 176);
+  const field = R4(farmC.x - 17, farmC.x + 13, yardBot + 12, yardBot + 162);
+  const fieldEast = R4(farmC.x + 27, farmC.x + 92, yardBot + 12, yardBot + 172);
+  const fieldWest = R4(farmC.x - 52, farmC.x - 25, yardBot + 12, yardBot + 172);
   const cross = dry(...S(800, 405));
   const tJ = { x: cross.x, y: yRoad(cross.x) };
   const village = { x0: cross.x - 110, y0: cross.y - 95, x1: cross.x + 112, y1: tJ.y + 4 };
@@ -148,13 +154,13 @@ export function planValley(T, bounds, rng) {
   chains.push({ cls: 'lane', pts: [V(west), [fC.x + 5, (west.y + fC.y) / 2 + 20], [fC.x, fC.y + 26]], name: 'laneC' });
   chains.push({ cls: 'lane', pts: [[depot.x, yRoad(depot.x)], [depot.x, yRoad(depot.x) + 14]], name: 'depot' });
   // farm track: from the yard's south gate along the east side of the rented field
-  chains.push({ cls: 'track', pts: [[farmC.x + 34, yardBot - 2], [farmC.x + 64, yardBot + 16], [farmC.x + 64, yardBot + 176]], name: 'fieldtrack' });
+  chains.push({ cls: 'track', pts: [[farmC.x + 34, yardBot - 2], [farmC.x + 20, yardBot + 14], [farmC.x + 20, yardBot + 176]], name: 'fieldtrack' });
 
   // tracks along some column lines (south band and north band), truncated at water / reserved zones
   const zones = [
     { kind: 'rect', x0: village.x0, y0: village.y0, x1: village.x1, y1: village.y1, name: 'village' },
     { kind: 'poly', poly: yard, pad: 8, name: 'yard' },
-    { kind: 'poly', poly: field, pad: 6, name: 'field' },
+    { kind: 'poly', poly: fieldBig, pad: 6, name: 'field' },
     ...farmSites.map((f) => ({ kind: 'circle', x: f.x, y: f.y, r: 46, name: 'farm' + f.key })),
     { kind: 'circle', x: depot.x, y: depot.y, r: 34, name: 'depot' },
   ];
@@ -322,7 +328,7 @@ export function planValley(T, bounds, rng) {
 
   return {
     plan: { nodes, edges }, chains, blocks, spare, zones,
-    sites: { farm: farmC, yard, field, yardTop, yardBot, village, cross, tJ, west, east, north, ne, farms: farmSites, depot, bridge },
+    sites: { farm: farmC, yard, field, fieldEast, fieldWest, fieldBig, yardTop, yardBot, village, cross, tJ, west, east, north, ne, farms: farmSites, depot, bridge },
     yRoad,
   };
 }

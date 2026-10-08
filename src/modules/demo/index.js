@@ -133,6 +133,9 @@ export async function init(ctx) {
       if (!S) return 'absent';
       D.parcels.yard = S.defineParcel({ name: 'Hoeve Ter Linde', poly: st.yard, soil: 0.55, state: 'owned', tradeable: false });
       D.parcels.start = S.defineParcel({ name: 'Lindeveldje', poly: st.field, soil: 0.68, state: 'rented' });
+      // r3: the bigger neighbouring field east of the farm track is the next step ("Rent a second field")
+      D.parcels.east = S.defineParcel({ name: 'Lindekouter', poly: st.fieldEast, soil: 0.66, state: 'forRent' });
+      D.parcels.west = S.defineParcel({ name: 'Smalle Strook', poly: st.fieldWest, soil: 0.6, state: 'npc', owner: 'Jef Vermeulen' });
       const clients = ['Jef Vermeulen', 'Marleen Peeters', 'Luc Van den Broeck', 'Annelies De Smet', 'Wim Claes', 'Josée Lambert',
         'Philippe Dubois', 'Marie-Claire Renard', 'Didier Lejeune', 'Bart Goossens'];
       st.farms.forEach((f, k) => { f.client = clients[k]; if (S.defineClientFarm) S.defineClientFarm(clients[k], { x: f.x, y: f.y }); });
@@ -223,6 +226,8 @@ export async function init(ctx) {
     step('crops', () => {
       if (!CR || !S) return 'absent';
       D.fields.start = CR.createField(st.field, { parcelId: D.parcels.start, state: 'stubble', name: 'Lindeveldje' });
+      if (D.parcels.east) D.fields.east = CR.createField(st.fieldEast, { parcelId: D.parcels.east, state: 'stubble', name: 'Lindekouter' });
+      if (D.parcels.west) CR.createField(st.fieldWest, { parcelId: D.parcels.west, crop: 'wheat', stage: 'auto', name: 'Smalle Strook' });
       const r = ctx.rng('crops-plan');
       let n = 0;
       for (const pid of D.npcParcels || []) {
@@ -301,7 +306,7 @@ export async function init(ctx) {
     });
 
     // pois
-    D.sites = { farm: st.farm, cross: st.cross, tJ: st.tJ, depot: st.depot, bridge: st.bridge, field: centroid(st.field), village: st.village, farms: st.farms.map((f) => ({ key: f.key, x: f.x, y: f.y, client: f.client })) };
+    D.sites = { farm: st.farm, cross: st.cross, tJ: st.tJ, depot: st.depot, bridge: st.bridge, field: centroid(st.field), fieldEast: centroid(st.fieldEast), village: st.village, farms: st.farms.map((f) => ({ key: f.key, x: f.x, y: f.y, client: f.client })) };
     D.pois = buildPois();
     D.started = true;
 
@@ -358,7 +363,8 @@ export async function init(ctx) {
     const out = [];
     const add = (id, name, x, y, kind, zoom = 16) => { if (Number.isFinite(x) && Number.isFinite(y)) out.push({ id, name, x: +x.toFixed(1), y: +y.toFixed(1), kind, zoom }); };
     add('farm', 'Hoeve Ter Linde (your farm)', S.farm.x, S.farm.y, 'farm', 14);
-    add('field', 'Lindeveldje (rented, 1.8 ha)', S.field[0], S.field[1], 'field', 8);
+    add('field', 'Lindeveldje (rented, 0.45 ha)', S.field[0], S.field[1], 'field', 10);
+    if (S.fieldEast) add('fieldEast', 'Lindekouter (to rent, 1.0 ha)', S.fieldEast[0], S.fieldEast[1], 'field', 10);
     add('village', 'Village centre', S.cross.x, S.cross.y + 20, 'village', 10);
     if (S.bridge) add('bridge', 'River bridge', S.bridge.x, S.bridge.y, 'road', 18);
     const bld = (key, name, kind) => { const b = D.ids[key] && B && B.get ? B.get(D.ids[key]) : null; if (b) add(key, b.name || name, b.x, b.y, kind); };
