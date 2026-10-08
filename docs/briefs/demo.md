@@ -39,3 +39,12 @@ API: `startGame()`, `scene(name)` (stage named vantage points), `pois()` (list o
    tractor until it is first entered).
 5. Small: seed drill defaults to an in-season crop (vehicles/demo); grain trailer not parked in the seeder's exit
    (demo); simulation coalesces seed charges into one ledger row per field per day; ui expense chip clipping.
+
+---
+## Revision r3 (director, 2026-10-08, user feedback) — a hooking first field
+The rented starting field (Lindeveldje, 1.8 ha) is too big for a first session: ploughing it solo is ~1 h of
+real driving. **Make the first rented field ~0.4–0.6 ha** (one sitting: plough + sow in ~10–15 real minutes
+with the starting kit — measure it), close to the yard, simple rectangular shape aligned with the drive-out.
+Keep the economy honest: rent scales with area; the larger neighbouring land stays available to rent/buy as
+the next step (point to it in a later objective: "Rent a second field"). Simulation re-checks year-1 cash from
+the new start (`progression.mjs --start=demo`) after demo lands.

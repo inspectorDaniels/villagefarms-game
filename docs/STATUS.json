@@ -353,6 +353,7 @@
         }
       ],
       "openIssues": [
+        "r3 (user): starting field too big -> ~0.4-0.6 ha, plough+sow in 10-15 real min",
         "Haul/deliver jobs uncompletable; potato jobs without harvester (r2.1 simulation)",
         "Plough objective ~1 h real driving (r2.2)",
         "Sell hint points to impossible trailer delivery (r2.2)",
