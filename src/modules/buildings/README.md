@@ -136,6 +136,9 @@ Spatial items: `{id, kind:'building', x0..y1, solid:true, poly | polys, data:{bu
   - felt with battens;
   - thatch straw strokes.
 - **Roof details:** ridge caps, ridge vents, roof-light strips, skylights, chimneys, gutters and verges, moss on the front slope, and a soft contact shadow. There is no baked sun, only symmetric slope shading.
+- **LOD copies (perf, demo request #6):** downscaled copies at 16 and 8 px/m are made once per sprite on first use. The smallest copy still at or above the screen density is drawn (32 px/m at ≥ 14 screen px/m, 16 at ≥ 7, otherwise 8). Drawing the full 32 px/m canvases at village and overview zoom cost about 40 ms/frame of raster time in the full game. On the demo village scene:
+  - before: 52 ms with buildings vs 13.5 ms without;
+  - after: 10.4 ms vs 5.8 ms (same machine run; module JS 0.35 ms).
 - **Snow:** when `weather.snowCover > 0.3`, a snow variant of each sprite is used.
 - **Shadows:** `F.shadow.poly(wall footprint + overhang, eave)`, `F.shadow.poly(ridge strip, ridge)`, a box for each chimney, cylinders for silos and boxes for the tower and spire.
 - **Door aprons:** concrete aprons and steps are drawn in `ground-detail`, before the shadow pass.

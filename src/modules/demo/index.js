@@ -15,6 +15,7 @@ export const manifest = {
   listens: ['crops:worked', 'vehicles:entered', 'jobs:accepted', 'economy:transaction'],
 };
 
+const OLD_BUILDINGS = 40; // r7: the family farm's buildings are ~40 years old (buildings must pass it to simulation.grantAsset)
 const MAX_HOUSES = 20; // village houses (22→14 made no measurable frame-time difference; see core-requests)
 const MAX_FIELDS = 34; // NPC parcels (crops cost per field; harness valley ≈ 48 parcels)
 const INST = new WeakMap(); // ctx → api (showcase)
@@ -171,10 +172,10 @@ export async function init(ctx) {
       const ids = D.ids;
       const F = st.farm;
       // the farmhouse door opens onto the yard (south)
-      ids.farmhouse = placeNear('farmhouse', F.x - 22, F.y - 22, Math.PI, { owner: 'player', grant: true, variant: 0, name: 'Farmhouse' }, 6);
-      ids.barn = placeNear('barn', F.x + 29, F.y - 6, -Math.PI / 2, { owner: 'player', grant: true, variant: 0 }, 6);
-      ids.shed = placeNear('machine_shed', F.x - 26, F.y + 25, 0, { owner: 'player', grant: true, variant: 0 }, 6);
-      ids.coop = placeNear('chicken_coop', F.x - 37, F.y + 2, Math.PI / 2, { owner: 'player', grant: true, variant: 0 }, 6);
+      ids.farmhouse = placeNear('farmhouse', F.x - 22, F.y - 22, Math.PI, { owner: 'player', grant: true, ageYears: OLD_BUILDINGS, variant: 0, name: 'Farmhouse' }, 6);
+      ids.barn = placeNear('barn', F.x + 29, F.y - 6, -Math.PI / 2, { owner: 'player', grant: true, ageYears: OLD_BUILDINGS, variant: 0 }, 6);
+      ids.shed = placeNear('machine_shed', F.x - 26, F.y + 25, 0, { owner: 'player', grant: true, ageYears: OLD_BUILDINGS, variant: 0 }, 6);
+      ids.coop = placeNear('chicken_coop', F.x - 37, F.y + 2, Math.PI / 2, { owner: 'player', grant: true, ageYears: OLD_BUILDINGS, variant: 0 }, 6);
       // village: specials first, then houses along every street
       const reg = chain('regional'), main = chain('main'), westS = chain('west'), eastS = chain('east'), northS = chain('north');
       const tj = st.tJ;
@@ -247,7 +248,7 @@ export async function init(ctx) {
       // r2.3 old, cheap starting kit: granted as long-owned assets (book value at simulation's 20 % floor) with
       // high wear, so the whole kit resells for ≈ €9k (half the starting cash). The pickup is the family car:
       // spawned without an asset record, so it cannot be sold and carries no upkeep.
-      const old = S && S.today ? { boughtDay: S.today() - 16 * 36 } : {};
+      const old = S && S.today ? { boughtDay: S.today() - 16 * 36, ageYears: 16 } : {}; // ageYears: r7 API; boughtDay: older simulation
       const grant = (item) => (S && S.grantAsset ? S.grantAsset(item, old) : null);
       const put = (type, x, y, rot, assetId, wear, extra) => V.spawn(type, x, y, rot, { owner: 'owned', assetId, wear, ...(extra || {}) }) || null;
       const tA = grant('tractor_t1'), kA = grant('tillage_s'), trA = grant('trailer');

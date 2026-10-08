@@ -73,3 +73,13 @@ kit the pure driving time alone is plough 0.40 ha ÷ (3 m × 2.04 m/s measured, 
 sow ≈ 8–9 min (10 km/h drill), plus headland turns — see the measured numbers in the demo r3 report. Plough + sow in
 10–15 real minutes needs either ≈ 0.2–0.25 ha or game-scale working speeds (e.g. implement working speed ×1.5–2,
 which also helps contract jobs). Director to decide; demo can shrink the field in one line (`layout.js`, `field`).
+
+### 10. buildings: pass `ageYears` through to `simulation.grantAsset` (r7)
+Director r7: the starting farmhouse, barn, shed and coop are ~40-year-old grants. Demo now calls
+`buildings.place(type, x, y, rot, { owner:'player', grant:true, ageYears: 40 })`, but `buildings/index.js` (≈ line 288)
+calls `S.grantAsset(d.catalog.id)` without options. Proposed:
+```js
+assetId = S.grantAsset(d.catalog.id, Number.isFinite(+opts.ageYears) ? { ageYears: +opts.ageYears, category: 'buildings' } : undefined) || null;
+```
+Until then the starting buildings are booked as new (upkeep and net worth too high). The machines already go through
+`simulation.grantAsset(item, { boughtDay, ageYears: 16 })` from demo.

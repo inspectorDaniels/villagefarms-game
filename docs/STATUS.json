@@ -22,7 +22,9 @@
           "review": "docs/reviews/terrain-r2.md"
         }
       ],
-      "openIssues": [],
+      "openIssues": [
+        "overview (3 px/m) ~60 ms/frame with terrain JS 18-24 ms (demo critic) \u2014 not normal play; low priority"
+      ],
       "note": "passed r2 7/10; follow-ups done: strip seams merged, small shapes paint nearest point, polygon area validation, coalesced edits, findDry clamp, edit-list compaction"
     },
     "environment": {
@@ -241,10 +243,9 @@
         }
       ],
       "openIssues": [
-        "PERF: grain co-op costs 30-47 ms/frame of buildings code when on screen (village 55 ms -> 13.5 ms without buildings)",
         "cosmetic (deferred)"
       ],
-      "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42 | follow-ups: writeOff on granted demolish, asset-backed capacity only, old-save purchased flag, pump removed on demolish; 45/45"
+      "note": "r2: sale from cargo when store full, removeSellPoint, null-safe, force validation, no money printing (grant opt-in), characters block placement, owner guard; 42/42 | follow-ups: writeOff on granted demolish, asset-backed capacity only, old-save purchased flag, pump removed on demolish; 45/45 | sprite LOD (16/8 px/m copies): village frame cost +38 ms -> +4.6 ms"
     },
     "props": {
       "wave": 2,

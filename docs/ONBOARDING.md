@@ -108,6 +108,8 @@ brief ──► builder round N ──► critic round N ──► pass? ──y
   canvases per frame (> ~1.5 MB extra once terrain uses 1024 px tiles) forces re-uploads every frame
   (+20–40 ms). Fixes that worked: view-clipped `drawImage` source rects, small (256 px) chunks,
   `ImageBitmap` chunks, half-resolution composites upscaled ×2, time-sliced chunk builds.
+- **Downscale big sprites at low zoom.** Drawing 32 px/m sprites at 3–12 px/m is raster-bound (buildings: +38 ms
+  in the village); pre-made 16/8 px/m LOD copies cut it to +4.6 ms.
 - Headless Chromium here renders in software and the machine is shared — timings are noisy; always
   A/B in one page, repeat, and don't trust wall-clock key holds (step the engine instead).
 - Budgets: frame ≤ 12 ms avg / ≤ 20 ms p95, terrain ≤ 2 ms, other modules ≤ 1.5 ms, boot ≤ 6 s.

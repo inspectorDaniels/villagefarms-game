@@ -541,6 +541,32 @@ export async function init(ctx) {
   }
 
   // ------------------------------------------------------------------ rendering
+  // LOD copies of the painted sprites (demo request #6). Every roof is painted once at 32 px/m; drawing
+  // those full-size canvases at village/overview zoom (3–12 px/m) kept ~40 large textures alive and
+  // re-sampled per frame, which cost 30–40 ms of raster time per frame in the full game. Downscaled
+  // copies (16, 8 px/m) are made once per sprite on first use and the smallest one that still has ≥ the
+  // screen's pixel density is drawn.
+  const lodCopies = new WeakMap();  // img → [full, 1/2, 1/4]
+  function lod(img, level) {
+    if (level === 0) return img;
+    let arr = lodCopies.get(img);
+    if (!arr) { arr = [img, null, null]; lodCopies.set(img, arr); }
+    if (!arr[level]) {
+      const prev = lod(img, level - 1);
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(prev.width / 2)); c.height = Math.max(1, Math.round(prev.height / 2));
+      const g = c.getContext('2d');
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';
+      g.drawImage(prev, 0, 0, c.width, c.height);
+      arr[level] = c;
+    }
+    return arr[level];
+  }
+  /** 0 = 32 px/m, 1 = 16, 2 = 8 — the smallest copy still at or above the screen density */
+  function lodLevel(view) {
+    const px = (view.zoom || 32) * (view.dpr || 1);
+    return px >= 14 ? 0 : px >= 7 ? 1 : 2;
+  }
   function spritesFor(b, r, snow) {
     const key = snow ? 'sprS' : 'spr';
     if (r[key]) return r[key];
@@ -557,7 +583,7 @@ export async function init(ctx) {
       const door = b.doors[0];
       const wide = !!(p0.wide || p0.open);
       const aw = wide ? Math.min(12, p0.w * 0.7) : 2.4, ad = wide ? 6 : 1.6;
-      const img = painter.apron(aw, ad);
+      const img = lod(painter.apron(aw, ad), lodLevel(view));
       // apron starts at the wall and runs outward (away from the building)
       const fx = Math.sin(b.rot), fy = -Math.cos(b.rot);
       const cx = door.x - fx * (0.8 - ad / 2), cy = door.y - fy * (0.8 - ad / 2);
@@ -580,6 +606,7 @@ export async function init(ctx) {
       }
       if (!visible(r, view, 2)) continue;
       const sprites = spritesFor(b, r, snow);
+      const lv = lodLevel(view);
       const parts = r.def.parts;
       F.object({
         y: r.sortY,
@@ -587,7 +614,7 @@ export async function init(ctx) {
           for (let i = 0; i < parts.length; i++) {
             const p = parts[i], s = sprites[i];
             const [px, py] = toWorld(b.x, b.y, b.rot, p.x || 0, p.y || 0);
-            ctx.art.draw(g, s.img, px, py, s.w, s.h, b.rot + (p.rot || 0));
+            ctx.art.draw(g, lod(s.img, lv), px, py, s.w, s.h, b.rot + (p.rot || 0));
           }
         },
       });
