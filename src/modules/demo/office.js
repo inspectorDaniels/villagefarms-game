@@ -8,7 +8,7 @@ const GOALS = [
   ['strip', 'Plough your first strip (0.06 ha)', 'Drive straight south onto Lindeveldje, press E to lower the plough and drive along the field'],
   ['ploughed', 'Get Lindeveldje ploughed', 'Finish it yourself (any of your people can drive: Tab switches), or book a contractor (K → Fields & contractors)'],
   ['sow', 'Sow Lindeveldje', 'Back in the yard: H unhitches the plough, reverse onto the seed drill and H to hitch it, E to sow. Crop: K → Store & seed. Or book a contractor in K'],
-  ['job', 'Accept a contract job', 'J opens the jobs board: field jobs need the kit you own; haul jobs are crew-only (give them to a hand in K)'],
+  ['job', 'Accept a contract job', 'J opens the jobs board: a small plough or drill job near your farm is offered in the first days — your kit can do it. Haul jobs are crew-only (give them to a hand in K)'],
   ['sell', 'Sell last year\'s wheat', 'Farm office (K) → Store & seed → Sell all: the co-op collects it from your yard'],
   ['hire', 'Hire a farmhand', 'Farm office (K) → Hands → Hire. Tab switches between people'],
   ['rent2', 'Rent a second field', 'Lindekouter (1 ha) lies just east of the farm track: open Land (M) and rent it'],

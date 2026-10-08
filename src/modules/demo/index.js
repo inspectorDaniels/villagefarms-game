@@ -12,7 +12,7 @@ export const manifest = {
   namespaces: ['demo'],
   api: ['startGame', 'scene', 'pois', 'layout', 'objectives', 'sellFromStore', 'hireHand'],
   emits: ['demo:started', 'demo:objective'],
-  listens: ['crops:worked', 'vehicles:entered', 'jobs:accepted', 'economy:transaction'],
+  listens: ['crops:worked', 'vehicles:entered', 'jobs:accepted', 'economy:transaction', 'buildings:removed'],
 };
 
 const OLD_BUILDINGS = 40; // r7: the family farm's buildings are ~40 years old (buildings must pass it to simulation.grantAsset)
@@ -30,6 +30,11 @@ export async function init(ctx) {
   const rng = ctx.rng('layout');
   let L = null;
   const office = createOffice(ctx, D);
+  ctx.events.on('buildings:removed', (e) => {
+    const nid = e && D.oldGrants ? D.oldGrants[e.id] : null;
+    const S = mod('simulation');
+    if (nid && S && S.releaseAsset) { S.releaseAsset(nid, { writeOff: true }); delete D.oldGrants[e.id]; }
+  });
 
   // ------------------------------------------------------------------ helpers
   const dryT = () => {
@@ -176,6 +181,19 @@ export async function init(ctx) {
       ids.barn = placeNear('barn', F.x + 29, F.y - 6, -Math.PI / 2, { owner: 'player', grant: true, ageYears: OLD_BUILDINGS, variant: 0 }, 6);
       ids.shed = placeNear('machine_shed', F.x - 26, F.y + 25, 0, { owner: 'player', grant: true, ageYears: OLD_BUILDINGS, variant: 0 }, 6);
       ids.coop = placeNear('chicken_coop', F.x - 37, F.y + 2, Math.PI / 2, { owner: 'player', grant: true, ageYears: OLD_BUILDINGS, variant: 0 }, 6);
+      // r7: the family farm's buildings are ~40 years old. buildings.place does not yet pass `ageYears` to
+      // simulation.grantAsset (core request #10); until it does, re-book each new grant as an old one here.
+      // The building keeps its (now stale) assetId for storage; demo releases its replacement if it is demolished.
+      D.oldGrants = D.oldGrants || {};
+      if (S && S.assets && S.grantAsset && S.releaseAsset && S.today) {
+        for (const key of ['farmhouse', 'barn', 'shed', 'coop']) {
+          const b = ids[key] && B.get ? B.get(ids[key]) : null;
+          const a = b && b.assetId ? (S.assets() || []).find((q) => q.id === b.assetId) : null;
+          if (!a || a.boughtDay < S.today() - 30 * 36) continue; // already old: buildings passed ageYears
+          const nid = S.grantAsset(a.itemId, { ageYears: OLD_BUILDINGS, boughtDay: S.today() - OLD_BUILDINGS * 36, category: 'buildings' });
+          if (nid) { S.releaseAsset(a.id, { writeOff: true }); D.oldGrants[ids[key]] = nid; }
+        }
+      }
       // village: specials first, then houses along every street
       const reg = chain('regional'), main = chain('main'), westS = chain('west'), eastS = chain('east'), northS = chain('north');
       const tj = st.tJ;
@@ -443,11 +461,11 @@ export async function init(ctx) {
       }
     },
     save() {
-      return { v: 1, started: D.started, sites: D.sites, pois: D.pois, ids: D.ids, parcels: D.parcels, fields: D.fields, npcParcels: D.npcParcels, objectives: D.objectives, tutorial: D.tutorial, progress: D.progress, clearMorning: D.clearMorning };
+      return { v: 1, started: D.started, sites: D.sites, pois: D.pois, ids: D.ids, parcels: D.parcels, fields: D.fields, npcParcels: D.npcParcels, objectives: D.objectives, tutorial: D.tutorial, progress: D.progress, clearMorning: D.clearMorning, oldGrants: D.oldGrants };
     },
     load(d) {
       if (!d || d.v !== 1) return;
-      for (const k of ['started', 'sites', 'pois', 'ids', 'parcels', 'fields', 'npcParcels', 'objectives', 'tutorial', 'progress', 'clearMorning']) if (d[k] !== undefined) D[k] = JSON.parse(JSON.stringify(d[k]));
+      for (const k of ['started', 'sites', 'pois', 'ids', 'parcels', 'fields', 'npcParcels', 'objectives', 'tutorial', 'progress', 'clearMorning', 'oldGrants']) if (d[k] !== undefined) D[k] = JSON.parse(JSON.stringify(d[k]));
       office.reload();
     },
   };

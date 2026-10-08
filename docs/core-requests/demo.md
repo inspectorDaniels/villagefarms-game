@@ -81,5 +81,6 @@ calls `S.grantAsset(d.catalog.id)` without options. Proposed:
 ```js
 assetId = S.grantAsset(d.catalog.id, Number.isFinite(+opts.ageYears) ? { ageYears: +opts.ageYears, category: 'buildings' } : undefined) || null;
 ```
-Until then the starting buildings are booked as new (upkeep and net worth too high). The machines already go through
+Meanwhile demo re-books them itself (writes off the fresh grant, grants a 40-year-old one, keeps a map to release it
+on `buildings:removed`); this auto-disables once buildings passes `ageYears`. Cost: 4 zero-amount `writeOff` ledger rows at start. The machines already go through
 `simulation.grantAsset(item, { boughtDay, ageYears: 16 })` from demo.

@@ -17,7 +17,8 @@ pois, save/load, showcase), `office.js` (tutorial toasts, "Getting started" obje
    west of it; up to 34 NPC
    parcels (0.5–2.5 ha, ≈50 ha) owned by the 3 neighbour clients (+ other clients); the 2 nearest 1–3.2 ha parcels
    are `forRent`, one 1.5–4.5 ha `forSale`. Client farms via `defineClientFarm`.
-4. **buildings** — player: farmhouse, barn, machine shed, chicken coop (`grant:true`); village: grain co-op, dealer,
+4. **buildings** — player: farmhouse, barn, machine shed, chicken coop (`grant:true`, booked as ~40-year-old grants per
+   simulation r7: book €91k, upkeep €38/day instead of €101; see core request #10); village: grain co-op, dealer,
    church, shop, dairy, café, sugar/potato depot (re-registered as a beet/potato sell point), 22 houses facing streets;
    3 neighbour farms (farmhouse, cow shed, barn, silo). The player's farmhouse door faces the yard. Village houses ≤ 20.
 5. **crops** — player field as stubble; every NPC parcel `createField(poly, {parcelId, crop, stage:'auto'})`.

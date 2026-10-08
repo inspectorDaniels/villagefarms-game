@@ -359,7 +359,6 @@
         }
       ],
       "openIssues": [
-        "r3 (user): starting field too big -> ~0.4-0.6 ha, plough+sow in 10-15 real min",
         "Haul/deliver jobs uncompletable; potato jobs without harvester (r2.1 simulation)",
         "Plough objective ~1 h real driving (r2.2)",
         "Sell hint points to impossible trailer delivery (r2.2)",
@@ -368,7 +367,7 @@
         "perf: village 24-35 ms (buildings 6.6-10), overview 48-72 ms (terrain JS 18-24 ms)",
         "should: year-1 cash flow unproven live, seed drill barley in March, trailer blocks seeder, seed ledger spam, job pay \u20ac280-340/ha vs \u20ac80-110 brief"
       ],
-      "note": "r2+r3: first field 0.40 ha (-> 0.25 per addendum), 8 objectives, old cheap kit (\u20ac9.2k resale), opening at 22 px/m with tractor label; play 6.2 ms, village 38 ms / overview 35 ms (buildings co-op 30-47 ms own code)"
+      "note": "r2+r3+r7: 0.25 ha first field (plough ~10.9 min / sow ~10.3 min scripted, est. 8-9 min each by hand), 40-yr buildings (workaround until buildings passes ageYears), first-job hint, opening at 22 px/m"
     }
   },
   "game": {
