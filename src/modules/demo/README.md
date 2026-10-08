@@ -52,9 +52,9 @@ the tractor; the first morning is forced clear (released to the seasonal plan at
 Tutorial toasts (welcome, walking, machines, buildings, panels). Objectives HUD top-left (r2.2 / r3):
 1. Get into your tractor (`vehicles:entered`).
 2. Plough your first strip (0.06 ha) — the player's own `crops:worked` plough area on Lindeveldje (≈ 2 passes).
-3. Get Lindeveldje ploughed — any means: ≥ 95 % of cells ploughed/cultivated/sown (you, any of your people, or a
+3. Get Lindeveldje ploughed — any means: ≥ 90 % of cells ploughed/cultivated/sown (you, any of your people, or a
    contractor booked in K → Fields; verified r2: a contractor booking completes it in 2 game days).
-4. Sow Lindeveldje (≥ 95 % sown; the drill sows straight into ploughed ground, or a contractor).
+4. Sow Lindeveldje (≥ 90 % sown; the drill sows straight into ploughed ground, or a contractor).
 5. Accept a contract job (hint: field jobs need your kit; haul jobs are crew-only → delegate to a hand).
 6. Sell last year's wheat — K → Store & seed → Sell all. 7. Hire a farmhand.
 8. Rent a second field — Lindekouter, Land panel (M); done when any further parcel is rented or owned.
@@ -75,10 +75,12 @@ is saved by the owning modules. Verified round trip with all modules' save/load 
 ## Verified (scripted puppeteer playthroughs, full game, r3)
 Boot 3.2–4.9 s. Opening: 22 px/m, clear first morning, farmer at the farmhouse door with the labelled tractor in view.
 Starting kit resale €9.2k (tractor €5.2k, plough & drill €1.8k, trailer €2.2k) vs €17.7k cash; drill loaded with oats.
-Lindeveldje 0.40 ha (996 cells): walk to tractor 18 s; scripted serpentine (8 passes, slow bot turns ≈ 30 s each):
-plough 880 s real at 1× (69 % coverage: bot spacing gaps), sow 742 s (61 %). Pure driving for full coverage: plough
-≈ 11 min + turns, sow ≈ 8–9 min + turns → ≈ 23 min for a tidy human, above the 10–15 min target (core request #9).
-Strip objective (0.1 ha) done after 2 passes (~3 min). Contractor plough booking completes "Get Lindeveldje ploughed"
+Lindeveldje 0.25 ha (624 cells, 24 × 104 m), timed at 1× with the scripted driver (8 passes offset by the 3 m
+working width, implement raised ~8 m past the headland because it trails the tractor; bot turns ≈ 25 s each):
+walk to tractor 20 s; **plough 652 s (10.9 min) → 95.2 %**; **sow 620 s (10.3 min) → 93.9 % of the field (98.7 % of the
+ploughed cells)**; total from boot 21.7 min. A human with ~12 s turns: ≈ 8–9 min each, ≈ 17 min plough + sow. The
+plough → drill swap was done by API in the script (hitching needs reversing, which the bot can't do); a player needs ≈ 1 min.
+Strip objective (0.06 ha) done after 2 passes (~2.5 min). Contractor plough booking completes "Get Lindeveldje ploughed"
 in 2 game days (r2). Jobs (J) accept, K sell 12 t wheat (+€2.1k), hire, rent Lindekouter (1.04 ha, €534/ha/yr; the
 first field €542/ha/yr) → "Rent a second field" done. Save/load round trip restores money, objectives, field cells,
 workers, vehicles. 0 console errors.

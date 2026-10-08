@@ -263,9 +263,9 @@ export function createOffice(ctx, D) {
       checkT = 0.5;
       progress.plough = fieldShare(['ploughed', 'cultivated', 'sown']);
       progress.sow = fieldShare(['sown', 'ripe']);
-      if (progress.plough >= 0.95) done('ploughed');
+      if (progress.plough >= 0.9) done('ploughed'); // headland corners are hard to hit exactly
       if (!D.objectives.tractor) tractorLabel(true);
-      if (progress.sow >= 0.95) done('sow');
+      if (progress.sow >= 0.9) done('sow');
       const S = mod('simulation');
       if (S && S.workers && (S.workers() || []).length) done('hire');
       if (S && S.parcels && !D.objectives.rent2) {
