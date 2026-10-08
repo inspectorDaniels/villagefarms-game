@@ -277,7 +277,7 @@
         }
       ],
       "openIssues": [],
-      "note": "passed r2 7/10; follow-ups: removeFuelPoint, bit-exact save/load replay (ctlStep saved), despawn frees collider immediately; 37/37 + 13/13"
+      "note": "passed r2 7/10; follow-ups: removeFuelPoint, bit-exact save/load replay (ctlStep saved), despawn frees collider immediately; 37/37 + 13/13 | forgiving hitch (4.5 m, \u00b160\u00b0, snap, collision-checked), hitchCandidate() + prompt; 39/39 + 14/14"
     },
     "characters": {
       "wave": 2,
@@ -304,7 +304,9 @@
           "review": "docs/reviews/characters-r3.md"
         }
       ],
-      "openIssues": [],
+      "openIssues": [
+        "seam: characters should show vehicles.hitchCandidate() text itself instead of vehicles overriding the prompt ~7x/s"
+      ],
       "note": "passed r3 7/10; follow-ups done: isAvailable false while possessed/driving, workerId in list(), Stop-to-get-out prompt, retry throttle (19/19 + 22/22) | exact-polygon push-out vs rotated buildings/vehicles | setFollowZoom(z) (8-80, persisted, driving zooms relative). Note: round-1 suite real-time checks flaky headless -> convert to stepped timing"
     },
     "animals": {

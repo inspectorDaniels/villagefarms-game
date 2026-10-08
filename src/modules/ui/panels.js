@@ -177,8 +177,8 @@ export function builtinPanels(K) {
         for (const mc of machines) {
           const leased = mc.mode === 'leased' || mc.mode === 'lease';
           h += `<div class="hv-row"><span class="ico">${icon('tractor')}</span><div class="grow"><div class="ttl">${esc(mc.name)}</div>
-            <div class="meta">${mc.asset ? (leased ? 'Leased' : 'Owned · worth about ' + money(mc.value || 0, { dec: 0 })) : 'Not on the asset register'}</div></div>
-            <button class="hv-btn" data-sellm="${esc(mc.id)}">${leased ? 'Hand back' : 'Sell'}</button></div>`;
+            <div class="meta">${mc.asset ? (leased ? 'Leased' : 'Owned · worth about ' + money(mc.value || 0, { dec: 0 })) : mc.assetId ? 'Missing from the farm’s books' : 'Farm runabout'}</div></div>
+            ${mc.assetId ? `<button class="hv-btn" data-sellm="${esc(mc.id)}">${leased ? 'Hand back' : 'Sell'}</button>` : '<span class="chip" title="Not a farm asset: it came with the farm and cannot be traded">Not for sale</span>'}</div>`;
         }
         h += `</div>`;
       }
