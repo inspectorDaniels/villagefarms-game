@@ -33,7 +33,7 @@ export function pointInPoly(x, y, poly) {
 
 // ---- base64 for typed arrays (portable: browser + node) ----
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-function toB64(ta) {
+export function toB64(ta) {
   const u8 = new Uint8Array(ta.buffer, ta.byteOffset, ta.byteLength);
   let out = '';
   for (let i = 0; i < u8.length; i += 3) {
@@ -53,6 +53,50 @@ function fromB64(str, Type, len) {
     if (str[i + 3] !== '=' && o < bytes.length) bytes[o++] = n & 255;
   }
   return new Type(bytes.buffer);
+}
+// save v2: float arrays quantised (u8 / u16 with a scale), every array run-length encoded when that is smaller.
+// [name, quantised type, scale (stored = round(value × scale), clamped)]; null scale = raw integer array.
+const PACK = {
+  state: [Uint8Array, null], crop: [Uint8Array, null], age: [Uint8Array, null], cap: [Uint16Array, null],
+  growth: [Uint16Array, 65535], health: [Uint16Array, 50000], mass: [Uint16Array, 100],
+  fert: [Uint8Array, 255], weeds: [Uint8Array, 255], moist: [Uint8Array, 255],
+};
+function rle(u8) { // (count 1..255, byte) pairs
+  const out = [];
+  for (let i = 0; i < u8.length;) {
+    const v = u8[i]; let n = 1;
+    while (i + n < u8.length && n < 255 && u8[i + n] === v) n++;
+    out.push(n, v); i += n;
+  }
+  return Uint8Array.from(out);
+}
+function unrle(u8, len) {
+  const out = new Uint8Array(len);
+  let o = 0;
+  for (let i = 0; i + 1 < u8.length && o < len; i += 2) { out.fill(u8[i + 1], o, Math.min(len, o + u8[i])); o += u8[i]; }
+  return out;
+}
+function packArray(name, a) {
+  const [T, s] = PACK[name];
+  let q = a;
+  if (s != null) {
+    const max = T === Uint8Array ? 255 : 65535;
+    q = new T(a.length);
+    for (let i = 0; i < a.length; i++) { const v = Math.round(a[i] * s); q[i] = v < 0 ? 0 : v > max ? max : v; }
+  }
+  const bytes = new Uint8Array(q.buffer, q.byteOffset, q.byteLength);
+  const r = rle(bytes);
+  return r.length < bytes.length ? { r: 1, d: toB64(r) } : { r: 0, d: toB64(bytes) };
+}
+function unpackArray(name, o, len, Live) {
+  const [T, s] = PACK[name];
+  const n = len * T.BYTES_PER_ELEMENT;
+  const bytes = o.r ? unrle(fromB64(o.d, Uint8Array, Math.ceil(o.d.length * 3 / 4) - (o.d.endsWith('==') ? 2 : o.d.endsWith('=') ? 1 : 0)), n) : fromB64(o.d, Uint8Array, n);
+  const q = new T(bytes.buffer, bytes.byteOffset, len);
+  if (s == null) return Live === T ? new T(q) : Live.from(q);
+  const out = new Live(len);
+  for (let i = 0; i < len; i++) out[i] = q[i] / s;
+  return out;
 }
 const ARRAYS = [['state', Uint8Array], ['crop', Uint8Array], ['growth', Float32Array], ['health', Float32Array],
   ['fert', Float32Array], ['weeds', Float32Array], ['moist', Float32Array], ['mass', Float32Array], ['age', Uint8Array], ['cap', Uint16Array]];
@@ -272,6 +316,7 @@ export function createModel(W, env) {
     f.counts.fill(0);
     for (let k = 0; k < c.state.length; k++) f.counts[c.state[k]]++;
     for (let k = 0; k < c.state.length; k++) c.vis[k] = visKey(c, k);
+    inheritCapStamps(f);
     W.fields.push(f);
     byId.set(f.id, f);
     if (env.onField) env.onField(f, 'add');
@@ -291,9 +336,42 @@ export function createModel(W, env) {
     return null;
   }
 
+  // CAP stamps outlive their field: removing a field banks its stamps per parcel and 2 m world cell for the
+  // current CAP year, and a field created on that parcel area in the same CAP year inherits them. Re-drawing
+  // a field therefore cannot re-earn CAP area.
+  const capKey = (x, y) => Math.floor(x / 2) + ',' + Math.floor(y / 2);
+  function keepCapStamps(f) {
+    if (!f.parcelId || f.capYear == null) return;
+    if (!W.capCarry) W.capCarry = {};
+    let bank = W.capCarry[f.parcelId];
+    if (!bank || bank.year !== f.capYear) bank = W.capCarry[f.parcelId] = { year: f.capYear, cells: {} };
+    const cap = f.cells.cap;
+    for (let k = 0; k < cap.length; k++) {
+      if (!cap[k]) continue;
+      const [x, y] = cellCenter(f, k);
+      const key = capKey(x, y);
+      bank.cells[key] = (bank.cells[key] || 0) | cap[k];
+    }
+  }
+  function inheritCapStamps(f) {
+    const bank = f.parcelId && W.capCarry && W.capCarry[f.parcelId];
+    if (!bank) return;
+    const y = capYearOf(env.now().day);
+    if (bank.year !== y) { delete W.capCarry[f.parcelId]; return; }
+    const c = f.cells;
+    for (let k = 0; k < c.state.length; k++) {
+      if (!c.state[k]) continue;
+      const [x, yy] = cellCenter(f, k);
+      const bits = bank.cells[capKey(x, yy)];
+      if (bits) c.cap[k] |= bits;
+    }
+    f.capYear = y;
+  }
+
   function removeField(id) {
     const f = byId.get(id);
     if (!f) return false;
+    keepCapStamps(f);
     W.fields.splice(W.fields.indexOf(f), 1);
     byId.delete(id);
     W.bales = W.bales.filter((b) => b.fieldId !== id);
@@ -550,7 +628,14 @@ export function createModel(W, env) {
     let p = pending.get(key);
     if (!p) { p = { type, t0: t, payload: { ...payload } }; pending.set(key, p); }
     else { for (const k of sumKeys) p.payload[k] += payload[k]; for (const k of Object.keys(payload)) if (!sumKeys.includes(k)) p.payload[k] = payload[k]; }
-    if (force || t - p.t0 >= 60) flushKey(key);
+    if (force || due(p, t, 0)) flushKey(key);
+  }
+  // a batch is due after 60 game-s, or when the next step could cross midnight: work must reach simulation
+  // on the day it was done (CAP is paid on day 27; a batch held over the boundary would count in the next CAP year)
+  const DAY_S = 86400;
+  function due(p, t, stepS) {
+    if (t - p.t0 >= 60) return true;
+    return Math.floor((t + Math.max(90, 2 * stepS)) / DAY_S) !== Math.floor(p.t0 / DAY_S);
   }
   function flushKey(key) {
     const p = pending.get(key);
@@ -560,8 +645,8 @@ export function createModel(W, env) {
     emit(p.type, p.payload);
   }
   /** emit coalesced events that are older than 60 game-s (all when force) */
-  function flush(t, force) {
-    for (const [key, p] of [...pending]) if (force || t - p.t0 >= 60) flushKey(key);
+  function flush(t, force, stepS = 0) {
+    for (const [key, p] of [...pending]) if (force || due(p, t, stepS)) flushKey(key);
   }
 
   /**
@@ -804,6 +889,7 @@ export function createModel(W, env) {
   function resetCap(parcelId) {
     let n = 0;
     for (const f of W.fields) if (f.parcelId === parcelId) { f.cells.cap.fill(0); n++; }
+    if (W.capCarry) delete W.capCarry[parcelId];
     return n;
   }
   /** recompute summary + visuals of a field after direct edits of its cell arrays */
@@ -862,12 +948,13 @@ export function createModel(W, env) {
   // ---------------------------------------------------------------- persistence
   function save() {
     return {
-      v: 1, nextId: W.nextId, nextBale: W.nextBale, day: W.day, dayOffset: W.dayOffset,
+      v: 2, nextId: W.nextId, nextBale: W.nextBale, day: W.day, dayOffset: W.dayOffset,
+      capCarry: W.capCarry ? JSON.parse(JSON.stringify(W.capCarry)) : null,
       bales: W.bales.map((b) => ({ ...b })),
       fields: W.fields.map((f) => {
         const o = { id: f.id, poly: f.poly, angle: f.angle, cell: f.grid.cell, parcelId: f.parcelId, name: f.name, soilQ: f.soilQ,
-          baseMoist: f.baseMoist, plannedCrop: f.plannedCrop || null, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, capYear: f.capYear != null ? f.capYear : null, arrays: {} };
-        for (const [k] of ARRAYS) o.arrays[k] = toB64(f.cells[k]);
+          baseMoist: f.baseMoist, plannedCrop: f.plannedCrop || null, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, capYear: f.capYear != null ? f.capYear : null, packed: {} };
+        for (const [k] of ARRAYS) o.packed[k] = packArray(k, f.cells[k]);
         return o;
       }),
     };
@@ -880,7 +967,10 @@ export function createModel(W, env) {
       const f = newField(o.poly, { id: o.id, angle: o.angle, cell: o.cell, parcelId: o.parcelId, name: o.name });
       const c = allocCells(f);
       const N = f.grid.nu * f.grid.nv;
-      for (const [k, T] of ARRAYS) if (o.arrays[k]) c[k] = fromB64(o.arrays[k], T, N);
+      for (const [k, T] of ARRAYS) {
+        if (o.packed && o.packed[k]) c[k] = unpackArray(k, o.packed[k], N, T);            // v2
+        else if (o.arrays && o.arrays[k]) c[k] = fromB64(o.arrays[k], T, N);             // v1: raw typed arrays
+      }
       f.capYear = o.capYear != null ? o.capYear : null;
       f.soilQ = o.soilQ; f.baseMoist = o.baseMoist; if (o.plannedCrop) f.plannedCrop = o.plannedCrop; f.sownDay = o.sownDay; f.lastWorked = o.lastWorked;
       f.baleAcc = { ...o.baleAcc }; f.notified = { ...o.notified };
@@ -893,6 +983,7 @@ export function createModel(W, env) {
       if (env.onField) env.onField(f, 'add');
     }
     W.bales = (d.bales || []).map((b) => ({ ...b }));
+    W.capCarry = d.capCarry ? JSON.parse(JSON.stringify(d.capCarry)) : {};
     return true;
   }
 

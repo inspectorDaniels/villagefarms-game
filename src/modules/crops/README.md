@@ -107,7 +107,11 @@ up to 1, so simulation auto-completes it. The demo/buildtools must create fields
 - Crops does **not** call `recordFieldWork`. Simulation listens to `crops:worked` for CAP. Every `crops:worked` carries `{ fieldId, parcelId, tool, cells, areaM2 }`.
   - `areaM2` is the **newly worked** area this CAP year. Each cell keeps a per-operation bit (plough, cultivate, seed, fertilise, spray, harvest, mow, rake, bale, water). A cell counts toward `areaM2` only the first time an operation touches it in a CAP year, so alternating plough and cultivate on one strip cannot farm CAP area. `cells` is still every change.
   - The stamps reset when the CAP year rolls over. The CAP year is `floor((day − 27) / 36)`, so it starts on 1 October, day-of-year 27, the day simulation pays CAP. They also reset on `land:parcel-changed`, because simulation resets the parcel's share on rent, buy, lease end or sale.
-  - Pending coalesced events are flushed by `save()` and every step while the clock is paused.
+  - Pending coalesced events are flushed:
+    - by `save()`;
+    - every step while the clock is paused;
+    - before midnight (a batch is due as soon as the next step could cross the day boundary), so work done just before the CAP payment day is credited to the right CAP year.
+  - Stamps outlive their field. `removeField` banks them per parcel and 2 m world cell for the current CAP year (`world.crops.capCarry`, saved). A field created on that parcel in the same CAP year inherits them, so re-drawing a field cannot re-earn CAP area.
   - Events are coalesced per field and tool, at most one per 60 game-seconds, and `areaM2`/`cells` are summed across the merged calls.
   - Contractor work emits the event with `contractor: true`, so simulation can skip it and avoid counting the booked area twice.
 - `economy:contractor-done` is handled for both payload shapes, `{ parcelId|fieldId, operation, areaM2?, crop? }` and r3 `{ booking:{ parcelId, op } }`.
@@ -129,7 +133,12 @@ up to 1, so simulation auto-completes it. The demo/buildtools must create fields
 - `fields: [{ id, poly, parcelId, angle, grid, cells:{size,nu,nv,state,crop,growth,health,fert,weeds,moist,mass,age (typed arrays)}, crop, stage, state, growth, readiness, soil:{moisture,fertility,weeds}, sownDay, lastWorked, counts, area }]`
 - `bales`, `day` (last processed day), `dayOffset`, `rain`
 
-Save and load use base64 typed arrays: 29 bytes per 2 m cell, which is about 100 KB of JSON per hectare (60 ha ≈ 6 MB).
+Save format v2:
+- Float arrays are quantised (growth and health to u16, fertility, weeds and moisture to u8, mass to u16 in 0.01 kg units).
+- Every array is run-length encoded when that is smaller, then base64.
+- 60 ha of growing wheat takes **0.87 MB** (v1: about 5.3 MB). The season-test fields are 5.5× smaller.
+- Re-saving a loaded v2 save is byte-identical.
+- v1 saves (raw float arrays) still load exactly.
 
 ## Rendering
 Each field is split into world-aligned 32 m chunk canvases at LOD 4/8/16/32 px/m, cached in an LRU capped at 160 MB.

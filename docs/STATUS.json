@@ -216,12 +216,10 @@
         }
       ],
       "openIssues": [
-        "should: flush crops:worked on day change (CAP-day edge, <=60 game-s leak)",
-        "recreating a field resets CAP stamps (key per parcel)",
-        "save size 5 MB raw (quantise float arrays)",
-        "cosmetic: rapeseed bloom tiling at 32 px/m"
+        "cosmetic: rapeseed bloom tiling at 32 px/m",
+        "dry years ripen wheat in September"
       ],
-      "note": "built 2026-09-27: 8 crops, full cell state machine, growth from rain/fertiliser/weeds, yields from simulation.yieldTable (8.33 t/ha managed wheat vs 8.5 table), jobs complete via reportProgress (\u20ac137 paid in live test), save/load + determinism digests. Registered. Gaps: panning redraw 10-40 ms headless, no recordFieldWork call yet (CAP r3). | follow-ups: crops:worked carries parcelId/areaM2 (contractor:true flag), applies economy:contractor-done (840/840 cells live), pan 2-3 ms/frame headless (over 1.5 budget, needs real-GPU check) | r2: frame A/B +0.35-0.68 ms static, +0.49 follow, +1.47 pan (half-res composite, texture budget), CAP-year per-op cell stamps, createField validation, spraying pays, flush on save"
+      "note": "built 2026-09-27: 8 crops, full cell state machine, growth from rain/fertiliser/weeds, yields from simulation.yieldTable (8.33 t/ha managed wheat vs 8.5 table), jobs complete via reportProgress (\u20ac137 paid in live test), save/load + determinism digests. Registered. Gaps: panning redraw 10-40 ms headless, no recordFieldWork call yet (CAP r3). | follow-ups: crops:worked carries parcelId/areaM2 (contractor:true flag), applies economy:contractor-done (840/840 cells live), pan 2-3 ms/frame headless (over 1.5 budget, needs real-GPU check) | r2: frame A/B +0.35-0.68 ms static, +0.49 follow, +1.47 pan (half-res composite, texture budget), CAP-year per-op cell stamps, createField validation, spraying pays, flush on save | follow-ups: batches flushed before midnight, CAP stamps carried across field re-create, save v2 ~6x smaller (60 ha 0.87 MB)"
     },
     "buildings": {
       "wave": 2,

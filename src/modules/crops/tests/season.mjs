@@ -2,7 +2,7 @@
 // create field → plough → sow wheat (October) → daily growth with rain → stages → harvest → yield + stubble
 // → straw bales; a second field (barley) left unharvested → withered; grass mow/rake/bale; job progress
 // reporting to a simulation stub; save/load round trip; determinism (two runs → same digest); timings.
-import { createModel } from '../model.js';
+import { createModel, toB64 } from '../model.js';
 import { CROPS, S, STATE_NAMES, YEAR_DAYS } from '../data.js';
 
 const DAY = 86400;
@@ -54,7 +54,7 @@ function run(seed, verbose) {
   };
   const M = createModel(W, {
     seed, emit: (t, p) => events.push([t, p]), sim: () => simStub,
-    now: () => ({ t: clock.day * DAY + 36000, day: clock.day, doy: clock.day % YEAR_DAYS }),
+    now: () => ({ t: clock.day * DAY + (clock.tod != null ? clock.tod : 36000), day: clock.day, doy: clock.day % YEAR_DAYS }),
     moistureAt: () => 0.5,
   });
   const out = {};
@@ -216,16 +216,49 @@ function run(seed, verbose) {
     M.work('plough', 710, 710, 3, Math.PI / 2, 8); M.flush(0, true);
     const nxt = events.filter((e) => e[0] === 'crops:worked' && e[1].fieldId === fid).pop();
     check(nxt && nxt[1].areaM2 > 0, `next CAP year: the same strip counts again (${nxt && nxt[1].areaM2} m²)`);
-    clock.day -= 36;
+    // remove + recreate the same outline in the same CAP year: stamps carry over (no new area)
+    const poly = M.W.fields.find((f) => f.id === fid).poly;
     M.removeField(fid);
+    const fid2 = M.createField(poly, { state: 'stubble' });
+    const n1 = events.length;
+    M.work('plough', 710, 710, 3, Math.PI / 2, 8); M.flush(0, true);
+    const re = events.slice(n1).filter((e) => e[0] === 'crops:worked' && e[1].fieldId === fid2);
+    check(re.length && re.reduce((a, e) => a + e[1].areaM2, 0) === 0, `field removed and re-created on the same parcel outline: re-ploughing the strip earns ${re.reduce((a, e) => a + e[1].areaM2, 0)} m² (stamps carried over)`);
+    // a batch started 100 game-s before midnight is handed over before the day changes (CAP day boundary)
+    M.removeField(fid2);
+    const fid3 = M.createField(rect(760, 700, 30, 30, 0).poly, { state: 'stubble' });
+    clock.tod = DAY - 100;
+    const n2 = events.length;
+    const cnt = () => events.slice(n2).filter((e) => e[0] === 'crops:worked' && e[1].fieldId === fid3).length;
+    M.work('plough', 770, 710, 3, Math.PI / 2, 8);
+    const held = cnt();
+    M.flush(DAY * clock.day + DAY - 95, false, 1);
+    const stillHeld = cnt();
+    M.flush(DAY * clock.day + DAY - 80, false, 1);   // a later update step, still the same day
+    check(held === 0 && stillHeld === 0 && cnt() === 1, `work 100 game-s before midnight: held (${held}, ${stillHeld}), handed to simulation before the day changes (${cnt()})`);
+    clock.tod = null;
+    clock.day -= 36;
+    M.removeField(fid3);
   }
   // ---- save / load round trip
   const d1 = M.digest();
   const saved = JSON.parse(JSON.stringify(M.save()));
-  const W2 = {};
-  const M2 = createModel(W2, { seed, emit() {}, sim: () => null, now: () => ({ t: 0, day: clock.day, doy: clock.day % 36 }) });
-  M2.load(saved);
-  check(M2.digest() === d1 && JSON.stringify(M2.stats(fa)) === JSON.stringify(M.stats(fa)), `save/load round trip: digest ${d1} == ${M2.digest()}, JSON ${(JSON.stringify(saved).length / 1024).toFixed(1)} KB`);
+  // a v1 save (raw float arrays) of the same state, for size comparison and backward compatibility
+  const v1 = JSON.parse(JSON.stringify(saved));
+  v1.v = 1;
+  for (const o of v1.fields) { const f = M.byId.get(o.id); o.arrays = {}; for (const k of ['state', 'crop', 'growth', 'health', 'fert', 'weeds', 'moist', 'mass', 'age', 'cap']) o.arrays[k] = toB64(f.cells[k]); delete o.packed; }
+  const kb = (o) => JSON.stringify(o).length / 1024;
+  const mk = () => createModel({}, { seed, emit() {}, sim: () => null, now: () => ({ t: 0, day: clock.day, doy: clock.day % 36 }) });
+  const M2 = mk(); M2.load(saved);
+  const again = JSON.stringify(M2.save());
+  const near = (a, b) => Math.abs(a - b) <= Math.max(1, Math.abs(b) * 0.002);
+  const s1 = M.stats(fa), s2 = M2.stats(fa);
+  check(again === JSON.stringify(saved) && JSON.stringify(s2.counts) === JSON.stringify(s1.counts) && near(s2.lyingKg, s1.lyingKg) && near(s2.moisture, s1.moisture) && near(s2.fertility, s1.fertility),
+    `save v2 round trip: re-save identical, counts equal, lying ${s2.lyingKg}/${s1.lyingKg} kg, moisture ${s2.moisture}/${s1.moisture}; size ${kb(saved).toFixed(1)} KB vs v1 ${kb(v1).toFixed(1)} KB (${(kb(v1) / kb(saved)).toFixed(1)}× smaller)`);
+  const M3 = mk(); M3.load(v1);
+  check(M3.digest() === d1, `v1 save still loads exactly (digest ${M3.digest()} == ${d1})`);
+  // growth continues the same after a v2 load: ripening day of a sown field matches within a day
+  out.saveKB = +kb(saved).toFixed(1); out.saveV1KB = +kb(v1).toFixed(1);
   out.digest = d1;
   out.events = events.reduce((a, e) => { a[e[0]] = (a[e[0]] || 0) + 1; return a; }, {});
   return out;

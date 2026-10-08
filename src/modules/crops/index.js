@@ -213,7 +213,7 @@ export async function init(ctx) {
         model.beginDay(W.day + 1, rainFor(W.day + 1));
       }
       if (model.pendingDay() != null) model.stepDay(4000); // ≈ 0.5 ms per step; a 60 ha farm finishes a day in ~40 steps
-      model.flush(clock.t, clock.paused);   // paused: nothing would ever age the batch, so hand it over now
+      model.flush(clock.t, clock.paused, dtGame);   // paused: nothing would ever age the batch, so hand it over now
     },
     save() { model.stepDay(Infinity); model.flush(clock.t, true); return { model: model.save(), rain: JSON.parse(JSON.stringify(W.rain)) }; },
     load(d) {
