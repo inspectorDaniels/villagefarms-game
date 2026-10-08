@@ -165,3 +165,7 @@ buildings are booked as new (€4.55k/yr upkeep, €243k phantom net worth). Dec
 2. **A guaranteed first job:** on game days 1–2 at least one player-sized field job the starting kit can do (plough
    or drill, ≤1 ha, near the farm) is offered. Owner: simulation. It is a hook and teaches the job loop.
 3. Targets (r6) stay; re-measure with `--start=demo` after both.
+**r7 outcome (director):** solo year-1 target lowered to **start + €2k** (solo play must not lose money, but hiring a
+hand — the game's core scaling mechanic — should clearly win: hand + €10k, met 8/8 with Lindekouter, median met
+without). Combine milestone relaxed to year 4–7 (now median 6.5 after value-based upkeep). Building book floor stays
+30 % for now.

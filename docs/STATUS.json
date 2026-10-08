@@ -115,7 +115,7 @@
         }
       ],
       "openIssues": [],
-      "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged | quoteParcel (shared code path with buyParcel), inputs charged on sowing incl. contractor sowing (bookings exclude inputs); 35/35 | r6: kit-filtered player jobs, haul/deliver crew-only, grouped seed ledger rows, payPerUnit+callout, --start=demo harness (y1 cash solo \u20ac23k / with hand \u20ac31k from \u20ac17.7k); 37/37 | contractor quote/booking lead time unified; --start=demo r3: y1 misses r6 (solo \u20ac16k, hand \u20ac24k) -> Revision r7"
+      "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged | quoteParcel (shared code path with buyParcel), inputs charged on sowing incl. contractor sowing (bookings exclude inputs); 35/35 | r6: kit-filtered player jobs, haul/deliver crew-only, grouped seed ledger rows, payPerUnit+callout, --start=demo harness (y1 cash solo \u20ac23k / with hand \u20ac31k from \u20ac17.7k); 37/37 | contractor quote/booking lead time unified; --start=demo r3: y1 misses r6 (solo \u20ac16k, hand \u20ac24k) -> Revision r7 | r7: grantAsset ageYears + value-based upkeep, guaranteed first job (8/8 seeds); y1 from demo start: solo \u20ac19.7k (+\u20ac2k target met), hand \u20ac28.2k (median met), hand+2nd field 8/8; 40/40 probes"
     },
     "ui": {
       "wave": 1,

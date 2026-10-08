@@ -77,7 +77,7 @@ export function runOne(strategy, seed, years = YEARS) {
 /** the live demo's opening position (demo/index.js + demo/layout.js, demo r3 addendum):
  *  €17,664 cash; owned 0.6 ha yard; Lindeveldje rented, 24 × 104 m = 0.25 ha; Lindekouter (65 × 160 m = 1.04 ha)
  *  to let next door; the old kit (tractor, plough & drill, trailer) granted 16 years old → €9.2k at the 20 % floor;
- *  the pickup is the family car (no asset); the farm buildings granted by buildings (grant: true → upkeep). */
+ *  the pickup is the family car (no asset); the farm buildings granted ~40 years old (r7: ageYears 40). */
 const DEMO_BUILDINGS = [['bld_farmhouse', 180000, 'farmhouse'], ['bld_barn', 65000, 'barn'], ['bld_machine_shed', 55000, 'machine_shed'], ['bld_chicken_coop', 3500, 'chicken_coop']];
 function demoStart(sim, ids) {
   const a = sim.api;
@@ -88,7 +88,7 @@ function demoStart(sim, ids) {
   if (Math.abs(rented - 0.25) > 0.01) throw new Error('demo start: rented ' + rented.toFixed(2) + ' ha');
   const old = sim.today() - 16 * YEAR_DAYS;
   for (const x of sim.world.economy.assets) x.boughtDay = old; // the harness kit, aged like demo's
-  for (const [id, price, building] of DEMO_BUILDINGS) { a.registerCatalogItem({ id, category: 'building', name: building, price, meta: { building } }); a.grantAsset(id); }
+  for (const [id, price, building] of DEMO_BUILDINGS) { a.registerCatalogItem({ id, category: 'building', name: building, price, meta: { building } }); a.grantAsset(id, { ageYears: 40 }); }
   sim.world.economy.money = 17664;
   if (RENT2) a.rentParcel(ids.lindekouter);
 }

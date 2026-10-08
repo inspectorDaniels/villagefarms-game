@@ -38,6 +38,7 @@ export function createSim(world, env) {
     sim.market.initMarket();
     sim.land.initLand();
     sim.jobs.initJobs();
+    sim.world.jobs.startDay = startDay; // r7: game day 1 (the first-job guarantee)
     sim.contractors.initContractors();
     const E = world.economy;
     const was = sim.virtualT;

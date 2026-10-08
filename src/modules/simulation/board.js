@@ -26,7 +26,7 @@ export function dayLabel(d, withYear) {
 }
 const CAT_LABEL = {
   sales: 'Crop sales', jobs: 'Contract work', subsidy: 'CAP payment', rent: 'Land rent', wages: 'Wages',
-  interest: 'Interest', upkeep: 'Machine upkeep', lease: 'Leases', insurance: 'Insurance & fixed', fuel: 'Diesel',
+  interest: 'Interest', upkeep: 'Upkeep', lease: 'Leases', insurance: 'Insurance & fixed', fuel: 'Diesel',
   seed: 'Seed', fertiliser: 'Fertiliser', spray: 'Crop protection', contractor: 'Contractors', penalty: 'Penalties',
   purchase: 'Purchases', land: 'Land purchase', machinery: 'Machinery', buildings: 'Buildings', writeOff: 'Written off', loan: 'Loan drawn', loanRepay: 'Loan repaid',
   landSale: 'Land sold', assetSale: 'Machine sold', misc: 'Sundries',

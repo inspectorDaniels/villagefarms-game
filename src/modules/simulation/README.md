@@ -72,9 +72,10 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
 - **(r3)** Bulk crops (wheat, barley, oats, rapeseed, maize) share one farm store. The old barn holds 80 t. Buying the catalog items `grain_store` (+400 t) or `grain_store_l` (+1000 t) raises it. `bulkRoom()` → t free.
 
 **Catalog / assets**
-- `registerCatalogItem`, `catalog(category?)`, `lease(id)`, `grantAsset(id, {boughtDay?, category?})`, `assets()`.
+- `registerCatalogItem`, `catalog(category?)`, `lease(id)`, `grantAsset(id, {ageYears?, boughtDay?, category?})`, `assets()`.
 - `purchase(id, {finance?, category?})` → bool. Finance means 25 % down and a 5-year loan secured on the machine.
 - `releaseAsset(assetId, {writeOff?})` → € net. **(r3)** A financed machine's loan is repaid from the sale proceeds first.
+- **(r7) Old grants and upkeep.** `grantAsset(id, {ageYears})` books the asset as bought that many years ago, so it is valued (and sells) depreciated, down to the floor. Demo grants the machines at 16 years (20 % floor) and the farm buildings at 40 years (30 % floor). **Upkeep for every owned asset now scales with its current value**: daily upkeep = catalog `upkeepPerDay` × value ÷ list price, so a new machine pays 90 % and an old one 20 %. `assets()` also returns `upkeepToday`.
 - **(r6) Two capital books.** Every owned asset carries `book: 'machinery' | 'buildings'` (see `assets()`).
   - An asset is in the **buildings** book when bought/granted with `{category: 'buildings'}`, or when its catalog entry has `meta.building` (every item the buildings module registers). Everything else stays **machinery** (unchanged).
   - Buildings: the purchase is booked under ledger category `buildings` (capital — it does not lower the operating P&L or the income part of the credit limit). Value = 80 % of cost once built, −2 % of cost per year, floor 30 % (machinery: 90 %, −5 %/yr, floor 20 %). Shown as `netWorth().buildings`.
@@ -143,6 +144,7 @@ Everything from r2 still works. New in r3 are marked **(r3)**.
   2. the client's farm (`defineClientFarm`, or a parcel the client owns);
   3. a deterministic point inside `world.bounds`.
 - **Player-sized offers** take about 5–20 real minutes. **Crew-sized offers** (`crew: true`) take about 1–2 hand-days. Each carries `estPlayerMin` / `estAiHours`.
+- **(r7) First-job guarantee.** On game days 1–2 (counted from `reset(startDay)`), if the board has no suitable job, one is offered. It is player-sized, a plough or drill job of at most 1 ha, on the npc parcel nearest the farm (within 600 m of the yard), and the starting kit can do it. It is marked `firstJob: true` and offered once. If a natural offer already fits, it is marked instead.
 - **(r6) Kit filter.** A player-sized offer is only made when the player owns or leases what it needs: the `needs` category (`tillage`, `combine`, `harvester` for lifting, `mower`, …) plus a tractor unless the machine is self-propelled. Crew offers are not filtered; they are the demand signal the harness uses to buy kit.
 - **(r6) `transport` / `deliver` are crew-only** until a haul loop exists: `crew: true`, `crewOnly: true`, `label: 'Crew job — delegate it to a hand'`, and the title ends in "(crew job)". `acceptJob` refuses them when the farm has no hand. `assignJob` accepts only a hired hand's id, not `null` or a character.
 - **(r6) Pay breakdown.** Each offer carries `payPerUnit` (€ per ha/t/load/h for the work, after reputation and the crew market) and `callout` (€60–110 trip fee on machine jobs). Rates are plough €105/ha, drill €72/ha, combine €160/ha (lift ×1.6) and mow €58/ha. A small player job is mostly call-out: a 0.57 ha plough job pays €60 of work plus about €100 call-out, so €160 is ≈ €280/ha. This is intended, because a contractor bills the trip, and the ui can show "€105/ha + €100 call-out".
@@ -283,7 +285,7 @@ Net worth:
 | 8 | €86k | €95k | €147k | €180k | €214k (43 ha, 7.9 owned) |
 | 10 | €98k | €112k | €176k | €243k | **€303k** (51 ha, 11.9 owned, 3 hands) |
 
-**r6 (kit filter + crew-only hauling):** Y10 is now jobs €86k · contractor €117k · smallfarm €165k · renter €250k · builder **€337k**, and Y1 is €49k for all of them. Player job income in Y1 drops from €6k to €4k because the player can no longer haul. The builder's Y10 band holds in 6/8 seeds. In one seed (harvest-3) the builder buys land and kit on credit in Y4–5, its credit line runs dry, it leaves the fields fallow and spirals; this is a strategy weakness exposed by a different job flow. In another seed it overshoots (€415k). The tables below are r5.
+**r7 (value-based upkeep + first job):** Y10 is jobs €91k · contractor €122k · smallfarm €170k · renter €272k · builder **€344k** (6/8 in band). The ordering holds at ×1. At ×0.5 and ×2 the relaxed rule holds, and at ×2 the full chain holds too. Combine median is now year 6.5 (target 4–6, was 6). **r6 (kit filter + crew-only hauling):** Y10 is now jobs €86k · contractor €117k · smallfarm €165k · renter €250k · builder **€337k**, and Y1 is €49k for all of them. Player job income in Y1 drops from €6k to €4k because the player can no longer haul. The builder's Y10 band holds in 6/8 seeds. In one seed (harvest-3) the builder buys land and kit on credit in Y4–5, its credit line runs dry, it leaves the fields fallow and spirals; this is a strategy weakness exposed by a different job flow. In another seed it overshoots (€415k). The tables below are r5.
 
 The builder, year by year:
 
@@ -342,23 +344,23 @@ Fast-forwarding does not skip the economy: costs are per game day, CAP needs wor
 ### Year 1 from the live demo start (`progression.mjs 1 8 --start=demo [--hire=1] [--rent2]`)
 The demo r3 start is:
 - €17,664 cash and the owned 0.6 ha yard;
-- **Lindeveldje rented, 0.25 ha**, with Lindekouter (1.04 ha) available to rent;
-- the old kit granted 16 years old (€9.2k at the 20 % floor); the pickup is the family car, not an asset;
-- the farmhouse, barn, machine shed and coop granted by buildings. They are booked new: 80 % value, and **€4.55k/yr upkeep**.
+- Lindeveldje rented, 0.25 ha, with Lindekouter (1.04 ha) available to rent;
+- the old kit granted 16 years old (€9.2k);
+- the pickup is the family car, not an asset;
+- the farmhouse, barn, machine shed and coop granted 40 years old (r7): €91k at the 30 % floor, about €1.4k/yr upkeep.
 
-The r6 target is end-of-year-1 cash ≥ start + €5k (€22.7k) solo, and ≥ start + €10k (€27.7k) with a hand. Median of 8 seeds:
+The r6 targets are end-of-year-1 cash ≥ €22,664 solo and ≥ €27,664 with a hand. With r7 (old grants, value-based upkeep, first-job guarantee), exact medians of 8 seeds:
 
-| play | cash | target |
-|---|---|---|
-| solo | €16k | ✘ (−€6.7k) |
-| solo + Lindekouter rented on day 1 | €18k | ✘ |
-| one hand from day 1, crew jobs delegated | €24k | ✘ (−€3.7k) |
-| hand + Lindekouter | €26k | ✘ |
-| *without the buildings' upkeep:* solo / hand / solo + Lindekouter | €20k / €29k / €22k | ✘ / ✔ / ✘ (−€0.6k) |
+| play | median cash | worst seed | seeds meeting target |
+|---|---|---|---|
+| solo | €19,668 | €19,215 | 0/8 ✘ (−€3.0k) |
+| solo + Lindekouter rented on day 1 | €21,618 | €21,315 | 0/8 ✘ (−€1.0k) |
+| one hand from day 1, crew jobs delegated | €28,159 | €26,795 | 4/8 ✔ median |
+| hand + Lindekouter | €29,479 | €28,599 | 8/8 ✔ |
 
-Net worth reads about €273k only because the granted buildings are booked as new. Without them it is €40–49k.
+Net worth is about €130–140k, of which €91k is the old buildings at the 30 % floor.
 
-### Exploit probes (`exploits.mjs`, default 8 seeds: 38/38 closed; r6 added 7)
+### Exploit probes (`exploits.mjs`, default 8 seeds: 40/40 closed; r6/r7 added 9)
 | probe | median | verdict |
 |---|---|---|
 | **r5 credit line → diesel before insolvency** (42,355 l bought on the whole credit line, then a −€120k shock) | 0 l kept; diesel seized at 50 % in the settlement | closed |

@@ -90,12 +90,14 @@ export function installJobs(sim) {
     return (j.unit === 'h' ? j.amount : 4) * left; // presence / snow: game hours either way
   }
 
-  function makeOffer(day, rng) {
+  /** opts (r7 first-job guarantee): { type, nearFarm: {x,y}, maxHa } — a player-sized offer of that type on the
+   *  npc parcel nearest the farm. Without opts the dice decide everything (unchanged). */
+  function makeOffer(day, rng, force) {
     const m = month(day);
     const weather = sim.world.environment && sim.world.environment.weather;
     const snowy = weather && weather.kind === 'snow';
     const types = Object.entries(JOB_TYPES).map(([k, t]) => [k, t.months[m] * (k === 'snowClear' ? (snowy ? 4 : 0.5) : t.machine ? 1 : 0.45)]).filter((x) => x[1] > 0);
-    const type = rng.weighted(types);
+    const type = force && force.type ? force.type : rng.weighted(types);
     const T = JOB_TYPES[type];
     const village = type === 'shopHelp' || type === 'villageWork' || type === 'snowClear' || type === 'deliver';
     const pool = CLIENTS.filter((c) => (village ? c.kind === 'village' : c.kind === 'farm'));
@@ -106,7 +108,7 @@ export function installJobs(sim) {
     const sps = Object.values(E().sellPoints || {});
     const farm = clientFarm(client);
     // crew-sized offers become more common with more hands (and with reputation)
-    const crewRoll = T.machine && type !== 'snowClear' && rng.chance(Math.min(0.75, 0.3 + 0.15 * Math.min(CONST.marketHands, hands()) + 0.2 * Math.max(0, J.reputation - 0.5)));
+    const crewRoll = !force && T.machine && type !== 'snowClear' && rng.chance(Math.min(0.75, 0.3 + 0.15 * Math.min(CONST.marketHands, hands()) + 0.2 * Math.max(0, J.reputation - 0.5)));
 
     const crew = crewRoll || CREW_ONLY.includes(type);
     const job = {
@@ -123,12 +125,15 @@ export function installJobs(sim) {
     if (job.op === 'lift') job.needs = 'harvester';
     let km = 0;
     if (AREA.includes(type)) {
-      const p = theirs.length ? rng.pick(theirs) : npc.length ? rng.pick(npc) : null;
+      const near = force && force.nearFarm;
+      const p = near ? npc.slice().sort((a, b) => Math.hypot(a.center[0] - near.x, a.center[1] - near.y) - Math.hypot(b.center[0] - near.x, b.center[1] - near.y))[0] || null
+        : theirs.length ? rng.pick(theirs) : npc.length ? rng.pick(npc) : null;
       if (p) { job.parcelId = p.id; job.x = p.center[0]; job.y = p.center[1]; job.to = place(p); } else job.to = { ...farm };
       // area from the rates: player-sized = 5–20 real minutes of the player's own driving; crew-sized = 8–20 hand-hours
       const r = crew ? areaRate(job, 'ai') * rng.range(8, 20) : areaRate(job, 'player') * rng.range(5, 20);
       job.amount = Math.max(0.1, +r.toFixed(2));
       if (p) job.amount = Math.min(job.amount, Math.max(0.1, +(p.area / 1e4).toFixed(2)));
+      if (force && force.maxHa) job.amount = Math.min(job.amount, force.maxHa);
     } else if (type === 'transport') {
       const crop = rng.pick(['wheat', 'barley', 'maize', 'potatoes', 'sugarBeet', 'straw', 'hay']);
       job.crop = crop;
@@ -174,6 +179,7 @@ export function installJobs(sim) {
     if (CREW_ONLY.includes(type)) { job.crewOnly = true; job.label = 'Crew job — delegate it to a hand'; job.title += ' (crew job)'; }
     // r6: a player-sized offer the player has no kit for is not offered (rng use is unchanged)
     if (!job.crew && !playerCanDo(job)) { J.nextId--; return null; }
+    if (force) job.firstJob = true;
     J.list.push(job);
     J.stats.offered++;
     E().version++;
@@ -374,7 +380,33 @@ export function installJobs(sim) {
     let n = rng.weighted([[2, 3], [3, 3], [4, 1.5]]) + (J.reputation > 0.8 && rng.chance(0.5) ? 1 : 0) + Math.floor(hm * 1.2 + rng.float());
     n = Math.min(n, CONST.maxOffersPerDay, CONST.maxOpenOffers + 2 * hm - open);
     for (let i = 0; i < n; i++) makeOffer(day, rng);
+    firstJob(day);
   }
+
+  /** r7: on game days 1–2 there is always one player-sized plough or drill job (≤ 1 ha) near the farm that the
+   *  starting kit can do — the hook that teaches the job loop. Offered once, if the board has none already. */
+  function firstJob(day) {
+    if (J.firstJobDay != null || J.startDay == null || day - J.startDay > 1 || day < J.startDay) return;
+    const fits = (j) => !j.crew && (j.type === 'plough' || j.type === 'sow') && j.amount <= 1 && playerCanDo(j) && (j.status === 'offered' || j.status === 'accepted') && nearFarm(j);
+    const have = J.list.find(fits);
+    if (have) { J.firstJobDay = day; have.firstJob = true; return; }
+    const farm = farmCentre();
+    if (!farm) return;
+    const m = month(day);
+    const sowable = CROP_FOR.sow.some((c) => CROPS[c].sowMonths.includes(m));
+    const type = JOB_TYPES.plough.months[m] > 0 || !sowable ? 'plough' : 'sow';
+    const j = makeOffer(day, sim.rngFor('jobs:first:' + day), { type, nearFarm: farm, maxHa: 1 });
+    if (j && fits(j)) { J.firstJobDay = day; j.expiresDay = Math.max(j.expiresDay, day + 1); j.deadlineDay = Math.max(j.deadlineDay, j.expiresDay + 1); }
+    else if (j) { j.status = 'expired'; }
+  }
+  /** the player's yard (owned, not tradeable) or first owned/rented parcel */
+  function farmCentre() {
+    const ps = sim.world.land.parcels || [];
+    const p = ps.find((q) => q.state === 'owned' && q.tradeable === false) || ps.find((q) => q.state === 'owned' || q.state === 'rented');
+    return p ? { x: p.center[0], y: p.center[1] } : null;
+  }
+  const NEAR_M = 600;
+  function nearFarm(j) { const f = farmCentre(); return !f || Math.hypot(j.x - f.x, j.y - f.y) <= NEAR_M; }
 
   sim.jobs = { initJobs, jobsDay, makeOffer, workDelegated, workHours };
 }

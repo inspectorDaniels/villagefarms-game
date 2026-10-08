@@ -116,6 +116,8 @@ export function installEconomy(sim) {
     if (bookOf(a) === 'buildings') return a.price * Math.max(CONST.buildingFloor, CONST.buildingResaleNew - CONST.buildingDepreciationYear * years);
     return a.price * Math.max(0.2, CONST.assetResaleNew - CONST.assetDepreciationYear * years);
   }
+  /** r7: upkeep scales with current value, not list price (an old machine/building costs less to keep) */
+  function upkeepToday(a) { return a.price > 0 ? a.upkeepPerDay * assetValue(a) / a.price : a.upkeepPerDay; }
   /** owned asset value per book → { machinery, buildings } */
   function bookValues() {
     const r = { machinery: 0, buildings: 0 };
@@ -237,12 +239,15 @@ export function installEconomy(sim) {
       const c = E.catalog[id];
       if (!c) return null;
       opts = opts && typeof opts === 'object' ? opts : {};
-      const a = { id: nid('asset'), itemId: id, name: c.name, category: c.category, book: bookFor(c, opts), meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay: opts.boughtDay != null ? opts.boughtDay : sim.today(), granted: true };
+      // r7: opts.ageYears — an old grant (starting kit, the family farm): valued and maintained as that old
+      const age = Number.isFinite(+opts.ageYears) && +opts.ageYears > 0 ? +opts.ageYears : 0;
+      const boughtDay = opts.boughtDay != null ? opts.boughtDay : sim.today() - Math.round(age * YEAR_DAYS);
+      const a = { id: nid('asset'), itemId: id, name: c.name, category: c.category, book: bookFor(c, opts), meta: c.meta, mode: 'owned', price: c.price, upkeepPerDay: c.upkeepPerDay, boughtDay, granted: true };
       E.assets.push(a);
       E.version++;
       return a.id;
     },
-    assets() { return E.assets.map((a) => ({ ...a, value: a.mode === 'owned' ? Math.round(assetValue(a)) : 0 })); },
+    assets() { return E.assets.map((a) => ({ ...a, value: a.mode === 'owned' ? Math.round(assetValue(a)) : 0, upkeepToday: a.mode === 'owned' ? Math.round(upkeepToday(a) * 100) / 100 : 0 })); },
     /** sell an owned asset (returns €) or hand back a leased one (returns 0).
      *  r6: opts.writeOff — demolish/scrap instead: no cash, one 'writeOff' ledger entry (amount 0, bookValue =
      *  what was written off); returns 0. Loans secured on it stay (they are still owed). */
@@ -384,7 +389,7 @@ export function installEconomy(sim) {
     const doy = ((day % YEAR_DAYS) + YEAR_DAYS) % YEAR_DAYS;
     for (const w of E.workers) settleWorker(w);
     for (const a of E.assets) {
-      if (a.mode === 'owned' && a.upkeepPerDay > 0) api.charge(a.upkeepPerDay, 'upkeep', `Upkeep — ${a.name}`, { force: true });
+      if (a.mode === 'owned' && a.upkeepPerDay > 0) api.charge(upkeepToday(a), 'upkeep', `Upkeep — ${a.name}`, { force: true });
       if (a.mode === 'leased') api.charge(a.leasePerDay, 'lease', `Lease — ${a.name}`, { force: true });
     }
     for (const l of E.loans.slice()) {
