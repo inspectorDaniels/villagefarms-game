@@ -138,10 +138,9 @@
         "**An invisible dead zone above the toolbar eats world clicks.** The `ui:toolbar` HUD node is `hv-hit`, 348\u00d791 px, and includes the tool-name row plus the gap. Probes at (746,807) and (631,800), on transparent pixels beside the \"Hoe\" chip, returned `uiCapturing=true` and the canvas never received the click. Give the bare wrappers (`card:false` HUDs, `toolsWrap`) `pointer-events:none` and only mark the visible card, chip and prompt as `.hv-hit`.",
         "**Declare the optional dependencies.** `manifest.optionalDeps: []`, but the module reads `simulation`, `environment` (via world), `terrain` and `roads` through `ctx.modules.get`. The brief lists them as the data sources and ARCHITECTURE \u00a71 expects them in the manifest (boot also uses optionalDeps for init order). Set `optionalDeps: ['simulation','environment','terrain','roads']`. This is harmless to wave-1 isolation because they stay optional.",
         "simulation.acceptJob should return a refusal reason (ui infers it for now)",
-        "Land panel: for-rent parcel state + Rent button; rent text must match lease (monthly in advance, 1-yr min)",
-        "show reason when selling an asset fails"
+        "selling one implement of a kit (plough+drill share simulation:asset:6) should explain 'sold as a kit' (vehicles/ui reason)"
       ],
-      "note": "passed r1 (7/10); polish round applied all must/should-fix; not re-reviewed | follow-ups: vehicle-key suppression, hand day-cost toast/tag, solvency card + countdown, toast dedup | job pay breakdown, crew-job label + refusal toast, balance card z-order, prompt hidden when active character off-screen"
+      "note": "passed r1 (7/10); polish round applied all must/should-fix; not re-reviewed | follow-ups: vehicle-key suppression, hand day-cost toast/tag, solvency card + countdown, toast dedup | job pay breakdown, crew-job label + refusal toast, balance card z-order, prompt hidden when active character off-screen | Land panel: To-let parcels + Rent/End lease with real lease terms; Machines list with Sell/Hand back + refusal reasons"
     },
     "audio": {
       "wave": 1,
@@ -369,8 +368,6 @@
         }
       ],
       "openIssues": [
-        "'Plough your first strip' stuck if contractor/hand ploughs first (office.js)",
-        "ui Land panel (M) cannot rent for-rent parcels; rent dialog text contradicts lease",
         "should: 90% needs headlands (8 passes=84%), day-1 wear 56%/repair \u20ac1.7k, drill hitch window 2.6 m, 0.82 ha plough marked crew-only, selling drill fails silently, overview 27/70 ms (terrain 14, roads 6.5)"
       ],
       "note": "r2+r3+r7: 0.25 ha first field (plough ~10.9 min / sow ~10.3 min scripted, est. 8-9 min each by hand), 40-yr buildings (workaround until buildings passes ageYears), first-job hint, opening at 22 px/m | r2 critic: all 5 r1 must-fixes fixed; first hour all 8 objectives ~35-40 min; play 9.9 ms, village 13 ms"

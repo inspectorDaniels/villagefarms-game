@@ -45,6 +45,16 @@ HUD extras: hired-hand portraits carry a day-rate tag (`€180/day`, outlined wh
 a persistent `ui:solvency` card (top-centre) appears while `simulation.solvency().overLimit`, with the countdown from
 `daysToBlock`/`daysToSettlement`/`nextStage`, and a bankrupt / restructured-and-blocked message. Both refresh at 2 Hz and hide without data.
 
+Land panel (r6): parcel states `owned | rented | forSale | forRent | npc`. For-sale parcels get **Buy**. For-rent parcels
+("To let") show rent per year and per ha and get **Rent**. Rented parcels get **End lease**, which shows the exit fee from
+`leaseExitCost`. The Rent dialog shows the simulation lease terms: monthly in advance, a one-year minimum, and an early exit
+costing at most 3 months' rent. These come from the README; simulation does not expose them. A refusal shows its reason
+(not offered, the bank block, or the first month not covered); `rentParcel` itself only returns false.
+Finances panel: a **Machines** list (from `vehicles.list()` + `simulation.assets()`) with Sell / Hand back. A refused sale
+toasts its reason: driver seated, not on the asset register, or the asset record is missing. Jobs: the pay breakdown is
+`payPerUnit`/unit + `callout`, crew jobs show their label, and a refused accept shows its reason (crew job with no hand,
+job cap reached).
+
 ## World data
 `world.ui = { speed, paused, openPanel, activeTool }` (save/load round-trips it).
 
