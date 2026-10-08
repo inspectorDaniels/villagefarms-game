@@ -84,3 +84,5 @@ assetId = S.grantAsset(d.catalog.id, Number.isFinite(+opts.ageYears) ? { ageYear
 Meanwhile demo re-books them itself (writes off the fresh grant, grants a 40-year-old one, keeps a map to release it
 on `buildings:removed`); this auto-disables once buildings passes `ageYears`. Cost: 4 zero-amount `writeOff` ledger rows at start. The machines already go through
 `simulation.grantAsset(item, { boughtDay, ageYears: 16 })` from demo.
+
+**#10 DONE (buildings passes ageYears; integrator verified: 0 write-off rows at start, buildings book €91,050, machinery €9,200).**

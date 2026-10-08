@@ -64,6 +64,7 @@ Units are metres and radians.
   - `pay: true`: `simulation.purchase(catalogId, {category:'buildings'})`. The building is marked `purchased`, the purchase is booked in simulation's `buildings` ledger category (capital), and upkeep is charged daily by simulation.
   - **Granting is opt-in (anti money-printing).** Without `pay`, no simulation asset is created: no capacity, no upkeep, no resale.
     - `grant: true` (starting kit, e.g. the demo's first grain silo) grants the catalog asset, which gives capacity and upkeep.
+    - `ageYears` with `grant: true` is passed to `simulation.grantAsset(id, {ageYears, category:'buildings'})` (r7). The asset is booked as that old, so it is valued and maintained depreciated; a 40-year farmhouse sits at the 30 % floor (tested).
     - A granted building **refunds €0** on removal: `simulation.releaseAsset(assetId, {writeOff: true})` books one `writeOff` entry and moves no cash.
   - Farm buildings level the pad (`terrain.flatten`) and paint a `farmyard` apron (`terrain.paintSurface`). `terrain: false` turns this off.
   - The farmyard is re-applied after a `terrain:generated` that wiped it.
@@ -165,7 +166,7 @@ Spatial items: `{id, kind:'building', x0..y1, solid:true, poly | polys, data:{bu
 Sites come from a deterministic dry, flat scan of the terrain.
 
 ## Tests
-`node src/modules/buildings/tests/game.test.cjs` runs 45 checks in the full game: placement rules, precise rotated colliders, pay and upkeep, grain and potato capacity, demolition rules, workshop repair and fuel, co-op delivery, shop and closure, the hand sleeping at the door, the tractor blocked by a wall, lights, events, save/load, determinism across two page loads, and perf.
+`node src/modules/buildings/tests/game.test.cjs` runs 46 checks in the full game: placement rules, precise rotated colliders, pay and upkeep, grain and potato capacity, demolition rules, workshop repair and fuel, co-op delivery, shop and closure, the hand sleeping at the door, the tractor blocked by a wall, lights, events, save/load, determinism across two page loads, and perf.
 
 r2 added checks for:
 - a co-op sale with a full store, with 0 kg reasons;
@@ -183,6 +184,8 @@ r3 added checks for:
 - a granted building written off as a single entry;
 - an unbacked silo's capacity and its demolition;
 - an old save loading as purchased.
+
+r4 added a check that a granted 40-year farmhouse is valued at the 30 % floor.
 
 ## Known limitations
 - **Characters push against AABBs.** Their collision uses the spatial item's box, so a building rotated off 90° pushes characters out of its AABB corners. Vehicles and `canPlace` use the exact polygon.

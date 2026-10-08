@@ -170,6 +170,11 @@ async function scenario(page) {
     const rmFree = B.remove(free);
     const gr = B.place('farmhouse', gAt[0], gAt[1], 0, { grant: true });
     const rmGr = B.remove(gr);
+    const oldId = B.place('farmhouse', gAt[0], gAt[1], 0, { grant: true, ageYears: 40 });
+    const oldA = S.assets().find((q) => q.id === (B.get(oldId) || {}).assetId);
+    const fhList = (S.catalog('building').find((q) => q.id === 'bld_farmhouse') || {}).price;
+    check('granted 40-year farmhouse is valued at the depreciated floor (30 %)', oldA && oldA.value === Math.round(fhList * 0.3), { value: oldA && oldA.value, floor: Math.round(fhList * 0.3) });
+    B.remove(oldId);
     const wo = S.ledger(10).find((e) => e.category === 'writeOff');
     check('granted building is written off (one entry, no cash)', wo && wo.amount === 0, wo);
     check('no money printing: free + granted buildings refund €0', rmFree.ok && rmGr.ok && rmFree.refund === 0 && rmGr.refund === 0 && r2(S.money()) === r2(mg) && S.assets().length === nAssets, { money: r2(S.money() - mg), rmFree, rmGr });

@@ -285,7 +285,9 @@ export async function init(ctx) {
         purchased = true;
       } else if (opts.grant === true) {
         // opt-in starting kit: the asset gives capacity + upkeep but no resale value (see remove)
-        assetId = S.grantAsset(d.catalog.id) || null;
+        // r7: ageYears books an old grant (the family farm), valued and maintained depreciated
+        const age = Number.isFinite(+opts.ageYears) && +opts.ageYears > 0 ? +opts.ageYears : null;
+        assetId = S.grantAsset(d.catalog.id, age != null ? { ageYears: age, category: 'buildings' } : { category: 'buildings' }) || null;
       }
     }
     const b = {
