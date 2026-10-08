@@ -273,7 +273,7 @@ export async function init(ctx) {
       // seed drill loaded with a crop that can be sown now (r2.5)
       const cal = CR && CR.calendar ? CR.calendar() || {} : {};
       const seed = ['oats', 'barley', 'wheat', 'sugarBeet', 'potatoes', 'maize', 'rapeseed'].find((c) => cal[c] && cal[c].canSow) || Object.keys(cal).find((c) => cal[c] && cal[c].canSow) || 'barley';
-      ids.tractor = put('tractor_t1', F.x - 2, F.y - 4, Math.PI, tA, 0.55, { fuel: 80 }); // faces the field (south), in view of the farmhouse door
+      ids.tractor = put('tractor_t1', F.x - 2, F.y - 4, Math.PI, tA, 0.3, { fuel: 80 }); // faces the field (south), in view of the farmhouse door
       ids.plough = put('plough_s', F.x + 16, F.y + 6, Math.PI, kA, 0.5);
       ids.seeder = put('seeder_s', F.x + 11, F.y + 6, Math.PI, kA, 0.45, { seed });
       // the grain trailer stands east of the implements, clear of their exit lane south (r2.5)

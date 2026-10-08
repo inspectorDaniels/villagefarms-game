@@ -53,12 +53,12 @@ the tractor; the first morning is forced clear (released to the seasonal plan at
 Tutorial toasts (welcome, walking, machines, buildings, panels). Objectives HUD top-left (r2.2 / r3):
 1. Get into your tractor (`vehicles:entered`).
 2. Plough your first strip (0.06 ha) — the player's own `crops:worked` plough area on Lindeveldje (≈ 2 passes).
-3. Get Lindeveldje ploughed — any means: ≥ 90 % of cells ploughed/cultivated/sown (you, any of your people, or a
+3. Get Lindeveldje ploughed — any means: ≥ 80 % of cells (8 clean passes leave the headlands ≈ 15 %; the hint says to include the field ends; also completes the first-strip step) ploughed/cultivated/sown (you, any of your people, or a
    contractor booked in K → Fields; verified r2: a contractor booking completes it in 2 game days).
-4. Sow Lindeveldje (≥ 90 % sown; the drill sows straight into ploughed ground, or a contractor).
+4. Sow Lindeveldje (≥ 80 % sown; the drill sows straight into ploughed ground, or a contractor).
 5. Accept a contract job (hint: field jobs need your kit; haul jobs are crew-only → delegate to a hand).
 6. Sell last year's wheat — K → Store & seed → Sell all. 7. Hire a farmhand.
-8. Rent a second field — Lindekouter, Land panel (M); done when any further parcel is rented or owned.
+8. Rent a second field — Lindekouter, B → Land tool → Sign (or the Land panel M once it offers Rent); done when any further parcel is rented or owned.
 Seed & inputs are charged by simulation when sowing.
 
 ## Events

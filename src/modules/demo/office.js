@@ -6,12 +6,12 @@ const STRIP_M2 = 600; // the first, hands-on target: 0.06 ha ploughed by the pla
 const GOALS = [
   ['tractor', 'Get into your tractor', 'Walk to the red tractor in the yard (marked) and press F'],
   ['strip', 'Plough your first strip (0.06 ha)', 'Drive straight south onto Lindeveldje, press E to lower the plough and drive along the field'],
-  ['ploughed', 'Get Lindeveldje ploughed', 'Finish it yourself (any of your people can drive: Tab switches), or book a contractor (K → Fields & contractors)'],
-  ['sow', 'Sow Lindeveldje', 'Back in the yard: H unhitches the plough, reverse onto the seed drill and H to hitch it, E to sow. Crop: K → Store & seed. Or book a contractor in K'],
+  ['ploughed', 'Get Lindeveldje ploughed', 'Finish it yourself — include the field ends: a pass across each headland — (any of your people can drive: Tab switches), or book a contractor (K → Fields & contractors)'],
+  ['sow', 'Sow Lindeveldje', 'Back in the yard: H unhitches the plough, reverse onto the seed drill and H to hitch it, E to sow (include the field ends). Crop: K → Store & seed. Or book a contractor in K'],
   ['job', 'Accept a contract job', 'J opens the jobs board: a small plough or drill job near your farm is offered in the first days — your kit can do it. Haul jobs are crew-only (give them to a hand in K)'],
   ['sell', 'Sell last year\'s wheat', 'Farm office (K) → Store & seed → Sell all: the co-op collects it from your yard'],
   ['hire', 'Hire a farmhand', 'Farm office (K) → Hands → Hire. Tab switches between people'],
-  ['rent2', 'Rent a second field', 'Lindekouter (1 ha) lies just east of the farm track: open Land (M) and rent it'],
+  ['rent2', 'Rent a second field', 'Lindekouter (1 ha) lies just east of the farm track: B → Land tool, click Lindekouter → Sign (or the Land panel, M, where it offers Rent)'],
 ];
 const TIPS = [
   [1.5, 'Welcome to Hoeve Ter Linde', 'You own the farmyard and rent Lindeveldje (0.25 ha) just south of it. Money is tight: contract jobs pay the bills this first year.'],
@@ -263,9 +263,11 @@ export function createOffice(ctx, D) {
       checkT = 0.5;
       progress.plough = fieldShare(['ploughed', 'cultivated', 'sown']);
       progress.sow = fieldShare(['sown', 'ripe']);
-      if (progress.plough >= 0.9) done('ploughed'); // headland corners are hard to hit exactly
+      // 8 clean passes leave the headlands (≈ 15 %): the objectives count 80 % and the hints mention the field ends.
+      // Whoever ploughs the field (you, a hand, a contractor) also completes the first-strip step.
+      if (progress.plough >= 0.8 || progress.sow >= 0.8) { done('strip'); done('ploughed'); }
       if (!D.objectives.tractor) tractorLabel(true);
-      if (progress.sow >= 0.9) done('sow');
+      if (progress.sow >= 0.8) done('sow');
       const S = mod('simulation');
       if (S && S.workers && (S.workers() || []).length) done('hire');
       if (S && S.parcels && !D.objectives.rent2) {
