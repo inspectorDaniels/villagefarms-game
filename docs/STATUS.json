@@ -117,7 +117,10 @@
         }
       ],
       "openIssues": [
-        "small jobs mostly arrive with 1 day left (5/6) \u2014 give player-sized jobs 2-4 day deadlines"
+        "small jobs mostly arrive with 1 day left (5/6) \u2014 give player-sized jobs 2-4 day deadlines",
+        "catalog name mismatch: '5-furrow plough & 4 m drill' vs vehicles '9-furrow reversible plough (4.2 m)'",
+        "purchase(finance): loan booked before cash charge \u2014 check no loan leak on failed charge",
+        "dealer finance terms not exposed via API (ui copies README)"
       ],
       "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged | quoteParcel (shared code path with buyParcel), inputs charged on sowing incl. contractor sowing (bookings exclude inputs); 35/35 | r6: kit-filtered player jobs, haul/deliver crew-only, grouped seed ledger rows, payPerUnit+callout, --start=demo harness (y1 cash solo \u20ac23k / with hand \u20ac31k from \u20ac17.7k); 37/37 | contractor quote/booking lead time unified; --start=demo r3: y1 misses r6 (solo \u20ac16k, hand \u20ac24k) -> Revision r7 | r7: grantAsset ageYears + value-based upkeep, guaranteed first job (8/8 seeds); y1 from demo start: solo \u20ac19.7k (+\u20ac2k target met), hand \u20ac28.2k (median met), hand+2nd field 8/8; 40/40 probes"
     },
@@ -143,7 +146,7 @@
         "selling one implement of a kit (plough+drill share simulation:asset:6) should explain 'sold as a kit' (vehicles/ui reason)",
         "kit sale: name the drill in the plough's sell dialog; list kit members in Machines"
       ],
-      "note": "passed r1 (7/10); polish round applied all must/should-fix; not re-reviewed | follow-ups: vehicle-key suppression, hand day-cost toast/tag, solvency card + countdown, toast dedup | job pay breakdown, crew-job label + refusal toast, balance card z-order, prompt hidden when active character off-screen | Land panel: To-let parcels + Rent/End lease with real lease terms; Machines list with Sell/Hand back + refusal reasons | Game panel: Save/Load menu (3 slots + daily autosave, confirms, slot info), kit sale as one row naming all machines | autosave on pagehide via sync save (verified reload), icon tabs"
+      "note": "passed r1 (7/10); polish round applied all must/should-fix; not re-reviewed | follow-ups: vehicle-key suppression, hand day-cost toast/tag, solvency card + countdown, toast dedup | job pay breakdown, crew-job label + refusal toast, balance card z-order, prompt hidden when active character off-screen | Land panel: To-let parcels + Rent/End lease with real lease terms; Machines list with Sell/Hand back + refusal reasons | Game panel: Save/Load menu (3 slots + daily autosave, confirms, slot info), kit sale as one row naming all machines | autosave on pagehide via sync save (verified reload), icon tabs | S1 Dealer panel (V): buy/finance/lease with real terms, yard delivery, dealer-door R prompt, ui:open-panel event"
     },
     "audio": {
       "wave": 1,
@@ -465,6 +468,9 @@
       "S8 goals (demo)",
       "S9 economy replay (simulation)",
       "S10 hands visible (characters)"
+    ],
+    "done": [
+      "S1"
     ]
   }
 }

@@ -28,12 +28,12 @@ export const manifest = {
     // jobs
     'jobs', 'acceptJob', 'reportProgress', 'completeJob', 'failJob', 'tickPresence', 'reputation', 'assignJob', 'activeJobCap', 'defineClientFarm',
     // workers
-    'hireWorker', 'fireWorker', 'workers', 'logWork', 'workerDayCost', 'reserveMachine', 'machinesFree', 'capShare',
+    'hireWorker', 'fireWorker', 'workers', 'logWork', 'workerDayCost', 'reserveMachine', 'machinesFree', 'assignFieldWork', 'cancelFieldWork', 'fieldWork', 'fieldWorkStatus', 'fieldWorkQuote', 'seedingWindow', 'lastRefusal', 'capShare',
     // time helper
     'today',
   ],
   emits: ['economy:transaction', 'economy:price-changed', 'economy:bankrupt-warning', 'economy:contractor-done', 'economy:asset-seized', 'economy:hands-laid-off', 'land:parcel-changed',
-    'jobs:offered', 'jobs:accepted', 'jobs:completed', 'jobs:failed', 'jobs:reassigned'],
+    'jobs:offered', 'jobs:accepted', 'jobs:completed', 'jobs:failed', 'jobs:reassigned', 'economy:fieldwork-progress'],
   listens: ['clock:day', 'clock:hour', 'crops:worked'],
 };
 
@@ -51,6 +51,20 @@ export async function init(ctx) {
       const cr = ctx.modules.get('crops');
       const fs = cr && typeof cr.fields === 'function' ? cr.fields() : null;
       return Array.isArray(fs) && fs.some((f) => f && f.parcelId === parcelId);
+    },
+    // r8: machines being driven right now (the player's tractor is not free for a hand) and crops field lookup
+    drivenAssets: () => {
+      const V = ctx.modules.get('vehicles');
+      const vs = V && typeof V.list === 'function' ? V.list() || [] : [];
+      const byId = new Map(vs.map((v) => [v.id, v]));
+      const out = new Set();
+      for (const v of vs) if (v && v.driverId) { if (v.assetId) out.add(v.assetId); for (const a of v.attached || []) { const iv = byId.get(a); if (iv && iv.assetId) out.add(iv.assetId); } }
+      return out;
+    },
+    fieldInfo: (id) => {
+      const cr = ctx.modules.get('crops');
+      const f = cr && typeof cr.field === 'function' ? cr.field(id) : null;
+      return f && f.parcelId ? { parcelId: f.parcelId, areaM2: f.area } : null;
     },
     isAvailable: (workerId) => {
       const ch = ctx.modules.get('characters');

@@ -2,7 +2,7 @@
 // yields, job progress, save/load. index.js wires it to ctx; tests/*.mjs run it headlessly.
 import {
   S, STATE_NAMES, CROPS, CROP_IDS, UNITS, REGROW, BALE_KG, MOW_MIN_GROWTH, YEAR_DAYS,
-  stageOf, growthForStage, monthOfDoy, calendarGrowth, inSowWindow, TOOL_JOB,
+  stageOf, growthForStage, monthOfDoy, calendarGrowth, inSowWindow, TOOL_JOB, needFor,
 } from './data.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -106,7 +106,7 @@ const ARRAYS = [['state', Uint8Array], ['crop', Uint8Array], ['growth', Float32A
 const CAP_DOY = 27;
 const CAP_BIT = { plough: 1, cultivate: 2, seed: 4, fertilise: 8, spray: 16, harvest: 32, mow: 64, rake: 128, bale: 256, water: 512 };
 export const capYearOf = (day) => Math.floor((day - CAP_DOY) / YEAR_DAYS);
-const moistF = (m) => (m < 0.1 ? 0.3 : m < 0.35 ? 0.3 + 0.7 * (m - 0.1) / 0.25 : m <= 0.85 ? 1 : 1 - 0.8 * (m - 0.85));
+const moistF = (m) => (m < 0.05 ? 0.45 : m < 0.28 ? 0.45 + 0.55 * (m - 0.05) / 0.23 : m <= 0.85 ? 1 : 1 - 0.8 * (m - 0.85)); // soil water buffers short dry spells
 const fertF = (f) => 0.62 + 0.38 * Math.min(1, f / 0.4);
 
 /**
@@ -247,7 +247,7 @@ export function createModel(W, env) {
     f.cells.cap[k] |= bit;
     return true;
   }
-  function soilF(f) { return 0.97 + 0.25 * f.soilQ; }  // tuned so a well-managed field (fertilised, sprayed) lands on simulation's table yield
+  function soilF(f) { return 1.0 + 0.25 * f.soilQ; }  // tuned so a well-managed field (fertilised, sprayed) lands on simulation's table yield
   function yieldKgCell(f, k) {
     const c = f.cells, id = cropOf(c.crop[k]);
     if (!id) return 0;
@@ -448,7 +448,7 @@ export function createModel(W, env) {
         const id = cropOf(cropK);
         const inWin = inSowWindow(id, out.doy);
         setState(f, k, S.SOWN);
-        c.crop[k] = cropK; c.growth[k] = 0; c.age[k] = 0;
+        c.crop[k] = cropK; c.growth[k] = 0; c.age[k] = out.doy + 1;   // while sown, age holds sowing day-of-year + 1 (→ needFor)
         // seedbed quality: a rough ploughed bed and sowing out of season both cost establishment
         c.health[k] = (s === S.PLOUGHED ? 0.92 : 1) * (inWin ? 1 : 0.82);
         return true;
@@ -494,7 +494,7 @@ export function createModel(W, env) {
           kg = (G.yieldT / G.cuts) * 1000 * (f.cellArea / 1e4) * 0.6 * c.var[k];
           c.health[k] = 0.9;
         } else {
-          kg = yieldKgCell(f, k) * Math.min(1.15, c.growth[k] + (s === S.RIPE ? 0.1 : 0));
+          kg = yieldKgCell(f, k) * Math.min(1, c.growth[k]);
         }
         setState(f, k, S.MOWN);
         c.crop[k] = CROP_INDEX.grass; c.mass[k] = kg; c.growth[k] = REGROW; c.age[k] = 0;
@@ -653,7 +653,7 @@ export function createModel(W, env) {
    * apply one operation to a whole field at once (contractors). tool as in work(); returns the
    * same shape as work() plus bale kg (no bale objects: the contractor takes them to the farm).
    */
-  function workField(fieldId, tool, { report = true, maxAreaM2 = Infinity } = {}) {
+  function workField(fieldId, tool, { report = true, maxAreaM2 = Infinity, quiet = false } = {}) {
     const f = byId.get(fieldId);
     const res = { cellsChanged: 0, yieldKg: 0, item: null, fieldId, strawKg: 0, baleKg: {} };
     if (!f) return res;
@@ -681,6 +681,7 @@ export function createModel(W, env) {
     res.yieldKg = +(op === 'bale' ? Object.values(out.baleKg).reduce((a, b) => a + b, 0) : out.kg).toFixed(2);
     res.item = op === 'bale' ? Object.keys(out.baleKg)[0] || null : out.item;
     res.strawKg = +out.strawKg.toFixed(2); res.baleKg = out.baleKg; res.mownKg = +out.mownKg.toFixed(2);
+    if (quiet) { if (report) reportJobs(f, op, cropK); return res; }   // neighbour (NPC) farm work: no player-facing events
     emit('crops:worked', { fieldId: f.id, parcelId: f.parcelId, tool, cells: res.cellsChanged, areaM2: res.newAreaM2, contractor: true });
     if (op === 'seed') emit('crops:sown', { fieldId: f.id, crop: cropOf(cropK), phase: 'complete', sownCells: f.counts[S.SOWN], cells: f.nCells });
     if ((op === 'harvest' && out.kg > 0) || (op === 'bale' && res.yieldKg > 0)) emit('crops:harvested', { fieldId: f.id, crop: f.crop, item: res.item, kg: res.yieldKg, cells: res.cellsChanged, complete: true, contractor: true });
@@ -764,7 +765,12 @@ export function createModel(W, env) {
             const u = UNITS[C.units][m];
             if (C.frostKill && u === 0 && c.growth[k] > 0.06) { setState(f, k, S.WITHERED); c.age[k] = 0; break; }
             const mf = moistF(c.moist[k]), ff = fertF(c.fert[k]);
-            const dg = (u / C.need) * (0.6 + 0.4 * mf) * (0.85 + 0.15 * ff);   // drought slows growth a little, costs yield (health) more
+            // development follows the calendar (sow-date need); stress slows it only a little (a dry year
+            // ripens up to ~1 month late) and costs yield through health instead
+            let dg = (u / needFor(id, c.age[k] - 1)) * (1 - 0.25 * (1 - mf)) * (1 - 0.1 * (1 - ff));
+            // senescence: a crop that is nearly mature in its harvest month ripens off within a few days
+            // (autumn units are small; without this warm crops would creep towards 1 into winter)
+            if (c.growth[k] >= 0.8 && C.harvestMonths.includes(m)) dg = Math.max(dg, 0.07);
             c.growth[k] += dg;
             c.fert[k] = Math.max(0, c.fert[k] - dg * 0.55);
             c.weeds[k] = Math.min(1, c.weeds[k] + (0.03 + 0.05 * c.weeds[k]) * u * Math.max(0, 1 - 1.4 * Math.min(1, c.growth[k])));   // seed bank: weedy cells get weedier
@@ -809,7 +815,7 @@ export function createModel(W, env) {
       const grown = f.counts[S.SOWN] + f.counts[S.RIPE] + f.counts[S.WITHERED];
       if (grown && !f.notified.ripe && f.counts[S.RIPE] >= grown * 0.5) {
         f.notified.ripe = true;
-        emit('crops:ripe', { fieldId: f.id, crop: f.crop, day, expectedYieldKg: f.expectedYieldKg });
+        emit('crops:ripe', { fieldId: f.id, parcelId: f.parcelId, name: f.name, crop: f.crop, cropName: f.crop && CROPS[f.crop] ? CROPS[f.crop].name : null, day, expectedYieldKg: f.expectedYieldKg, witherDays: f.crop && CROPS[f.crop] ? CROPS[f.crop].witherDays : 0, npc: !!(env.isNpc && env.isNpc(f)) });
       }
       if (!f.notified.withered && f.counts[S.WITHERED] >= f.nCells * 0.5) {
         f.notified.withered = true;
@@ -953,7 +959,7 @@ export function createModel(W, env) {
       bales: W.bales.map((b) => ({ ...b })),
       fields: W.fields.map((f) => {
         const o = { id: f.id, poly: f.poly, angle: f.angle, cell: f.grid.cell, parcelId: f.parcelId, name: f.name, soilQ: f.soilQ,
-          baseMoist: f.baseMoist, plannedCrop: f.plannedCrop || null, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, capYear: f.capYear != null ? f.capYear : null, packed: {} };
+          baseMoist: f.baseMoist, plannedCrop: f.plannedCrop || null, sownDay: f.sownDay, lastWorked: f.lastWorked, baleAcc: { ...f.baleAcc }, notified: { ...f.notified }, capYear: f.capYear != null ? f.capYear : null, npc: f.npc ? { ...f.npc } : null, npcFarm: !!f.npcFarm, packed: {} };
         for (const [k] of ARRAYS) o.packed[k] = packArray(k, f.cells[k]);
         return o;
       }),
@@ -972,6 +978,8 @@ export function createModel(W, env) {
         else if (o.arrays && o.arrays[k]) c[k] = fromB64(o.arrays[k], T, N);             // v1: raw typed arrays
       }
       f.capYear = o.capYear != null ? o.capYear : null;
+      if (o.npc) f.npc = { ...o.npc };
+      if (o.npcFarm) f.npcFarm = true;
       f.soilQ = o.soilQ; f.baseMoist = o.baseMoist; if (o.plannedCrop) f.plannedCrop = o.plannedCrop; f.sownDay = o.sownDay; f.lastWorked = o.lastWorked;
       f.baleAcc = { ...o.baleAcc }; f.notified = { ...o.notified };
       computeStatic(f);

@@ -352,6 +352,87 @@ export function createData(ctx) {
       for (const r of out) r.name = r.members.length > 1 ? (r.assetName || r.members.join(' & ')) : r.members[0];
       return out;
     },
+    /** Dealer: vehicles.catalog() (machine kits) joined with simulation.catalog() (category, lease, upkeep) and
+     *  vehicles.types() (hp, width, work rate). Buildings/storage are not sold here. */
+    dealerCatalog() {
+      const veh = ctx.modules.get('vehicles'), s = sim();
+      if (!veh || !fn(veh, 'catalog')) return [];
+      const types = fn(veh, 'types') ? (veh.types() || {}) : {};
+      const sc = s && fn(s, 'catalog') ? arr(s.catalog()) : [];
+      return arr(veh.catalog()).map((it) => {
+        const e = sc.find((c) => c.id === it.itemId) || {};
+        const members = arr(it.types).map((t) => ({ type: t, ...(types[t] || { name: t }) }));
+        return { itemId: it.itemId, name: e.name || it.name, category: e.category || (members[0] && members[0].kind) || 'other', price: e.price != null ? e.price : it.price,
+          leasePerDay: e.leasePerDay != null ? e.leasePerDay : it.leasePerDay, upkeepPerDay: e.upkeepPerDay != null ? e.upkeepPerDay : it.upkeepPerDay, members };
+      }).filter((x) => typeof x.price === 'number');
+    },
+    /** dealer finance as simulation implements it (README: 25 % down, 5-year loan at the base rate, secured on the machine) */
+    financeTerms(price) {
+      const loan = Math.ceil(price * 0.75 / 100) * 100, months = 60, rate = 0.045;
+      return { down: price - loan, loan, months, rate, principalPerMonth: loan / months, firstInterest: loan * rate / 12 };
+    },
+    dealerRefusal(item, mode) {
+      const s = sim();
+      if (!s) return 'The dealer is closed (no economy running).';
+      const sv = fn(s, 'solvency') ? s.solvency() : null;
+      if (sv && sv.blocked) return 'The bank has blocked purchases until the farm is back under its credit limit.';
+      const m = fn(s, 'money') ? s.money() : 0;
+      if (mode === 'lease') {
+        if (!(item.leasePerDay > 0)) return 'This machine is not offered for lease.';
+        if (m < item.leasePerDay) return 'The account can’t cover the first day’s lease.';
+        return null;
+      }
+      if (mode === 'finance') {
+        const t = this.financeTerms(item.price);
+        if (m < t.down) return `The 25 % down payment (€${t.down.toLocaleString('en-GB')}) is more than the farm has in the account.`;
+        const head = (fn(s, 'creditLimit') ? s.creditLimit() : 0) + 0.5 * 0.9 * item.price;
+        if (head < t.loan) return `The bank won’t lend €${t.loan.toLocaleString('en-GB')}: the farm’s credit headroom (with this machine as security) is only €${Math.max(0, Math.floor(head)).toLocaleString('en-GB')}.`;
+        return null;
+      }
+      if (m < item.price) return `You need €${Math.ceil(item.price - m).toLocaleString('en-GB')} more to pay cash. Try dealer finance or a lease.`;
+      return null;
+    },
+    /** a free spot in the home farmyard for a kit laid out side by side (as vehicles.purchase spawns it, rot 0) */
+    deliverySpot(item) {
+      const s = sim(), T = ctx.modules.get('terrain');
+      const ps = s && fn(s, 'parcels') ? arr(s.parcels()).filter((p) => p && p.state === 'owned' && Array.isArray(p.poly)) : [];
+      const home = ps.find((p) => p.tradeable === false) || ps[0];
+      if (!home) return null;
+      const mem = item.members.map((q) => ({ len: q.len || 4, wid: q.wid || 2.5 }));
+      const span = mem.reduce((a, q, i) => a + q.wid + (i ? 1.5 : 0), 0);
+      const len = Math.max(...mem.map((q) => q.len));
+      const inside = (x, y, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, cx = 0, cy = 0;
+      for (const [x, y] of home.poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); cx += x; cy += y; }
+      cx /= home.poly.length; cy /= home.poly.length;
+      let best = null, bs = Infinity;
+      for (let y = y0 + len / 2 + 0.5; y <= y1 - len / 2 - 0.5; y += 1.5) {
+        for (let x = x0 + mem[0].wid / 2 + 0.5; x + span - mem[0].wid / 2 <= x1 - 0.5; x += 1.5) {
+          const rx0 = x - mem[0].wid / 2 - 0.6, rx1 = rx0 + span + 1.2, ry0 = y - len / 2 - 0.6, ry1 = y + len / 2 + 0.6;
+          if (![[rx0, ry0], [rx1, ry0], [rx0, ry1], [rx1, ry1]].every(([a, b]) => inside(a, b, home.poly))) continue;
+          const surf = T && fn(T, 'surfaceAt') ? T.surfaceAt(x + span / 2 - mem[0].wid / 2, y) : null;
+          if (surf === 'water' || surf === 'shallow') continue;
+          const score = Math.hypot(x - cx, y - cy) + (surf && surf !== 'farmyard' ? 40 : 0);
+          if (score >= bs) continue;
+          if (ctx.spatial && ctx.spatial.queryRect(rx0, ry0, rx1, ry1, (it) => it.solid).length) continue;
+          best = { x, y, rot: 0 }; bs = score;
+        }
+      }
+      return best;
+    },
+    /** buy/finance/lease through vehicles.purchase (simulation books it), delivered to the farmyard */
+    dealerBuy(itemId, mode) {
+      const item = this.dealerCatalog().find((q) => q.itemId === itemId);
+      if (!item) return { ok: false, reason: 'The dealer no longer lists this machine.' };
+      const why = this.dealerRefusal(item, mode);
+      if (why) return { ok: false, reason: why };
+      const spot = this.deliverySpot(item);
+      if (!spot) return { ok: false, reason: 'There is no free space in the farmyard to deliver it. Move some machines first.' };
+      const veh = ctx.modules.get('vehicles');
+      const ids = veh.purchase(itemId, spot.x, spot.y, spot.rot, { finance: mode === 'finance', lease: mode === 'lease' });
+      if (!ids || !ids.length) return { ok: false, reason: this.dealerRefusal(item, mode) || 'The dealer refused the order.' };
+      return { ok: true, ids, spot, item };
+    },
     /** why vehicles.sell(id) would refuse, mirroring its checks (it only returns false) */
     sellRefusal(id) {
       const veh = ctx.modules.get('vehicles'), s = sim();

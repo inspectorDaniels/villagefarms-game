@@ -5,6 +5,7 @@ import { installMarket } from './market.js';
 import { installLand } from './land.js';
 import { installJobs } from './jobs.js';
 import { installContractors } from './contractors.js';
+import { installFieldwork } from './fieldwork.js';
 import { buildWorkRates, AI_WORK_FACTOR } from './work.js';
 import { DAY_SECONDS } from './data.js';
 
@@ -23,6 +24,8 @@ export function createSim(world, env) {
   sim.rates = buildWorkRates(env.aiWorkFactor || AI_WORK_FACTOR);
   sim.isAvailable = env.isAvailable || null;
   sim.hasCropsFields = env.hasCropsFields || null; // r4c: optional crops.fields() lookup
+  sim.drivenAssets = env.drivenAssets || null;     // r8: optional vehicles → Set of asset ids being driven now
+  sim.fieldInfo = env.fieldInfo || null;           // r8: optional crops field id → { parcelId, areaM2 }
   sim.notify = env.notify || null;                 // r5: optional ui toast   // r4: optional characters.isAvailable(workerId)
   sim.hourlyDelegation = !!env.hourlyDelegation; // live game: hands work delegated jobs hour by hour
 
@@ -31,6 +34,7 @@ export function createSim(world, env) {
   installLand(sim);
   installJobs(sim);
   installContractors(sim);
+  installFieldwork(sim);
 
   /** wipe and initialise all three namespaces; pre-fills `historyDays` of market history before startDay */
   sim.reset = (startDay, opts = {}) => {

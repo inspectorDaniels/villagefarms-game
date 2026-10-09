@@ -21,6 +21,7 @@ export function installEconomy(sim) {
     for (const m of MACHINES) if (!E.catalog[m.id]) E.catalog[m.id] = catalogEntry(m);
     E.assets = [];
     E.workers = [];
+    E.fieldWork = { list: [], seq: 0 };
     E.days = [];
     E.nextId = 1;
     E.negativeDays = 0;
@@ -527,11 +528,13 @@ export function installEconomy(sim) {
 
   function settleWorker(w) {
     const h = w.hoursToday || 0;
-    const pay = h >= 1 || w.delegatedToday ? w.dayRate : w.retainer; // r4: any day with ≥ 1 h (or a delegated job) is a paid day
+    let pay = h >= 1 || w.delegatedToday ? w.dayRate : w.retainer; // r4: any day with ≥ 1 h (or a delegated job) is a paid day
+    // r8: a short day spent only on your own fields (assignFieldWork, < 5 h) is paid as a half day
+    if (w.fieldHoursToday > 0 && w.fieldHoursToday >= h - 1e-6 && h < CONST.hoursPerDayHand / 2) pay = Math.max(w.retainer, Math.round(w.dayRate / 2));
     api.charge(pay, 'wages', h > 0 ? `Wages — ${w.name}, ${h.toFixed(1)} h` : `Retainer — ${w.name}`, { force: true });
     w.paid += pay;
     if (h >= 1 || w.delegatedToday) w.daysWorked = (w.daysWorked || 0) + 1;
-    w.hoursToday = 0; w.delegatedToday = false; w.jobHoursToday = 0; w.kinds = {};
+    w.hoursToday = 0; w.delegatedToday = false; w.jobHoursToday = 0; w.fieldHoursToday = 0; w.kinds = {};
   }
 
   /** r6: a non-cash ledger line (amount 0) — capital written off without a sale */

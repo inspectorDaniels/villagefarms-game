@@ -5,6 +5,7 @@ import { createModel } from './model.js';
 import { createTiles } from './tiles.js';
 import { createRenderer, insetPoly } from './render.js';
 import { PRESETS, stageShowcase } from './showcase.js';
+import { createNpc } from './npc.js';
 
 export const manifest = {
   id: 'crops',
@@ -42,7 +43,16 @@ export async function init(ctx) {
     }
   }
 
+  // neighbour fields: on an NPC parcel (simulation) or created with { npc: true }
+  const isNpc = (f) => {
+    if (!f) return false;
+    if (f.npcFarm) return true;
+    const s = mod('simulation');
+    const p = f.parcelId && s && s.parcel ? s.parcel(f.parcelId) : null;
+    return !!p && p.state === 'npc';
+  };
   const model = createModel(W, {
+    isNpc,
     seed: world.seed,
     emit: (t, p) => ctx.events.emit(t, p),
     warn: (msg) => ctx.warn(msg),
@@ -87,7 +97,7 @@ export async function init(ctx) {
   const CONTRACT_TOOL = { plough: 'plough', cultivate: 'cultivate', spray: 'spray', fertilise: 'fertilise', fertilize: 'fertilise',
     mow: 'mow', rake: 'rake', harvest: 'harvest', lift: 'harvest', bale: 'bale' };
   function applyContract(ev) {
-    const b = ev && (ev.booking || ev);
+    const b = ev && ((ev.operation || ev.op) ? ev : (ev.booking || ev));   // r4 / hands (source:'hand') top level; r3 {booking}
     if (!b) return null;
     const op = b.operation || b.op;
     const fs = b.fieldId ? W.fields.filter((f) => f.id === b.fieldId) : b.parcelId ? W.fields.filter((f) => f.parcelId === b.parcelId) : [];
@@ -118,6 +128,8 @@ export async function init(ctx) {
   ctx.events.on('land:parcel-changed', (ev) => { if (ev && ev.id && ev.state !== ev.from) model.resetCap(ev.id); });
 
   // ---- rendering
+  const npc = createNpc(model);
+  let npcQ = null;
   const tiles = createTiles(ctx.art, ctx.palette);
   renderer = createRenderer(ctx, model, tiles);
   for (const f of W.fields) renderer.onField(f, 'add');
@@ -141,6 +153,7 @@ export async function init(ctx) {
       const id = model.createField(poly, opts || {});
       if (!id) return null;
       const fo = model.byId.get(id); if (fo && opts.plannedCrop) fo.plannedCrop = opts.plannedCrop;
+      if (fo && opts.npc) fo.npcFarm = true;
       const t = mod('terrain');
       const inner = insetPoly(poly, 1.3); // the outer metre stays verge grass (the field edge is feathered onto it)
       if (t && t.paintSurface && opts.paintTerrain !== false && inner) t.paintSurface({ poly: inner }, 'soil');
@@ -190,6 +203,8 @@ export async function init(ctx) {
         const d = W.day + 1;
         const mm = typeof opts.rainMm === 'function' ? opts.rainMm(d) : opts.rainMm != null ? opts.rainMm : rainFor(d);
         model.dayTick(d, mm);
+        for (const f of W.fields) if (isNpc(f)) npc.step(f, d);
+        W.npcDay = d;
         W.dayOffset = (W.dayOffset || 0) + 1;
       }
       model.flush(clock.t, true);
@@ -213,14 +228,25 @@ export async function init(ctx) {
         model.beginDay(W.day + 1, rainFor(W.day + 1));
       }
       if (model.pendingDay() != null) model.stepDay(4000); // ≈ 0.5 ms per step; a 60 ha farm finishes a day in ~40 steps
+      // neighbour farms: once the day's growth is done, one decision per NPC field, a few fields per step
+      if (model.pendingDay() == null && W.day != null) {
+        if (W.npcDay == null) W.npcDay = W.day;
+        if (!npcQ && W.npcDay < W.day) npcQ = { day: W.npcDay + 1, ids: W.fields.filter(isNpc).map((f) => f.id), i: 0 };
+        if (npcQ) {
+          for (let n = 0; n < 4 && npcQ.i < npcQ.ids.length; n++) { const f = model.byId.get(npcQ.ids[npcQ.i++]); if (f) npc.step(f, npcQ.day); }
+          if (npcQ.i >= npcQ.ids.length) { W.npcDay = npcQ.day; npcQ = null; }
+        }
+      }
       model.flush(clock.t, clock.paused, dtGame);   // paused: nothing would ever age the batch, so hand it over now
     },
-    save() { model.stepDay(Infinity); model.flush(clock.t, true); return { model: model.save(), rain: JSON.parse(JSON.stringify(W.rain)) }; },
+    save() { model.stepDay(Infinity); model.flush(clock.t, true); return { model: model.save(), rain: JSON.parse(JSON.stringify(W.rain)), npcDay: W.npcDay }; },
     load(d) {
       if (!d || !d.model) return;
       renderer.invalidateAll();
       model.load(d.model);
       W.rain = d.rain || { plan: {}, measured: {} };
+      W.npcDay = d.npcDay != null ? d.npcDay : null;
+      npcQ = null;
     },
   };
 }

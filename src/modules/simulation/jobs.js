@@ -173,8 +173,9 @@ export function installJobs(sim) {
     job.estPlayerMin = Math.round(workHours(job, 'player')); // 1 game hour = 1 real minute at 60×
     job.estAiHours = +workHours(job, 'ai').toFixed(1);
     const quick = PRESENCE.includes(type) || type === 'snowClear';
-    job.deadlineDay = day + (quick ? rng.int(1, 2) : crew ? Math.ceil(job.estAiHours / CONST.hoursPerDayHand) + rng.int(1, 3) : rng.int(1, 3));
-    job.expiresDay = quick ? day + 1 : Math.min(job.deadlineDay - 1, day + rng.int(1, 3));
+    // r8 (S4): player-sized machine jobs give 2–4 days and stay on the board only while ≥ 2 days are left
+    job.deadlineDay = day + (quick ? rng.int(1, 2) : crew ? Math.ceil(job.estAiHours / CONST.hoursPerDayHand) + rng.int(1, 3) : rng.int(2, 4));
+    job.expiresDay = quick ? day + 1 : crew ? Math.min(job.deadlineDay - 1, day + rng.int(1, 3)) : Math.max(day, Math.min(job.deadlineDay - 2, day + rng.int(1, 3)));
     job.title = titleFor(job);
     if (CREW_ONLY.includes(type)) { job.crewOnly = true; job.label = 'Crew job — delegate it to a hand'; job.title += ' (crew job)'; }
     // r6: a player-sized offer the player has no kit for is not offered (rng use is unchanged)
@@ -348,6 +349,8 @@ export function installJobs(sim) {
         if (j.unit === 'h') progress(j, h / Math.max(1e-6, j.amount));
         else progress(j, (h / need) * (1 - j.progress) + 1e-9);
       }
+      // r8: the rest of his hours go to field work on the player's own land (assignFieldWork)
+      if (free > 0.05 && sim.fieldwork) free -= sim.fieldwork.workTasks(w, free, day);
     }
   }
   function canReserve(cat, holder, day) {
@@ -396,7 +399,7 @@ export function installJobs(sim) {
     const sowable = CROP_FOR.sow.some((c) => CROPS[c].sowMonths.includes(m));
     const type = JOB_TYPES.plough.months[m] > 0 || !sowable ? 'plough' : 'sow';
     const j = makeOffer(day, sim.rngFor('jobs:first:' + day), { type, nearFarm: farm, maxHa: 1 });
-    if (j && fits(j)) { J.firstJobDay = day; j.expiresDay = Math.max(j.expiresDay, day + 1); j.deadlineDay = Math.max(j.deadlineDay, j.expiresDay + 1); }
+    if (j && fits(j)) { J.firstJobDay = day; j.expiresDay = Math.max(j.expiresDay, day + 1); j.deadlineDay = Math.max(j.deadlineDay, j.expiresDay + 2); }
     else if (j) { j.status = 'expired'; }
   }
   /** the player's yard (owned, not tradeable) or first owned/rented parcel */

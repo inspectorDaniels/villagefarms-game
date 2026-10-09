@@ -68,6 +68,20 @@ clock, minimap, toolbar, characters, solvency, the prompt, registered HUD update
 Machines list: one row per simulation asset. A kit that shares an `assetId` (plough + drill) is one row, named after the
 asset (e.g. "Plough & 3 m drill"), with its members listed. The sell dialog names every machine that goes with it.
 
+**Dealer (S1 machine shop, V).** The machine kits come from `vehicles.catalog()`. Each one is joined with
+`simulation.catalog()` for name, category, lease and upkeep, and with `vehicles.types()` for hp, working width, ha/h,
+the hp a machine needs, tank/load and top speed. They are grouped by category, and every kit member is listed.
+- **Buy** pays cash. **Finance** asks 25 % down and the rest as a loan over 5 years at 4.5 %. These finance terms are
+  copied from the simulation README/constants; simulation does not expose them. **Lease** costs a day rate.
+- An order goes through `vehicles.purchase(item, x, y, 0, {finance|lease})`, which spawns the kit side by side.
+- `x, y` is a free spot in the home farmyard: the owned parcel with `tradeable:false`. A spot is free when the rectangle
+  around the kit lies inside the parcel and touches no solid `ctx.spatial` item. Farmyard surface near the centroid is
+  preferred.
+- A refusal shows its reason: purchases blocked, not enough cash, down payment too high, not enough credit headroom, no
+  lease offered, or no space in the yard. A delivered machine gets a "New: …" world label for 45 s.
+- **Dealer building:** on foot within 9 m of the door of a building offering the `dealer` service (`buildings.serviceAt`),
+  ui shows "R — Browse machines (Dealer)", and R opens the panel. Any module may also emit `ui:open-panel {id}`.
+
 ## World data
 `world.ui = { speed, paused, openPanel, activeTool }` (save/load round-trips it).
 

@@ -36,10 +36,18 @@ export function installContractors(sim) {
   Object.assign(api, {
     /** price, lead time and duration for having `op` done on a parcel (no booking) */
     /** opts: {ha | areaM2, fieldId?, crop?} — the parcel must be owned or rented by the player */
-    contractorQuote(id, op, opts = {}) { return quote(id, op, opts, nextRng()); },
+    contractorQuote(id, op, opts = {}) {
+      const q = quote(id, op, opts, nextRng());
+      // r8 (S4): sowing a crop out of its window is refused — the quote says why and what is in season
+      const no = q && op === 'sow' && opts && opts.crop && sim.sowRefusal ? sim.sowRefusal(opts.crop) : null;
+      return q && no ? { ...q, refused: true, reason: no.reason, alternatives: no.alternatives } : q;
+    },
     /** book (and pay for) a contractor; returns the booking or null */
     hireContractor(id, op, opts = {}) {
+      if (sim.setRefusal) sim.setRefusal(null);
       if (!OPS.includes(op) || sim.blocked()) return null;
+      const no = op === 'sow' && opts && opts.crop && sim.sowRefusal ? sim.sowRefusal(opts.crop) : null;
+      if (no) { if (sim.setRefusal) sim.setRefusal(no); return null; } // r8 (S4): see lastRefusal()
       const q = quote(id, op, opts, nextRng());
       if (!q) return null;
       const n = (E.contractorSeq = (E.contractorSeq || 0) + 1);

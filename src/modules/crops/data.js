@@ -116,6 +116,31 @@ export function computeNeeds() {
 }
 computeNeeds();
 
+/**
+ * growth units a crop sown on day-of-year `sowDoy` needs to ripen in the middle of its first harvest month.
+ * Crops sown late in their window develop faster (thermal time), so any in-window sowing ripens on calendar.
+ * Out-of-window sowings (and unknown dates) use the crop's default `need`.
+ */
+for (const id of CROP_IDS) {
+  const c = CROPS[id];
+  c.needBySow = {};
+  if (c.kind === 'grass') continue;
+  for (const m of c.sowMonths) for (let dm = 0; dm < MONTH_DAYS; dm++) {
+    const sow = m * MONTH_DAYS + dm;
+    let end = c.harvestMonths[0] * MONTH_DAYS + 1;
+    while (end <= sow + 6) end += YEAR_DAYS;
+    let sum = 0;
+    for (let d = sow + 1; d <= end; d++) sum += unitsOn(id, d);
+    c.needBySow[sow] = Math.max(c.need * 0.6, +sum.toFixed(3));
+  }
+}
+export function needFor(crop, sowDoy) {
+  const c = CROPS[crop];
+  if (sowDoy == null || sowDoy < 0) return c.need;
+  const v = c.needBySow[sowDoy];
+  return v != null ? v : c.need;
+}
+
 /** is doy inside the sowing window of crop? */
 export function inSowWindow(crop, doy) { return CROPS[crop].sowMonths.includes(monthOfDoy(doy)); }
 

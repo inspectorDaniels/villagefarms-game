@@ -35,6 +35,8 @@ export const OPS = Object.keys(CONTRACTOR);
 /** which owned machine category an op needs (besides a tractor for the trailed ones) */
 export const OP_NEEDS = { plough: 'tillage', cultivate: 'cultivator', sow: 'tillage', spray: 'sprayer', mow: 'mower', harvest: 'combine', lift: 'harvester', bale: 'baler' };
 export const SELF_PROPELLED = { harvest: true };
+/** diesel per hectare by operation (l/ha) — the harness and hands' field work */
+export const DIESEL_L_HA = { plough: 22, cultivate: 12, sow: 8, spray: 1.5, mow: 6, harvest: 16, lift: 30, bale: 4 };
 
 const eff = (k) => (k.eff != null ? k.eff : FIELD_EFF);
 const r2 = (x) => Math.round(x * 1000) / 1000;

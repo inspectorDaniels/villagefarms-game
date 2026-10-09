@@ -447,5 +447,77 @@ export function builtinPanels(K) {
     },
   };
 
-  return [finances, market, jobs, land, help];
+  // ---------------------------------------------------------------- dealer (S1 machine shop)
+  const DEALER_CATS = [['tractor', 'Tractors'], ['combine', 'Combines'], ['harvester', 'Harvesters'], ['tillage', 'Tillage'], ['cultivator', 'Tillage'],
+    ['sprayer', 'Crop care'], ['mower', 'Forage'], ['baler', 'Forage'], ['rake', 'Forage'], ['trailer', 'Transport'], ['car', 'Transport'], ['loader', 'Transport'], ['front_loader', 'Transport']];
+  const CAT_ORDER = ['Tractors', 'Combines', 'Harvesters', 'Tillage', 'Crop care', 'Forage', 'Transport', 'Other'];
+  const catName = (c) => (DEALER_CATS.find((q) => q[0] === c) || [c, 'Other'])[1];
+  const CAT_ICON = { Tractors: 'tractor', Combines: 'wheat', Harvesters: 'beet', Tillage: 'seed', 'Crop care': 'water', Forage: 'hay', Transport: 'truck', Other: 'build' };
+  const specOf = (q) => {
+    const bits = [];
+    if (q.hp) bits.push(`${q.hp} hp`);
+    if (q.work && q.work.width) bits.push(`${+q.work.width.toFixed(1)} m ${q.work.tool === 'harvest' ? 'header' : 'working width'}`);
+    if (q.work && q.work.haPerHour) bits.push(`${q.work.haPerHour.toFixed(2)} ha/h`);
+    if (q.work && q.work.needHp) bits.push(`needs ${q.work.needHp} hp`);
+    if (q.capacity) bits.push(`${+(q.capacity / 1000).toFixed(1)} t ${q.kind === 'combine' ? 'grain tank' : 'load'}`);
+    if (q.vmax) bits.push(`${Math.round(q.vmax * 3.6)} km/h`);
+    return bits.join(' · ');
+  };
+  let dealerCat = null;
+  const dealer = {
+    id: 'dealer', title: 'Dealer', icon: 'tractor', hotkey: 'KeyV', order: 6, subtitle: 'Buy, finance or lease machines',
+    sig: () => (dealerCat || '') + '|' + Math.floor((data.money() || 0) / 100) + '|' + data.machines().length,
+    render(el) {
+      const cat = data.dealerCatalog();
+      if (!cat.length) { el.innerHTML = empty('tractor', 'The dealer is closed', 'No machines are listed right now. The dealer needs the vehicles and economy modules running.'); return; }
+      const groups = [];
+      for (const it of cat) { const g = catName(it.category); let G = groups.find((q) => q[0] === g); if (!G) groups.push(G = [g, []]); G[1].push(it); }
+      groups.sort((a, b) => CAT_ORDER.indexOf(a[0]) - CAT_ORDER.indexOf(b[0]));
+      if (!dealerCat || !groups.some((g) => g[0] === dealerCat)) dealerCat = groups[0][0];
+      const m = data.money() || 0;
+      let h = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap"><div class="hv-seg" style="flex-wrap:wrap;white-space:nowrap">${groups.map(([g, l]) => `<button data-cat="${esc(g)}" class="${g === dealerCat ? 'on' : ''}">${esc(g)}<span class="c">${l.length}</span></button>`).join('')}</div>
+        <span class="grow"></span><span class="muted" style="font:italic 12.5px Georgia,serif">Delivered to your farmyard · account ${money(m, { dec: 0 })}</span></div><div class="hv-rows">`;
+      for (const it of (groups.find((g) => g[0] === dealerCat) || [null, []])[1]) {
+        const ft = data.financeTerms(it.price);
+        const multi = it.members.length > 1;
+        const cash = !data.dealerRefusal(it, 'cash'), fin = !data.dealerRefusal(it, 'finance'), lea = !data.dealerRefusal(it, 'lease');
+        h += `<div class="hv-row" style="align-items:flex-start;padding:10px 6px"><span class="ico">${icon(CAT_ICON[dealerCat] || 'tractor')}</span><div class="grow">
+          <div class="ttl">${esc(it.name)}</div>
+          ${it.members.map((q) => `<div class="meta" style="white-space:normal">${multi ? `<b>${esc(q.name)}</b>: ` : ''}${esc(specOf(q) || '')}</div>`).join('')}
+          <div class="meta" style="white-space:normal">${money(it.price, { dec: 0 })} · or ${money(ft.down, { dec: 0 })} down on finance${it.leasePerDay > 0 ? ` · lease ${money(it.leasePerDay, { dec: 0 })}/day` : ''}${it.upkeepPerDay ? ` · upkeep ${money(it.upkeepPerDay)}/day when new` : ''}</div></div>
+          <div style="display:flex;flex-direction:column;gap:4px;align-items:stretch;min-width:104px">
+            <button class="hv-btn warm ${cash ? '' : 'dis'}" data-buy-m="${esc(it.itemId)}" data-mode="cash">Buy</button>
+            <button class="hv-btn ${fin ? '' : 'dis'}" data-buy-m="${esc(it.itemId)}" data-mode="finance">Finance</button>
+            ${it.leasePerDay > 0 ? `<button class="hv-btn ${lea ? '' : 'dis'}" data-buy-m="${esc(it.itemId)}" data-mode="lease">Lease</button>` : ''}</div></div>`;
+      }
+      h += `</div>`;
+      el.innerHTML = h;
+      el.querySelectorAll('[data-cat]').forEach((b) => { b.onclick = K.safe('dealer cat', () => { dealerCat = b.dataset.cat; K.rerender('dealer'); }); });
+      el.querySelectorAll('[data-buy-m]').forEach((b) => {
+        b.onclick = K.safe('dealer order', async () => {
+          const it = cat.find((q) => q.itemId === b.dataset.buyM);
+          const mode = b.dataset.mode;
+          if (!it) return;
+          const pre = data.dealerRefusal(it, mode);
+          if (pre) { K.toast(pre, { kind: 'warn', icon: 'tractor', title: `Can't ${mode === 'lease' ? 'lease' : 'buy'} ${it.name}` }); return; }
+          const ft = data.financeTerms(it.price);
+          const kit = it.members.length > 1 ? ` You get: ${it.members.map((q) => q.name).join(', ')}.` : '';
+          const text = mode === 'finance'
+            ? `${money(ft.down, { dec: 0 })} down now (25 %), and the dealer's bank lends ${money(ft.loan, { dec: 0 })} over 5 years (60 monthly instalments of ${money(ft.principalPerMonth, { dec: 0 })} plus interest at ${(ft.rate * 100).toFixed(1)} %/yr, about ${money(ft.firstInterest, { dec: 0 })} a month at first). The loan is secured on the machine: selling it repays the loan first.${kit}`
+            : mode === 'lease' ? `${money(it.leasePerDay, { dec: 0 })} a day (the first day now), no upkeep. Hand it back at any time from Finances → Machines.${kit}`
+              : `${money(it.price, { dec: 0 })} cash. New machinery is worth 90 % of its price once it leaves the dealer, then loses value each year; upkeep is about ${money(it.upkeepPerDay || 0)} a day.${kit}`;
+          const ok = await K.confirm({ title: `${mode === 'lease' ? 'Lease' : mode === 'finance' ? 'Finance' : 'Buy'} ${it.name}?`, text, okLabel: mode === 'lease' ? 'Sign lease' : mode === 'finance' ? 'Sign finance' : 'Pay cash', cancelLabel: 'Not now', icon: 'tractor' });
+          if (!ok) return;
+          const r = data.dealerBuy(it.itemId, mode);
+          if (!r.ok) { K.toast(r.reason, { kind: 'warn', icon: 'tractor', title: `Can't ${mode === 'lease' ? 'lease' : 'buy'} ${it.name}` }); return; }
+          K.toast(`<b>${esc(it.name)} delivered</b><br>It's parked in your farmyard${mode === 'finance' ? ` · ${money(-ft.down, { dec: 0 })} down, ${money(ft.loan, { dec: 0 })} loan` : mode === 'lease' ? ` · ${money(-it.leasePerDay, { dec: 0 })} first day` : ` · ${money(-it.price, { dec: 0 })}`}`, { kind: 'success', icon: 'tractor', html: true, ms: 7000 });
+          if (K.delivered) K.delivered(r);
+          K.emit('ui:action', { id: 'machine-' + (mode === 'lease' ? 'leased' : 'bought'), itemId: it.itemId, mode, vehicleIds: r.ids });
+          K.rerender('dealer');
+        });
+      });
+    },
+  };
+
+  return [finances, market, jobs, land, dealer, help];
 }

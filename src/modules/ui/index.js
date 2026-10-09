@@ -31,7 +31,7 @@ export const manifest = {
     'formatMoney', 'setSpeed', 'getSpeed'],
   emits: ['ui:action', 'ui:panel-opened', 'ui:panel-closed', 'ui:speed-changed', 'ui:tool-selected', 'ui:character-selected'],
   listens: ['economy:transaction', 'economy:bankrupt-warning', 'jobs:offered', 'jobs:completed', 'jobs:failed', 'land:parcel-changed',
-    'env:weather-changed', 'terrain:generated', 'terrain:changed', 'roads:changed', 'clock:day', 'characters:switched', 'core:loaded'],
+    'env:weather-changed', 'terrain:generated', 'terrain:changed', 'roads:changed', 'clock:day', 'characters:switched', 'core:loaded', 'ui:open-panel'],
 };
 
 let INSTANCE = null; // the live instance (single #ui), used by showcase.stage
@@ -659,7 +659,31 @@ export async function init(ctx) {
     data, clock: ctx.clock, safe, emit, confirm,
     toast: (t, o) => toast(t, o),
     rerender: (id) => refreshPanel(id),
+    // a dealer delivery: a world label on the new machine for a while
+    delivered: (r) => { if (!r || !r.spot) return; worldLabel('ui:delivery', { x: r.spot.x, y: r.spot.y - 3, text: `New: ${r.item ? r.item.name : 'machine'}`, kind: 'info', icon: 'tractor' }); deliveryT = 45; },
   };
+  let deliveryT = 0;
+  // dealer building: on foot near a building offering the 'dealer' service, R opens the Dealer panel.
+  // (buildings has no ui hook; another module may also emit `ui:open-panel {id}`.)
+  let dealerNear = null;
+  function updateDealerNear() {
+    const B = ctx.modules.get('buildings');
+    const c = activeCharRec();
+    let near = null;
+    if (c && !c.vehicleId && B && typeof B.serviceAt === 'function') {
+      const b = foreign('buildings.serviceAt', B.serviceAt, c.x, c.y, 'dealer');
+      const d = b && b.doors && b.doors[0];
+      if (d && Math.hypot(d.x - c.x, d.y - c.y) < 9) near = { id: b.id, x: d.x, y: d.y };
+    }
+    if ((near && near.id) === (dealerNear && dealerNear.id)) return;
+    dealerNear = near;
+    if (near) worldLabel('ui:dealer', { x: near.x, y: near.y - 3.2, text: 'R — Browse machines (Dealer)', kind: 'sell', icon: 'tractor' });
+    else removeWorldLabel('ui:dealer');
+  }
+  function activeCharRec() {
+    const id = W.player && W.player.activeCharacterId;
+    return id == null ? null : charRec(id);
+  }
   for (const p of builtinPanels(K)) addPanel(p.id, p);
 
   // ---------------------------------------------------------------- input
@@ -686,6 +710,7 @@ export async function init(ctx) {
     if (ev.code === 'Escape' && current) { closePanel(); ev.stop = true; return; }
     if (ev.code === 'Escape' && !(W.buildtools && W.buildtools.active) && panels.has('game')) { openPanel('game'); ev.stop = true; return; }
     for (const m of ['ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']) if (held.has(m)) return;
+    if (ev.code === 'KeyR' && dealerNear && !driving() && !(W.buildtools && W.buildtools.active) && panels.has('dealer')) { openPanel('dealer'); ev.stop = true; return; }
     const yieldKey = VEHICLE_KEYS.has(ev.code) && driving();
     if (!yieldKey) for (const p of panels.values()) if (p.hotkey && p.hotkey === ev.code) { togglePanel(p.id); ev.stop = true; return; }
     if (ev.code === 'Space') { setSpeed(W.time.paused ? W.ui.speed : 0); ev.stop = true; return; }
@@ -745,6 +770,7 @@ export async function init(ctx) {
       toast(`<b>The bank is worried</b><br>${esc((p && p.message) || 'Your balance is deep in the red. Sell produce or take on contracts.')}`, { kind: 'error', icon: 'warn', html: true, ms: 9000 });
     }
   });
+  on('ui:open-panel', (p) => { const id = p && p.id; if (id && panels.has(id)) openPanel(id); });
   on('characters:switched', (p) => {
     const id = p && p.id;
     if (id == null) return;
@@ -900,6 +926,7 @@ export async function init(ctx) {
     layoutT += dt;
     if (layoutT >= 0.5) { layoutT = 0; layout(); }
     updateClock();
+    if (deliveryT > 0) { deliveryT -= dt; if (deliveryT <= 0) removeWorldLabel('ui:delivery'); }
     updateLabels();
     updateToasts(dt);
     if (newJobsT > 0) {
@@ -915,6 +942,7 @@ export async function init(ctx) {
     if (hudT >= 0.1) {
       hudT = 0;
       updatePromptVis();
+      updateDealerNear();
       for (const h of huds.values()) if (typeof h.spec.update === 'function') foreign(`hud ${h.id} update`, h.spec.update, h.el);
     }
     panelT += dt;

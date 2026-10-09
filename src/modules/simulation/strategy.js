@@ -2,7 +2,7 @@
 // Everything goes through the public API. The farm-manager model (crew hours, machines, work windows,
 // contractors, timeliness losses) lives here, not in the economy module itself.
 import { CROPS, YEAR_DAYS, MONTH_DAYS, CLIENTS, CONST } from './data.js';
-import { haPerGameHour, haulTripHours } from './work.js';
+import { haPerGameHour, haulTripHours, DIESEL_L_HA } from './work.js';
 import { hashString } from './util.js';
 
 const h01 = (s) => hashString(String(s)) / 4294967296;
@@ -104,7 +104,7 @@ const ROTATION = ['wheat', 'sugarBeet', 'wheat', 'barley', 'rapeseed'];
 const PLAYER_HOURS = 14;   // the player's active game hours per game day (1 game hour = 1 real minute)
 const PLAYER_VALUE = 15;   // €/game-hour the player earns with odd jobs; farm work worth less goes to a contractor
 const LATE = 0.93;         // yield factor when sowing or harvest lands after its window
-const DIESEL = { plough: 22, cultivate: 12, sow: 8, spray: 1.5, mow: 6, harvest: 16, lift: 30, bale: 4 }; // l/ha
+const DIESEL = DIESEL_L_HA; // l/ha (work.js)
 const NEEDS = { plough: 'tillage', sow: 'tillage', spray: 'sprayer', harvest: 'combine', lift: 'harvester', bale: 'baler', mow: 'mower' };
 const SPRAY_PASSES = 3;
 
