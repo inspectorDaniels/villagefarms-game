@@ -130,10 +130,24 @@ async function boot() {
         return { ok: false, reason: String(e && e.message || e) };
       }
     },
+    /** synchronous, uncompressed (for pagehide/unload where async work never finishes) */
+    saveToStorageSync(slot = 'auto') {
+      try {
+        const data = game.save();
+        const json = JSON.stringify(data);
+        localStorage.setItem('hv-save:' + slot, 'RAW:' + json);
+        localStorage.setItem('hv-save-meta:' + slot, JSON.stringify({ seed: data.seed, t: data.time.t, bytes: json.length, raw: json.length }));
+        return { ok: true, slot, bytes: json.length, raw: json.length };
+      } catch (e) {
+        console.warn('[core] sync save failed: ' + (e && e.message));
+        return { ok: false, reason: String(e && e.message || e) };
+      }
+    },
     async loadFromStorage(slot = 'auto') {
       try {
         const b64 = localStorage.getItem('hv-save:' + slot);
         if (!b64) return { ok: false, reason: 'no save in slot ' + slot };
+        if (b64.startsWith('RAW:')) return game.load(JSON.parse(b64.slice(4)));
         const bin = atob(b64);
         const u8 = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);

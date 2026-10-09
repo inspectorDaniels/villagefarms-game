@@ -55,6 +55,17 @@ toasts its reason: driver seated, not on the asset register, or the asset record
 `payPerUnit`/unit + `callout`, crew jobs show their label, and a refused accept shows its reason (crew job with no hand,
 job cap reached).
 
+**Game menu (save/load).** Open it with Esc when no panel is open and build mode is off, or from its launcher button.
+It shows Autosave plus Slots 1–3, through `ctx.game.saveToStorage/loadFromStorage/slots`. Each row shows the time and
+date in game and the money at save time; ui stores these itself under `hv-ui-slot:<slot>` in localStorage. The size is
+the real gzip size. Save to a slot that already has a save asks before overwriting, Load asks for confirmation, and ✕
+deletes a slot. Autosave runs on every `clock:day` and on `visibilitychange→hidden`/`pagehide`, but not in showcases.
+Because the save is async, an autosave on a page reload or close may not finish. Errors are shown as toasts; a full
+storage quota gets a "delete another slot" hint. On `core:loaded` every HUD piece is re-read: money (no delta chip),
+clock, minimap, toolbar, characters, solvency, the prompt, registered HUD updates and the open panel.
+Machines list: one row per simulation asset. A kit that shares an `assetId` (plough + drill) is one row, named after the
+asset (e.g. "Plough & 3 m drill"), with its members listed. The sell dialog names every machine that goes with it.
+
 ## World data
 `world.ui = { speed, paused, openPanel, activeTool }` (save/load round-trips it).
 

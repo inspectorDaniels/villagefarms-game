@@ -31,7 +31,7 @@ export const manifest = {
     'formatMoney', 'setSpeed', 'getSpeed'],
   emits: ['ui:action', 'ui:panel-opened', 'ui:panel-closed', 'ui:speed-changed', 'ui:tool-selected', 'ui:character-selected'],
   listens: ['economy:transaction', 'economy:bankrupt-warning', 'jobs:offered', 'jobs:completed', 'jobs:failed', 'land:parcel-changed',
-    'env:weather-changed', 'terrain:generated', 'terrain:changed', 'roads:changed', 'clock:day', 'characters:switched'],
+    'env:weather-changed', 'terrain:generated', 'terrain:changed', 'roads:changed', 'clock:day', 'characters:switched', 'core:loaded'],
 };
 
 let INSTANCE = null; // the live instance (single #ui), used by showcase.stage
@@ -681,6 +681,7 @@ export async function init(ctx) {
       return;
     }
     if (ev.code === 'Escape' && current) { closePanel(); ev.stop = true; return; }
+    if (ev.code === 'Escape' && !(W.buildtools && W.buildtools.active) && panels.has('game')) { openPanel('game'); ev.stop = true; return; }
     for (const m of ['ControlLeft', 'ControlRight', 'AltLeft', 'AltRight', 'MetaLeft', 'MetaRight']) if (held.has(m)) return;
     const yieldKey = VEHICLE_KEYS.has(ev.code) && driving();
     if (!yieldKey) for (const p of panels.values()) if (p.hotkey && p.hotkey === ev.code) { togglePanel(p.id); ev.stop = true; return; }
@@ -765,6 +766,113 @@ export async function init(ctx) {
   on('land:parcel-changed', () => { inval(); if (current) current.sig = null; });
   on('clock:day', () => { if (current) current.sig = null; });
 
+  // ---------------------------------------------------------------- save / load (ctx.game, gzip localStorage)
+  const SAVE_SLOTS = [['auto', 'Autosave'], ['1', 'Slot 1'], ['2', 'Slot 2'], ['3', 'Slot 3']];
+  const SHOWCASE = typeof location !== 'undefined' && /[?&]showcase=/.test(location.search);
+  const metaKey = (slot) => 'hv-ui-slot:' + slot;
+  const readMeta = (slot) => { try { return JSON.parse(localStorage.getItem(metaKey(slot)) || 'null'); } catch (e) { return null; } };
+  const coreMeta = (slot) => {
+    const G = ctx.game;
+    const all = G && typeof G.slots === 'function' ? (foreign('game.slots', G.slots) || []) : [];
+    return all.find((q) => q && String(q.slot) === String(slot)) || null;
+  };
+  const slotName = (slot) => (SAVE_SLOTS.find((q) => q[0] === slot) || [slot, 'Slot ' + slot])[1];
+  const kb = (b) => (b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB');
+  const saveErr = (r) => {
+    const t = String(r || 'unknown error');
+    if (/quota|exceeded|full/i.test(t)) return 'Browser storage is full (quota exceeded). Delete another slot and try again.';
+    if (/seed/i.test(t)) return 'That save belongs to a different valley (world seed), so it can’t be loaded here.';
+    return t;
+  };
+  let saveBusy = false;
+  async function saveSlot(slot, quiet) {
+    const G = ctx.game;
+    if (!G || typeof G.saveToStorage !== 'function') { if (!quiet) toast('Saving isn’t available in this build.', { kind: 'warn' }); return false; }
+    if (saveBusy) return false;
+    saveBusy = true;
+    let r;
+    try { r = await G.saveToStorage(slot); } catch (e) { r = { ok: false, reason: e && e.message }; } finally { saveBusy = false; }
+    if (!r || !r.ok) { toast(saveErr(r && r.reason), { kind: 'error', icon: 'warn', title: `Could not save to ${slotName(slot)}` }); return false; }
+    const k = ctx.clock;
+    const meta = { t: k.t, when: `${k.format()} · ${k.dayOfMonth} ${k.monthName}, Year ${k.year}`, money: data.money(), bytes: r.bytes };
+    try { localStorage.setItem(metaKey(slot), JSON.stringify(meta)); } catch (e) { /* the save itself is in; the label is optional */ }
+    if (!quiet) toast(`<b>Game saved</b><br>${esc(slotName(slot))} · ${esc(meta.when)} · ${kb(r.bytes)}`, { kind: 'success', icon: 'check', html: true });
+    if (current && current.id === 'game') refreshPanel('game');
+    return true;
+  }
+  async function loadSlot(slot) {
+    const G = ctx.game;
+    if (!G || typeof G.loadFromStorage !== 'function') { toast('Loading isn’t available in this build.', { kind: 'warn' }); return false; }
+    let r;
+    try { r = await G.loadFromStorage(slot); } catch (e) { r = { ok: false, reason: e && e.message }; }
+    if (!r || !r.ok) { toast(saveErr(r && r.reason), { kind: 'error', icon: 'warn', title: `Could not load ${slotName(slot)}` }); return false; }
+    const m = readMeta(slot);
+    toast(`<b>Game loaded</b><br>${esc(slotName(slot))}${m && m.when ? ' · ' + esc(m.when) : ''}`, { kind: 'success', icon: 'check', html: true });
+    return true;
+  }
+  function deleteSlot(slot) {
+    try { localStorage.removeItem('hv-save:' + slot); localStorage.removeItem('hv-save-meta:' + slot); localStorage.removeItem(metaKey(slot)); } catch (e) { toast('Browser storage is unavailable.', { kind: 'warn' }); }
+    refreshPanel('game');
+  }
+  addPanel('game', {
+    title: 'Game', icon: 'settings', order: 90, subtitle: 'Save & load',
+    sig: () => SAVE_SLOTS.map(([sl]) => { const c = coreMeta(sl); return c ? sl + c.t + c.bytes : sl; }).join('|'),
+    render(elx) {
+      const ok = !!(ctx.game && typeof ctx.game.saveToStorage === 'function');
+      let h = `<p class="muted" style="margin:0 0 12px;font:italic 13px Georgia,serif">The farm is autosaved every morning and when you leave the page. Esc opens this menu.</p><div class="hv-rows">`;
+      for (const [sl, nm] of SAVE_SLOTS) {
+        const c = coreMeta(sl), m = readMeta(sl);
+        const has = !!c;
+        const info = has ? `${esc((m && m.when) || ('Day ' + Math.floor((c.t || 0) / 86400 + 1)))}${m && typeof m.money === 'number' ? ' · ' + money(m.money, { dec: 0 }) : ''} · ${kb(c.bytes || 0)}` : 'Empty';
+        h += `<div class="hv-row" data-slot="${esc(sl)}"><span class="ico">${iconSvg(sl === 'auto' ? 'clock' : 'ledger')}</span><div class="grow"><div class="ttl">${esc(nm)}</div><div class="meta">${info}</div></div>
+          <div style="display:flex;gap:5px">${sl === 'auto' ? '' : `<button class="hv-btn ${ok ? '' : 'dis'}" data-save="${esc(sl)}">Save</button>`}<button class="hv-btn pri ${has && ok ? '' : 'dis'}" data-load="${esc(sl)}">Load</button>${has && sl !== 'auto' ? `<button class="hv-btn" data-del="${esc(sl)}" title="Delete this save">${iconSvg('close')}</button>` : ''}</div></div>`;
+      }
+      h += `</div>`;
+      if (!ok) h += `<p class="muted">Saving isn’t available in this build.</p>`;
+      elx.innerHTML = h;
+      elx.querySelectorAll('[data-save]').forEach((b) => {
+        b.onclick = safe('save slot', async () => {
+          const sl = b.dataset.save;
+          if (coreMeta(sl) && !(await confirm({ title: `Overwrite ${slotName(sl)}?`, text: 'The game saved there will be replaced by the current farm.', okLabel: 'Overwrite', cancelLabel: 'Cancel', icon: 'ledger' }))) return;
+          await saveSlot(sl, false);
+        });
+      });
+      elx.querySelectorAll('[data-load]').forEach((b) => {
+        b.onclick = safe('load slot', async () => {
+          const sl = b.dataset.load;
+          if (!coreMeta(sl)) return;
+          const m = readMeta(sl);
+          if (!(await confirm({ title: `Load ${slotName(sl)}?`, text: `Progress since your last save will be lost.${m && m.when ? ' The farm goes back to ' + m.when + '.' : ''}`, okLabel: 'Load game', cancelLabel: 'Cancel', icon: 'ledger', danger: true }))) return;
+          await loadSlot(sl);
+        });
+      });
+      elx.querySelectorAll('[data-del]').forEach((b) => {
+        b.onclick = safe('delete slot', async () => {
+          const sl = b.dataset.del;
+          if (await confirm({ title: `Delete ${slotName(sl)}?`, text: 'This save is removed from the browser for good.', okLabel: 'Delete', cancelLabel: 'Keep', icon: 'warn', danger: true })) deleteSlot(sl);
+        });
+      });
+    },
+  });
+  if (!SHOWCASE) {
+    on('clock:day', () => { saveSlot('auto', true); });
+    const onHide = () => { if (document.visibilityState === 'hidden') saveSlot('auto', true); };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onHide);
+    offs.push(['__dom', () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onHide); }]);
+  }
+  // after any load: re-read every HUD element from the restored world
+  on('core:loaded', () => {
+    M.shown = null; M.target = null; M.deltaSum = 0; M.deltaT = 0;
+    const dEl = moneyEl.querySelector('.delta'); if (dEl) dEl.classList.remove('on');
+    C.sig = null; solvSig = null; night = null; promptOff = !promptOff; updatePromptVis();
+    mini.invalidate(); miniT = 1;
+    renderTools(); renderChars(); updateRates(); updateSolvency();
+    for (const h of huds.values()) if (typeof h.spec.update === 'function') foreign(`hud ${h.id} update`, h.spec.update, h.el);
+    if (current) { current.sig = null; refreshPanel(current.id); }
+    updateClock(); updateMoney(0);
+  });
+
   // ---------------------------------------------------------------- frame
   let slowT = 0, panelT = 0, hudT = 0, night = null, layoutT = 1, demoDelay = 0, demoDelta = 0;
   const onResize = () => { layoutT = 1; };
@@ -837,7 +945,7 @@ export async function init(ctx) {
     load: (d) => { if (!d) return; if (d.speed) setSpeed(d.speed); if (d.paused) setSpeed(0); if (d.activeTool) setActiveTool(d.activeTool); },
     dispose() {
       offKey && offKey();
-      for (const [t, f] of offs) ctx.events.off(t, f);
+      for (const [t, f] of offs) { if (t === '__dom') f(); else ctx.events.off(t, f); }
       window.removeEventListener('pointermove', onPointer, true);
       window.removeEventListener('pointerdown', onPointer, true);
       window.removeEventListener('resize', onResize);

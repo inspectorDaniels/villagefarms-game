@@ -177,7 +177,7 @@ export function builtinPanels(K) {
         for (const mc of machines) {
           const leased = mc.mode === 'leased' || mc.mode === 'lease';
           h += `<div class="hv-row"><span class="ico">${icon('tractor')}</span><div class="grow"><div class="ttl">${esc(mc.name)}</div>
-            <div class="meta">${mc.asset ? (leased ? 'Leased' : 'Owned · worth about ' + money(mc.value || 0, { dec: 0 })) : mc.assetId ? 'Missing from the farm’s books' : 'Farm runabout'}</div></div>
+            <div class="meta">${mc.members.length > 1 ? esc(mc.members.join(' + ')) + ' · ' : ''}${mc.asset ? (leased ? 'Leased' : 'Owned · worth about ' + money(mc.value || 0, { dec: 0 })) : mc.assetId ? 'Missing from the farm’s books' : 'Farm runabout'}</div></div>
             ${mc.assetId ? `<button class="hv-btn" data-sellm="${esc(mc.id)}">${leased ? 'Hand back' : 'Sell'}</button>` : '<span class="chip" title="Not a farm asset: it came with the farm and cannot be traded">Not for sale</span>'}</div>`;
         }
         h += `</div>`;
@@ -189,7 +189,7 @@ export function builtinPanels(K) {
           if (!mc) return;
           const pre = data.sellRefusal(mc.id);
           if (pre) { K.toast(pre, { kind: 'warn', icon: 'tractor', title: `Can't sell ${mc.name}` }); return; }
-          const ok = await K.confirm({ title: `Sell ${mc.name}?`, text: mc.mode === 'owned' ? `The dealer offers about ${money(mc.value || 0, { dec: 0 })}. Any loan on it is repaid from the proceeds, and attached kit of the same purchase goes with it.` : 'The machine goes back to the leasing company.', okLabel: 'Sell', cancelLabel: 'Keep it', icon: 'coin', danger: true });
+          const ok = await K.confirm({ title: `Sell ${mc.name}?`, text: (mc.members.length > 1 ? `These were bought together and go as one: ${mc.members.join(', ')}. ` : '') + (mc.mode === 'owned' ? `The dealer offers about ${money(mc.value || 0, { dec: 0 })}. Any loan on it is repaid from the proceeds.` : `${mc.members.length > 1 ? 'They go' : 'It goes'} back to the leasing company.`), okLabel: 'Sell', cancelLabel: 'Keep it', icon: 'coin', danger: true });
           if (!ok) return;
           const r = data.sellMachine(mc.id);
           if (r.ok) K.toast(`<b>Sold ${esc(mc.name)}</b><br>${money(r.value || 0, { sign: true, dec: 0 })}`, { kind: 'money', icon: 'coin', html: true });

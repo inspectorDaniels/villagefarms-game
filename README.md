@@ -47,8 +47,7 @@ Work in progress (see `docs/STATUS.json` for scores and open issues). The full g
 your small farmyard with an old tractor, plough, trailer and pickup, one rented field, a village with
 a grain co-op, dairy, shop and dealer, and neighbour farms. Not built yet: hedges/trees (props),
 animals and road traffic. Visual polish is deliberately deferred; mechanics come first.
-Saving: from the browser console, `await __GAME__.game.saveToStorage('slot1')` /
-`await __GAME__.game.loadFromStorage('slot1')` (a Save/Load menu is still to come).
+Saving: Esc (or the Game button) opens the Save/Load menu — 3 slots plus a daily autosave.
 
 ## Developer tools
 

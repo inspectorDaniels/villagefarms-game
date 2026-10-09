@@ -333,16 +333,23 @@ export function createData(ctx) {
       const veh = ctx.modules.get('vehicles'), s = sim();
       if (!veh || !fn(veh, 'list')) return [];
       const assets = s && fn(s, 'assets') ? arr(s.assets()) : [];
-      const seen = new Set(), out = [];
+      // one row per simulation asset: a kit (e.g. plough + drill bought together) shares one assetId and is sold as one
+      const byKey = new Map(), out = [];
       for (const v of arr(veh.list())) {
         if (!v || v.owner === 'npc') continue;
-        const key = v.assetId || v.id;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const a = v.assetId ? assets.find((q) => q.id === v.assetId) : null;
         if (!v.assetId && v.owner !== 'owned' && v.owner !== 'leased') continue;
-        out.push({ id: v.id, name: v.name || v.type, type: v.type, assetId: v.assetId || null, asset: a || null, mode: a ? a.mode : (v.owner || null), value: a ? a.value : null, driverId: v.driverId || null });
+        const key = v.assetId || v.id;
+        let row = byKey.get(key);
+        if (!row) {
+          const a = v.assetId ? assets.find((q) => q.id === v.assetId) : null;
+          row = { id: v.id, ids: [], members: [], type: v.type, assetId: v.assetId || null, asset: a || null, assetName: a && a.name, mode: a ? a.mode : (v.owner || null), value: a ? a.value : null, driverId: null };
+          byKey.set(key, row); out.push(row);
+        }
+        row.ids.push(v.id);
+        row.members.push(v.name || v.type);
+        if (v.driverId) row.driverId = v.driverId;
       }
+      for (const r of out) r.name = r.members.length > 1 ? (r.assetName || r.members.join(' & ')) : r.members[0];
       return out;
     },
     /** why vehicles.sell(id) would refuse, mirroring its checks (it only returns false) */
@@ -353,7 +360,9 @@ export function createData(ctx) {
       if (!v) return 'That machine is gone.';
       const nm = v.name || v.type || 'This machine';
       if (!v.assetId) return `${nm} isn’t on the farm’s asset register, so the dealer won’t take it.`;
-      if (v.driverId) return `Someone is sitting in the ${nm}. Get out first.`;
+      const kit = fn(veh, 'list') ? arr(veh.list()).filter((q) => q && q.assetId === v.assetId) : [v];
+      const seated = kit.find((q) => q.driverId);
+      if (seated) return `Someone is sitting in the ${seated.name || seated.type || nm}. Get out first.`;
       if (!s || !fn(s, 'releaseAsset')) return 'No dealer is open to buy machines.';
       if (fn(s, 'assets') && !arr(s.assets()).some((a) => a.id === v.assetId)) return `${nm} has no papers in the farm’s books (its asset record is missing), so it can’t be sold.`;
       return null;

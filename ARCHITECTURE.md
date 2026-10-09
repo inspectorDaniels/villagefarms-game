@@ -120,7 +120,7 @@ export const showcase = {
 | `ctx.log/warn/error` | scoped logging (`error` counts against module health) |
 | `ctx.params` | URL parameters (read-only) |
 | `ctx.uiRoot` | the `#ui` DOM element (the `ui` module owns it; others use the ui API) |
-| `ctx.game` | whole-game persistence: `save()` → `{version, seed, time, modules:{id: inst.save()}}`, `load(data)` (calls each `inst.load` in init order, emits `core:loaded`), `saveToStorage(slot)` / `loadFromStorage(slot)` (gzip+base64 in localStorage, async), `slots()` |
+| `ctx.game` | whole-game persistence: `save()` → `{version, seed, time, modules:{id: inst.save()}}`, `load(data)` (calls each `inst.load` in init order, emits `core:loaded`), `saveToStorage(slot)` / `loadFromStorage(slot)` (gzip+base64 in localStorage, async), `saveToStorageSync(slot)` (uncompressed, for pagehide/unload; load handles both), `slots()` |
 
 ### Isolation (one broken module never takes the game down)
 
