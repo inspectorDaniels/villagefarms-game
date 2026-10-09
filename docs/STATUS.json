@@ -116,7 +116,9 @@
           "review": "docs/reviews/simulation-r5.md"
         }
       ],
-      "openIssues": [],
+      "openIssues": [
+        "small jobs mostly arrive with 1 day left (5/6) \u2014 give player-sized jobs 2-4 day deadlines"
+      ],
       "note": "passed r5 7/10; should-fixes done: consumables seized, job handed back (jobs:reassigned), per-factor rule, day-60 settlement + countdown, removeSellPoint; 31/31 probes | buildings book (capital, 40% collateral, 2%/yr), releaseAsset writeOff; 33/33 probes, progression unchanged | quoteParcel (shared code path with buyParcel), inputs charged on sowing incl. contractor sowing (bookings exclude inputs); 35/35 | r6: kit-filtered player jobs, haul/deliver crew-only, grouped seed ledger rows, payPerUnit+callout, --start=demo harness (y1 cash solo \u20ac23k / with hand \u20ac31k from \u20ac17.7k); 37/37 | contractor quote/booking lead time unified; --start=demo r3: y1 misses r6 (solo \u20ac16k, hand \u20ac24k) -> Revision r7 | r7: grantAsset ageYears + value-based upkeep, guaranteed first job (8/8 seeds); y1 from demo start: solo \u20ac19.7k (+\u20ac2k target met), hand \u20ac28.2k (median met), hand+2nd field 8/8; 40/40 probes"
     },
     "ui": {
@@ -138,7 +140,8 @@
         "**An invisible dead zone above the toolbar eats world clicks.** The `ui:toolbar` HUD node is `hv-hit`, 348\u00d791 px, and includes the tool-name row plus the gap. Probes at (746,807) and (631,800), on transparent pixels beside the \"Hoe\" chip, returned `uiCapturing=true` and the canvas never received the click. Give the bare wrappers (`card:false` HUDs, `toolsWrap`) `pointer-events:none` and only mark the visible card, chip and prompt as `.hv-hit`.",
         "**Declare the optional dependencies.** `manifest.optionalDeps: []`, but the module reads `simulation`, `environment` (via world), `terrain` and `roads` through `ctx.modules.get`. The brief lists them as the data sources and ARCHITECTURE \u00a71 expects them in the manifest (boot also uses optionalDeps for init order). Set `optionalDeps: ['simulation','environment','terrain','roads']`. This is harmless to wave-1 isolation because they stay optional.",
         "simulation.acceptJob should return a refusal reason (ui infers it for now)",
-        "selling one implement of a kit (plough+drill share simulation:asset:6) should explain 'sold as a kit' (vehicles/ui reason)"
+        "selling one implement of a kit (plough+drill share simulation:asset:6) should explain 'sold as a kit' (vehicles/ui reason)",
+        "kit sale: name the drill in the plough's sell dialog; list kit members in Machines"
       ],
       "note": "passed r1 (7/10); polish round applied all must/should-fix; not re-reviewed | follow-ups: vehicle-key suppression, hand day-cost toast/tag, solvency card + countdown, toast dedup | job pay breakdown, crew-job label + refusal toast, balance card z-order, prompt hidden when active character off-screen | Land panel: To-let parcels + Rent/End lease with real lease terms; Machines list with Sell/Hand back + refusal reasons"
     },
@@ -275,7 +278,9 @@
           "review": "docs/reviews/vehicles-r2.md"
         }
       ],
-      "openIssues": [],
+      "openIssues": [
+        "hitching aid: hint to face away/reverse, arrow to hitch point"
+      ],
       "note": "passed r2 7/10; follow-ups: removeFuelPoint, bit-exact save/load replay (ctlStep saved), despawn frees collider immediately; 37/37 + 13/13 | forgiving hitch (4.5 m, \u00b160\u00b0, snap, collision-checked), hitchCandidate() + prompt; 39/39 + 14/14"
     },
     "characters": {
@@ -350,9 +355,9 @@
     },
     "demo": {
       "wave": 3,
-      "status": "failing",
-      "score": 6,
-      "pass": false,
+      "status": "passing",
+      "score": 7,
+      "pass": true,
       "rounds": [
         {
           "round": 1,
@@ -365,12 +370,19 @@
           "score": 6,
           "pass": false,
           "review": "docs/reviews/demo-r2.md"
+        },
+        {
+          "round": 3,
+          "score": 7,
+          "pass": true,
+          "review": "docs/reviews/demo-r3.md"
         }
       ],
       "openIssues": [
-        "should: 90% needs headlands (8 passes=84%), day-1 wear 56%/repair \u20ac1.7k, drill hitch window 2.6 m, 0.82 ha plough marked crew-only, selling drill fails silently, overview 27/70 ms (terrain 14, roads 6.5)"
+        "should: field-ends tip",
+        "overview perf 26.7/67 ms (terrain 13.9, roads 6.8)"
       ],
-      "note": "r2+r3+r7: 0.25 ha first field (plough ~10.9 min / sow ~10.3 min scripted, est. 8-9 min each by hand), 40-yr buildings (workaround until buildings passes ageYears), first-job hint, opening at 22 px/m | r2 critic: all 5 r1 must-fixes fixed; first hour all 8 objectives ~35-40 min; play 9.9 ms, village 13 ms"
+      "note": "r2+r3+r7: 0.25 ha first field (plough ~10.9 min / sow ~10.3 min scripted, est. 8-9 min each by hand), 40-yr buildings (workaround until buildings passes ageYears), first-job hint, opening at 22 px/m | r2 critic: all 5 r1 must-fixes fixed; first hour all 8 objectives ~35-40 min; play 9.9 ms, village 13 ms | r3 PASS: first hour (8 objectives) ~29 min with real keys, 0 errors, boot 3.6-3.9 s"
     }
   },
   "game": {
@@ -425,14 +437,12 @@
     }
   ],
   "resume": [
-    "0. Read docs/ONBOARDING.md (agents: also CLAUDE.md)",
-    "1. npm run serve (port 5173); node tools/status.js for the queue",
-    "2. Priority: mechanics/gameplay (see 'priority')",
-    "3. Finish simulation r2 + critic; characters build + critic; register characters in registry",
-    "4. Wave 2 gameplay modules: crops, vehicles, buildings, buildtools, animals, then traffic/props",
-    "5. Wave 3 demo: playable loop (farm, jobs, land, vehicles) + whole-game critic",
-    "6. Deferred visual work: environment/effects/terrain/roads art must-fixes, audio perf",
-    "7. Max 3 concurrent agents (user directive 2026-09-28, token spend)"
+    "0. Read docs/ONBOARDING.md",
+    "1. npm run serve; node tools/status.js",
+    "2. Next stage: full-season gameplay loop (sow -> grow -> harvest -> store -> sell -> next season), Save/Load menu, hands doing field work, NPC farms working fields",
+    "3. Should-fix backlog in STATUS openIssues",
+    "4. Deferred: art pass, effects/audio critics, props, animals, traffic",
+    "5. Max 3 concurrent agents"
   ],
   "priority": "2026-09-27 user directive: mechanics & gameplay first; visual polish deferred to a later art pass. Critics weight functional correctness (contract, gameplay loop, determinism, errors, perf); cosmetic findings go to 'Should fix' and do not block a pass unless they break gameplay readability. Plan: finish sim/characters, then wave-2 gameplay modules (crops, vehicles, buildings, buildtools, animals, traffic, props) with functional placeholder-quality painted art, then demo game loop. | 2026-10-02 user directive: traffic and animals deferred; focus on crops and the core gameplay loop (farm work, jobs, economy, progression)."
 }
