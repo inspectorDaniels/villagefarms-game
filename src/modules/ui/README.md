@@ -59,8 +59,10 @@ job cap reached).
 It shows Autosave plus Slots 1–3, through `ctx.game.saveToStorage/loadFromStorage/slots`. Each row shows the time and
 date in game and the money at save time; ui stores these itself under `hv-ui-slot:<slot>` in localStorage. The size is
 the real gzip size. Save to a slot that already has a save asks before overwriting, Load asks for confirmation, and ✕
-deletes a slot. Autosave runs on every `clock:day` and on `visibilitychange→hidden`/`pagehide`, but not in showcases.
-Because the save is async, an autosave on a page reload or close may not finish. Errors are shown as toasts; a full
+deletes a slot. Autosave runs on every `clock:day` (async gzip), and on `visibilitychange→hidden`/`pagehide`/`beforeunload` through
+the synchronous raw-JSON `ctx.game.saveToStorageSync('auto')` (about 0.9 MB), so a reload or close leaves a loadable
+autosave. Not in showcases. With more than 6 panels, inactive panel tabs show only their icon, with the title and
+hotkey as a tooltip. Errors are shown as toasts; a full
 storage quota gets a "delete another slot" hint. On `core:loaded` every HUD piece is re-read: money (no delta chip),
 clock, minimap, toolbar, characters, solvency, the prompt, registered HUD updates and the open panel.
 Machines list: one row per simulation asset. A kit that shares an `assetId` (plough + drill) is one row, named after the

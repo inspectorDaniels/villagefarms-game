@@ -233,6 +233,8 @@ export function buildCss(P, tex) {
   background-color: var(--paper2); background-image: var(--tex); background-blend-mode: multiply; border: 1px solid var(--border); border-bottom: 0; border-radius: 7px 7px 0 0;
   box-shadow: inset 0 1px 0 rgba(255,250,236,.6), 0 -1px 4px rgba(40,26,10,.12); transform: translateY(3px); transition: transform .12s; }
 .hv-ui .hv-tabs button .hv-ic { width: 16px; height: 16px; }
+.hv-ui .hv-tabs button { white-space: nowrap; }
+.hv-ui .hv-tabs button.ic { padding-left: 10px; padding-right: 10px; }
 .hv-ui .hv-tabs button:hover { transform: translateY(1px); color: var(--ink); }
 .hv-ui .hv-tabs button.on { background-color: var(--paper); color: var(--ink); font-weight: 600; transform: none; padding-bottom: 9px; }
 .hv-ui .hv-panel { pointer-events: auto; display: flex; flex-direction: column; max-height: var(--hv-pmax, calc(100vh - 118px - 170px)); }

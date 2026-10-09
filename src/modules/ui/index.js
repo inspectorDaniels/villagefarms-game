@@ -285,7 +285,10 @@ export async function init(ctx) {
     const tabs = el('div', 'hv-tabs hv-hit');
     const list = [...panels.values()].filter((p) => p.launcher !== false).sort((a, b) => (a.order || 50) - (b.order || 50));
     for (const p of list) {
-      const b = el('button', p.id === spec.id ? 'on' : '', `${iconSvg(p.icon || 'ledger')}${esc(p.title || p.id)}`);
+      // many panels: inactive tabs collapse to icons (title + hotkey in the tooltip) so the row never wraps
+      const compact = list.length > 6 && p.id !== spec.id;
+      const b = el('button', (p.id === spec.id ? 'on' : '') + (compact ? ' ic' : ''), `${iconSvg(p.icon || 'ledger')}${compact ? '' : `<span>${esc(p.title || p.id)}</span>`}`);
+      b.title = (p.title || p.id) + (p.hotkey ? ` (${keyLabel(p.hotkey)})` : '');
       b.onclick = safe('tab click', () => openPanel(p.id));
       tabs.appendChild(b);
     }
@@ -856,10 +859,23 @@ export async function init(ctx) {
   });
   if (!SHOWCASE) {
     on('clock:day', () => { saveSlot('auto', true); });
-    const onHide = () => { if (document.visibilityState === 'hidden') saveSlot('auto', true); };
-    document.addEventListener('visibilitychange', onHide);
-    window.addEventListener('pagehide', onHide);
-    offs.push(['__dom', () => { document.removeEventListener('visibilitychange', onHide); window.removeEventListener('pagehide', onHide); }]);
+    // leaving the page: the async gzip save can't finish before unload, so use core's synchronous (raw JSON) save
+    let lastSync = -1;
+    const syncSave = () => {
+      const G = ctx.game;
+      if (!G || typeof G.saveToStorageSync !== 'function') { saveSlot('auto', true); return; }
+      const k = ctx.clock;
+      if (k.t === lastSync) return; // pagehide + beforeunload + visibilitychange fire together
+      lastSync = k.t;
+      const r = foreign('game.saveToStorageSync', G.saveToStorageSync, 'auto');
+      if (!r || !r.ok) return;
+      try { localStorage.setItem(metaKey('auto'), JSON.stringify({ t: k.t, when: `${k.format()} · ${k.dayOfMonth} ${k.monthName}, Year ${k.year}`, money: data.money(), bytes: r.bytes })); } catch (e) { /* label optional */ }
+    };
+    const onVis = () => { if (document.visibilityState === 'hidden') syncSave(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pagehide', syncSave);
+    window.addEventListener('beforeunload', syncSave);
+    offs.push(['__dom', () => { document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pagehide', syncSave); window.removeEventListener('beforeunload', syncSave); }]);
   }
   // after any load: re-read every HUD element from the restored world
   on('core:loaded', () => {
