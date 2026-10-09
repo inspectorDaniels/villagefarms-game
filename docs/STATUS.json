@@ -443,10 +443,28 @@
   "resume": [
     "0. Read docs/ONBOARDING.md",
     "1. npm run serve; node tools/status.js",
-    "2. Next stage: full-season gameplay loop (sow -> grow -> harvest -> store -> sell -> next season), Save/Load menu, hands doing field work, NPC farms working fields",
+    "2. Season loop: docs/briefs/season-loop.md batch 1 then batch 2 (see STATUS.seasonLoop)",
     "3. Should-fix backlog in STATUS openIssues",
     "4. Deferred: art pass, effects/audio critics, props, animals, traffic",
     "5. Max 3 concurrent agents"
   ],
-  "priority": "2026-09-27 user directive: mechanics & gameplay first; visual polish deferred to a later art pass. Critics weight functional correctness (contract, gameplay loop, determinism, errors, perf); cosmetic findings go to 'Should fix' and do not block a pass unless they break gameplay readability. Plan: finish sim/characters, then wave-2 gameplay modules (crops, vehicles, buildings, buildtools, animals, traffic, props) with functional placeholder-quality painted art, then demo game loop. | 2026-10-02 user directive: traffic and animals deferred; focus on crops and the core gameplay loop (farm work, jobs, economy, progression)."
+  "priority": "2026-09-27 user directive: mechanics & gameplay first; visual polish deferred to a later art pass. Critics weight functional correctness (contract, gameplay loop, determinism, errors, perf); cosmetic findings go to 'Should fix' and do not block a pass unless they break gameplay readability. Plan: finish sim/characters, then wave-2 gameplay modules (crops, vehicles, buildings, buildtools, animals, traffic, props) with functional placeholder-quality painted art, then demo game loop. | 2026-10-02 user directive: traffic and animals deferred; focus on crops and the core gameplay loop (farm work, jobs, economy, progression).",
+  "seasonLoop": {
+    "review": "docs/reviews/season-loop-r1.md",
+    "brief": "docs/briefs/season-loop.md",
+    "batch1": [
+      "S1 machine shop (ui)",
+      "S2 hands on own fields (simulation)",
+      "S3 crop calendar/yield (crops)",
+      "S4 season sanity + deadlines (simulation)",
+      "S5 NPC field lifecycle (crops)"
+    ],
+    "batch2": [
+      "S6 notices (ui/demo)",
+      "S7 trailer->co-op (buildings)",
+      "S8 goals (demo)",
+      "S9 economy replay (simulation)",
+      "S10 hands visible (characters)"
+    ]
+  }
 }
